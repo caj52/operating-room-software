@@ -267,7 +267,7 @@ VideoPlayer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 851485036}
   m_Enabled: 1
-  m_VideoClip: {fileID: 32900000, guid: e3123ba002d654640ba2c8252c7d9416, type: 3}
+  m_VideoClip: {fileID: 32900000, guid: 7fbdb3bea6c825c42830614d06f197cc, type: 3}
   m_TargetCameraAlpha: 1
   m_TargetCamera3DLayout: 0
   m_TargetCamera: {fileID: 154959291}
@@ -284,7 +284,7 @@ VideoPlayer:
   - {fileID: 0}
   m_DirectAudioVolumes:
   - 1
-  m_Url: 
+  m_Url: file://C:/Projects/operating-room-software/Assets/StreamingAssets/Iu(1).mp4
   m_EnabledAudioTracks: 01
   m_DirectAudioMutes: 01
   m_ControlledAudioTrackCount: 1
