@@ -1,7 +1,0 @@
-<linker>
-    <assembly fullname="System" preserve="all"/>
-    <assembly fullname="Google.Protobuf" preserve="all"/>
-    <assembly fullname="PulseCSharp" preserve="all"/>
-    <assembly fullname="Pulse.Unity.*" preserve="all"/>
-    <assembly fullname="PulseC" preserve="all"/>
-</linker>
