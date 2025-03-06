@@ -1,0 +1,91 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1001 &1795466311762914888
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    m_TransformParent: {fileID: 0}
+    m_Modifications:
+    - target: {fileID: 1649016899650901496, guid: 1c0450c034b831946a1904bd961b299e, type: 3}
+      propertyPath: m_RootOrder
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1649016899650901496, guid: 1c0450c034b831946a1904bd961b299e, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1649016899650901496, guid: 1c0450c034b831946a1904bd961b299e, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1649016899650901496, guid: 1c0450c034b831946a1904bd961b299e, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1649016899650901496, guid: 1c0450c034b831946a1904bd961b299e, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 1649016899650901496, guid: 1c0450c034b831946a1904bd961b299e, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1649016899650901496, guid: 1c0450c034b831946a1904bd961b299e, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1649016899650901496, guid: 1c0450c034b831946a1904bd961b299e, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1649016899650901496, guid: 1c0450c034b831946a1904bd961b299e, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1649016899650901496, guid: 1c0450c034b831946a1904bd961b299e, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1649016899650901496, guid: 1c0450c034b831946a1904bd961b299e, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 3418681061359784512, guid: 1c0450c034b831946a1904bd961b299e, type: 3}
+      propertyPath: <GUID>k__BackingField
+      value: gameobject_7e3bd2122846d08458a4c167150e11ad
+      objectReference: {fileID: 0}
+    - target: {fileID: 3418681061359784512, guid: 1c0450c034b831946a1904bd961b299e, type: 3}
+      propertyPath: <SpecialTypes>k__BackingField.Array.size
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 3418681061359784512, guid: 1c0450c034b831946a1904bd961b299e, type: 3}
+      propertyPath: <WallRestrictions>k__BackingField.Array.size
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 3418681061359784512, guid: 1c0450c034b831946a1904bd961b299e, type: 3}
+      propertyPath: <MetaData>k__BackingField.<Name>k__BackingField
+      value: Gas Outlet (Vacuum Suction)
+      objectReference: {fileID: 0}
+    - target: {fileID: 3418681061359784512, guid: 1c0450c034b831946a1904bd961b299e, type: 3}
+      propertyPath: <WallRestrictions>k__BackingField.Array.data[4]
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 3418681061359784512, guid: 1c0450c034b831946a1904bd961b299e, type: 3}
+      propertyPath: <MetaData>k__BackingField.<Enabled>k__BackingField
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 3418681061359784512, guid: 1c0450c034b831946a1904bd961b299e, type: 3}
+      propertyPath: <MetaData>k__BackingField.<Categories>k__BackingField.Array.size
+      value: 2
+      objectReference: {fileID: 0}
+    - target: {fileID: 3418681061359784512, guid: 1c0450c034b831946a1904bd961b299e, type: 3}
+      propertyPath: <MetaData>k__BackingField.<Categories>k__BackingField.Array.data[1]
+      value: Boom Head Low Voltage
+      objectReference: {fileID: 0}
+    - target: {fileID: 8703091515617384935, guid: 1c0450c034b831946a1904bd961b299e, type: 3}
+      propertyPath: m_Name
+      value: GasOutlet_Variant_VacuumSuction
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: 1c0450c034b831946a1904bd961b299e, type: 3}
