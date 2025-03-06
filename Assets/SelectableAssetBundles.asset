@@ -1,0 +1,2687 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 634b5ee963570ec46a9ab76741aad47e, type: 3}
+  m_Name: SelectableAssetBundles
+  m_EditorClassIdentifier: 
+  <RelativePaths>k__BackingField: []
+  _selectableData:
+  - <PrefabName>k__BackingField: 1000SH_XXL_BoomArm _2
+    <SaveLoadGuid>k__BackingField: gameobject_e3e3a1e5fa4b99746b87c07a4b354023
+    <AssetBundleName>k__BackingField: gameobject_e3e3a1e5fa4b99746b87c07a4b354023
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: 1000SH_XXL_BoomArm _2
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: 6f540a9b-0154-42a9-93ec-3b6d91df2de5
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 6f540a9b-0154-42a9-93ec-3b6d91df2de5
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+  - <PrefabName>k__BackingField: 1000SH_XXL_BoomArm_1
+    <SaveLoadGuid>k__BackingField: gameobject_516b2fd2a2c3df54a82980b5c6eccd92
+    <AssetBundleName>k__BackingField: gameobject_516b2fd2a2c3df54a82980b5c6eccd92
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: 1000SH_XXL_BoomArm_1
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: 80e68436-5313-4476-bcfc-03d1ba671a0e
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 80e68436-5313-4476-bcfc-03d1ba671a0e
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+  - <PrefabName>k__BackingField: 1000SH_XXL_SpringBottom _3
+    <SaveLoadGuid>k__BackingField: gameobject_a0e0174daef6ca044b29c0ec45861b42
+    <AssetBundleName>k__BackingField: gameobject_a0e0174daef6ca044b29c0ec45861b42
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: 1000SH_XXL_SpringBottom _3
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: 8d8264e8-f93e-4ee1-b57f-959819532628
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 8d8264e8-f93e-4ee1-b57f-959819532628
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+  - <PrefabName>k__BackingField: Ambition 1.5
+    <SaveLoadGuid>k__BackingField: gameobject_788b398a4c5301046bf538ce6a12f4b9
+    <AssetBundleName>k__BackingField: gameobject_788b398a4c5301046bf538ce6a12f4b9
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Ambition 1.5
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: ArmDropTube
+    <SaveLoadGuid>k__BackingField: gameobject_8d1c540de7b95ef45bd0a0379fd6550c
+    <AssetBundleName>k__BackingField: gameobject_8d1c540de7b95ef45bd0a0379fd6550c
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: ArmDropTube
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: 804d6814-059d-43c6-86d0-43a81ae4ef65
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 804d6814-059d-43c6-86d0-43a81ae4ef65
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+  - <PrefabName>k__BackingField: ArmLightMount
+    <SaveLoadGuid>k__BackingField: gameobject_ebe209fad8b3c7b41b4aab780f8a96dd
+    <AssetBundleName>k__BackingField: gameobject_ebe209fad8b3c7b41b4aab780f8a96dd
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: ArmLightMount
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: ArmMonitorMount
+    <SaveLoadGuid>k__BackingField: gameobject_3088a94855e29094180835380d0b93b6
+    <AssetBundleName>k__BackingField: gameobject_3088a94855e29094180835380d0b93b6
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: ArmMonitorMount
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: ArmSegment_1
+    <SaveLoadGuid>k__BackingField: gameobject_d5dacc51c29d78143b1fe2a7553376e1
+    <AssetBundleName>k__BackingField: gameobject_d5dacc51c29d78143b1fe2a7553376e1
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: ArmSegment_1
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: 025ed23b-72e8-44c1-85c7-2af0bf63426c
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 025ed23b-72e8-44c1-85c7-2af0bf63426c
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 69729c6f-9dc5-4a50-8c91-9146765de849
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 69729c6f-9dc5-4a50-8c91-9146765de849
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+  - <PrefabName>k__BackingField: ArmSegment_1_Cardanic
+    <SaveLoadGuid>k__BackingField: gameobject_7d2dca5fe2bd0304c97016a775a10cee
+    <AssetBundleName>k__BackingField: gameobject_7d2dca5fe2bd0304c97016a775a10cee
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: ArmSegment_1_Cardanic
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: 0280c679-51e0-4eaa-9337-936dc4fbabb5
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 0280c679-51e0-4eaa-9337-936dc4fbabb5
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+  - <PrefabName>k__BackingField: ArmSegment_2
+    <SaveLoadGuid>k__BackingField: gameobject_5bb6da0aca83dfc458175dadb423b2db
+    <AssetBundleName>k__BackingField: gameobject_5bb6da0aca83dfc458175dadb423b2db
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: ArmSegment_2
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: 77a7cb7c-dae8-4c6d-af2d-74ca55d42d99
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 77a7cb7c-dae8-4c6d-af2d-74ca55d42d99
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+  - <PrefabName>k__BackingField: AV_ServerRackWall
+    <SaveLoadGuid>k__BackingField: gameobject_389c490e5e3599d47b3a804c827cf38d
+    <AssetBundleName>k__BackingField: gameobject_389c490e5e3599d47b3a804c827cf38d
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Server Rack
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: Azurion 7B2015 Biplane
+    <SaveLoadGuid>k__BackingField: gameobject_928df500ee59a63419972cb6a6d5bb88
+    <AssetBundleName>k__BackingField: gameobject_928df500ee59a63419972cb6a6d5bb88
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Azurion 7B2015 Biplane
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: Azurion 7C20 FlexArm
+    <SaveLoadGuid>k__BackingField: gameobject_0bc936273bfde614bb55fca0304c1432
+    <AssetBundleName>k__BackingField: gameobject_0bc936273bfde614bb55fca0304c1432
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Azurion 7C20 FlexArm
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: BoomDropTube
+    <SaveLoadGuid>k__BackingField: gameobject_8a9d70475b8764042ac5cbac8ec9360d
+    <AssetBundleName>k__BackingField: gameobject_8a9d70475b8764042ac5cbac8ec9360d
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: BoomDropTube
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: 0c9d363b-25d9-457f-a539-4d8ad0833aff
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 0c9d363b-25d9-457f-a539-4d8ad0833aff
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+  - <PrefabName>k__BackingField: BoomHeadAttachment_HighVoltage
+    <SaveLoadGuid>k__BackingField: gameobject_e14354f76b9c38e448fd7c8fe7f2e526
+    <AssetBundleName>k__BackingField: gameobject_e14354f76b9c38e448fd7c8fe7f2e526
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: SHP_HV_Outlets
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: dd81dd20-4f3c-4acc-a995-7aa3102cf36b
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: dd81dd20-4f3c-4acc-a995-7aa3102cf36b
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 7818968d-a479-471b-ad65-70c1f7842a71
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 7818968d-a479-471b-ad65-70c1f7842a71
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: a01628c2-d939-412c-b812-7de44d585760
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: a01628c2-d939-412c-b812-7de44d585760
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+  - <PrefabName>k__BackingField: BoomHeadAttachment_LowVoltage
+    <SaveLoadGuid>k__BackingField: gameobject_5d18bbab28e9d3346bb992c27d307a92
+    <AssetBundleName>k__BackingField: gameobject_5d18bbab28e9d3346bb992c27d307a92
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: SHP_LV_Knob2
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: 3b94a2d5-cae6-4158-b7e7-89b3f141d60a
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 3b94a2d5-cae6-4158-b7e7-89b3f141d60a
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: b810bc09-0bde-4059-8290-56748aa0d929
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: b810bc09-0bde-4059-8290-56748aa0d929
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+  - <PrefabName>k__BackingField: BoomSegment_1
+    <SaveLoadGuid>k__BackingField: gameobject_489bf8b9c4f4e1d46b78a9534b9c434e
+    <AssetBundleName>k__BackingField: gameobject_489bf8b9c4f4e1d46b78a9534b9c434e
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: BoomSegment_1
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: b2946e12-79f0-4d62-8fa5-6750124158d6
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: b2946e12-79f0-4d62-8fa5-6750124158d6
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+  - <PrefabName>k__BackingField: BoomSegment_2
+    <SaveLoadGuid>k__BackingField: gameobject_16a9b6546d2960f48beb4a95fe98b7f0
+    <AssetBundleName>k__BackingField: gameobject_16a9b6546d2960f48beb4a95fe98b7f0
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: BoomSegment_2
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: 5f01d2e8-a52b-4a31-bdf6-fc28567dcbfc
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 5f01d2e8-a52b-4a31-bdf6-fc28567dcbfc
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+  - <PrefabName>k__BackingField: BoomSegment_3
+    <SaveLoadGuid>k__BackingField: gameobject_6935fe97e09de22468b27e8fe6ba08a1
+    <AssetBundleName>k__BackingField: gameobject_6935fe97e09de22468b27e8fe6ba08a1
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: BoomSegment_3
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: 6ccd3fd7-91db-454b-8212-46d4814af301
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 6ccd3fd7-91db-454b-8212-46d4814af301
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+  - <PrefabName>k__BackingField: BoxOfGloves
+    <SaveLoadGuid>k__BackingField: gameobject_b402b7c35d9a34c4f91e8bbba9d7cd45
+    <AssetBundleName>k__BackingField: gameobject_b402b7c35d9a34c4f91e8bbba9d7cd45
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: BoxOfGloves
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: CArmMonitor
+    <SaveLoadGuid>k__BackingField: gameobject_6839eba8a5392a547a39c06e4472bd97
+    <AssetBundleName>k__BackingField: gameobject_6839eba8a5392a547a39c06e4472bd97
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: CArmMonitor
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: CArmRobot
+    <SaveLoadGuid>k__BackingField: gameobject_063ec944f6e103242a814ac7f1ab231f
+    <AssetBundleName>k__BackingField: gameobject_063ec944f6e103242a814ac7f1ab231f
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: CArmRobot
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: CartWithElectronics
+    <SaveLoadGuid>k__BackingField: gameobject_f715a7888caee88438155507eb21792a
+    <AssetBundleName>k__BackingField: gameobject_f715a7888caee88438155507eb21792a
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: CartWithElectronics
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: CeilingAirSupplyDiffuser
+    <SaveLoadGuid>k__BackingField: gameobject_e097a80c307555a468cf6195cebf5537
+    <AssetBundleName>k__BackingField: gameobject_e097a80c307555a468cf6195cebf5537
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: CeilingAirSupplyDiffuser
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: CeilingCamera
+    <SaveLoadGuid>k__BackingField: gameobject_35143732a7a35184980e78446a7f684b
+    <AssetBundleName>k__BackingField: gameobject_35143732a7a35184980e78446a7f684b
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: CeilingCamera
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: CeilingFireAlarm
+    <SaveLoadGuid>k__BackingField: gameobject_d850b1e94616db74da4d31fb3f83129a
+    <AssetBundleName>k__BackingField: gameobject_d850b1e94616db74da4d31fb3f83129a
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: CeilingFireAlarm
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: CeilingHatch 18x18
+    <SaveLoadGuid>k__BackingField: gameobject_f287ae6ccc4ab9f43af4a41b88db333f
+    <AssetBundleName>k__BackingField: gameobject_f287ae6ccc4ab9f43af4a41b88db333f
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: CeilingHatch 18x18
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: CeilingHatch 24x24
+    <SaveLoadGuid>k__BackingField: gameobject_2456da8b8aab26d45add7c5509a2187a
+    <AssetBundleName>k__BackingField: gameobject_2456da8b8aab26d45add7c5509a2187a
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: CeilingHatch 24x24
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: CeilingHatchLock
+    <SaveLoadGuid>k__BackingField: gameobject_6a73caed9b923724ca518916a8950532
+    <AssetBundleName>k__BackingField: gameobject_6a73caed9b923724ca518916a8950532
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: CeilingHatchLock
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: CeilingLight2x2
+    <SaveLoadGuid>k__BackingField: gameobject_b1d48ea8c00220d489829f557c9da483
+    <AssetBundleName>k__BackingField: gameobject_b1d48ea8c00220d489829f557c9da483
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: CeilingLight2x2
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: CeilingLightFixture
+    <SaveLoadGuid>k__BackingField: gameobject_ada2137b3a434a54fbc11fd0fb37f568
+    <AssetBundleName>k__BackingField: gameobject_ada2137b3a434a54fbc11fd0fb37f568
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: CeilingLightFixture
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: CeilingMount_Circle
+    <SaveLoadGuid>k__BackingField: gameobject_6392e0719e2439a4d9fb17527a809783
+    <AssetBundleName>k__BackingField: gameobject_6392e0719e2439a4d9fb17527a809783
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: CeilingMount_Circle
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: 3ee5c80a-d36a-435f-b9e8-0270061877b3
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 3ee5c80a-d36a-435f-b9e8-0270061877b3
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+  - <PrefabName>k__BackingField: CeilingMount_Circle_Slim
+    <SaveLoadGuid>k__BackingField: gameobject_8a9b81863b672cd4eb723d457e25000a
+    <AssetBundleName>k__BackingField: gameobject_8a9b81863b672cd4eb723d457e25000a
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: CeilingMount_Circle_Slim
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: bae5ff15-6628-4630-b272-5a872d4d460c
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: bae5ff15-6628-4630-b272-5a872d4d460c
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+  - <PrefabName>k__BackingField: CeilingMount_Double
+    <SaveLoadGuid>k__BackingField: gameobject_1af1fe4afc2e2534eabe00d9793c25d4
+    <AssetBundleName>k__BackingField: gameobject_1af1fe4afc2e2534eabe00d9793c25d4
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: CeilingMount_Double
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: a6265975-fca0-4f58-ac34-6d7aac63e8ca
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: a6265975-fca0-4f58-ac34-6d7aac63e8ca
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 27779687-6fb3-42c6-91c6-0baab461ada7
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 27779687-6fb3-42c6-91c6-0baab461ada7
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+  - <PrefabName>k__BackingField: CeilingMount_Single
+    <SaveLoadGuid>k__BackingField: gameobject_6ced0f3653094ef46a674087d015ebe0
+    <AssetBundleName>k__BackingField: gameobject_6ced0f3653094ef46a674087d015ebe0
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: CeilingMount_Single
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: b11d4d4f-1105-48ad-abd1-e87def51fa76
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: b11d4d4f-1105-48ad-abd1-e87def51fa76
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+  - <PrefabName>k__BackingField: CeilingSpeaker
+    <SaveLoadGuid>k__BackingField: gameobject_0a200b4ca2943a14f96f86dc4f876a34
+    <AssetBundleName>k__BackingField: gameobject_0a200b4ca2943a14f96f86dc4f876a34
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: CeilingSpeaker
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: CeilingSprinkler
+    <SaveLoadGuid>k__BackingField: gameobject_f7e901bac67abbf44a967af4c6a04dac
+    <AssetBundleName>k__BackingField: gameobject_f7e901bac67abbf44a967af4c6a04dac
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: CeilingSprinkler
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: CeilingSprinkler2
+    <SaveLoadGuid>k__BackingField: gameobject_e61aafb3fbb975e4ba89534d00ef265a
+    <AssetBundleName>k__BackingField: gameobject_e61aafb3fbb975e4ba89534d00ef265a
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: CeilingSprinkler2
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: Decal_StorzLogo
+    <SaveLoadGuid>k__BackingField: gameobject_409a9b4621dcd74438b93f3a0bcbcf81
+    <AssetBundleName>k__BackingField: gameobject_409a9b4621dcd74438b93f3a0bcbcf81
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Decal_SkorzLogo
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: DellComputer
+    <SaveLoadGuid>k__BackingField: gameobject_f689c7e04d6db0f4abe8e0378028291d
+    <AssetBundleName>k__BackingField: gameobject_f689c7e04d6db0f4abe8e0378028291d
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: DellComputer
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: Desk4ft
+    <SaveLoadGuid>k__BackingField: gameobject_52d500dcea02da849a42fa3aa02fd092
+    <AssetBundleName>k__BackingField: gameobject_52d500dcea02da849a42fa3aa02fd092
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Desk4ft
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: Desk5.5ft
+    <SaveLoadGuid>k__BackingField: gameobject_c4e096e7abf960642a16196d4b62c2d3
+    <AssetBundleName>k__BackingField: gameobject_c4e096e7abf960642a16196d4b62c2d3
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Desk5.5ft
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: Desk7ft
+    <SaveLoadGuid>k__BackingField: gameobject_8f6f6e74114b05c41ad95d0c94d0cda5
+    <AssetBundleName>k__BackingField: gameobject_8f6f6e74114b05c41ad95d0c94d0cda5
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Desk7ft
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: DeskAddon3ft
+    <SaveLoadGuid>k__BackingField: gameobject_ff5264034dbff1d4eb63a42266ebac07
+    <AssetBundleName>k__BackingField: gameobject_ff5264034dbff1d4eb63a42266ebac07
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: DeskAddon3ft
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: DeskAddon4.5ft
+    <SaveLoadGuid>k__BackingField: gameobject_3884db7e083d7f24f9df8bd8089cc149
+    <AssetBundleName>k__BackingField: gameobject_3884db7e083d7f24f9df8bd8089cc149
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: DeskAddon4.5ft
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: DeskAddon6ft
+    <SaveLoadGuid>k__BackingField: gameobject_3dccdc8000bee9b4fb3291123042b243
+    <AssetBundleName>k__BackingField: gameobject_3dccdc8000bee9b4fb3291123042b243
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: DeskAddon6ft
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: Digital Diagnost C90
+    <SaveLoadGuid>k__BackingField: gameobject_d7dc3df33426639479d0c91e68a629f3
+    <AssetBundleName>k__BackingField: gameobject_d7dc3df33426639479d0c91e68a629f3
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Digital Diagnost C90
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: DigitalWallClock
+    <SaveLoadGuid>k__BackingField: gameobject_f14ae3a315bfa98469559e34321255d2
+    <AssetBundleName>k__BackingField: gameobject_f14ae3a315bfa98469559e34321255d2
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: DigitalWallClock
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: FlushDouble6ftOSwing
+    <SaveLoadGuid>k__BackingField: gameobject_5a53a79e2c5575d48bf386d9a6776605
+    <AssetBundleName>k__BackingField: gameobject_5a53a79e2c5575d48bf386d9a6776605
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: FlushDouble6ftOSwing
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: FullGlassDouble6ftOSwing
+    <SaveLoadGuid>k__BackingField: gameobject_f1785588f1716884abdd4c46f3568d03
+    <AssetBundleName>k__BackingField: gameobject_f1785588f1716884abdd4c46f3568d03
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: FullGlassDouble6ftOSwing
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: SideliteDouble6ftOSwing
+    <SaveLoadGuid>k__BackingField: gameobject_ca247c7c2702c6643bccfa050bdee7cd
+    <AssetBundleName>k__BackingField: gameobject_ca247c7c2702c6643bccfa050bdee7cd
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: SideliteDouble6ftOSwing
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: FlushDouble7ftOSwing
+    <SaveLoadGuid>k__BackingField: gameobject_68992c295e647b6459392001fe9730ec
+    <AssetBundleName>k__BackingField: gameobject_68992c295e647b6459392001fe9730ec
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: FlushDouble7ftOSwing
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: FullGlassDouble7ftOSwing
+    <SaveLoadGuid>k__BackingField: gameobject_6993f1510d06bbf4b89926b6278c9e14
+    <AssetBundleName>k__BackingField: gameobject_6993f1510d06bbf4b89926b6278c9e14
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: FullGlassDouble7ftOSwing
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: SideeliteDouble7ftOSwing
+    <SaveLoadGuid>k__BackingField: gameobject_4636fea92a4290041bb686bfee209681
+    <AssetBundleName>k__BackingField: gameobject_4636fea92a4290041bb686bfee209681
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: SideeliteDouble7ftOSwing
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: FlushDouble8ftOSwing
+    <SaveLoadGuid>k__BackingField: gameobject_6d5f1d4094c3dbe4eb8ce6b73bae877e
+    <AssetBundleName>k__BackingField: gameobject_6d5f1d4094c3dbe4eb8ce6b73bae877e
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: FlushDouble8ftOSwing
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: FullGlassDouble8ftOSwing
+    <SaveLoadGuid>k__BackingField: gameobject_c6d4346efe1073b44ab1831aa9481009
+    <AssetBundleName>k__BackingField: gameobject_c6d4346efe1073b44ab1831aa9481009
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: FullGlassDouble8ftOSwing
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: SideliteDouble8ftOSwing
+    <SaveLoadGuid>k__BackingField: gameobject_04f6779662c76fb45b81f6d50089c0ef
+    <AssetBundleName>k__BackingField: gameobject_04f6779662c76fb45b81f6d50089c0ef
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: SideliteDouble8ftOSwing
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: FlushDouble6ft
+    <SaveLoadGuid>k__BackingField: gameobject_b7e3a852d7769bb498c8ec55db354b64
+    <AssetBundleName>k__BackingField: gameobject_b7e3a852d7769bb498c8ec55db354b64
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: FlushDouble6ft
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: FullGlassDouble6ft
+    <SaveLoadGuid>k__BackingField: gameobject_b525bec99f47f274cac98790b6364121
+    <AssetBundleName>k__BackingField: gameobject_b525bec99f47f274cac98790b6364121
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: FullGlassDouble6ft
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: SideliteDouble6ft
+    <SaveLoadGuid>k__BackingField: gameobject_24c22dcbe2a7034409e36c2f9f2ace8d
+    <AssetBundleName>k__BackingField: gameobject_24c22dcbe2a7034409e36c2f9f2ace8d
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: SideliteDouble6ft
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: FlushDouble7ft
+    <SaveLoadGuid>k__BackingField: gameobject_c7d5013837d9ccf4faeed845b609cb32
+    <AssetBundleName>k__BackingField: gameobject_c7d5013837d9ccf4faeed845b609cb32
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: FlushDouble7ft
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: FullGlassDouble7ft
+    <SaveLoadGuid>k__BackingField: gameobject_095c184e889b57745a4fe14a394f62fd
+    <AssetBundleName>k__BackingField: gameobject_095c184e889b57745a4fe14a394f62fd
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: FullGlassDouble7ft
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: SideeliteDouble7ft
+    <SaveLoadGuid>k__BackingField: gameobject_7137cfe7e282bc847ba1f5976aad6fa3
+    <AssetBundleName>k__BackingField: gameobject_7137cfe7e282bc847ba1f5976aad6fa3
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: SideeliteDouble7ft
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: FlushDouble8ft
+    <SaveLoadGuid>k__BackingField: gameobject_79f79a709c766894fba6314f338eb820
+    <AssetBundleName>k__BackingField: gameobject_79f79a709c766894fba6314f338eb820
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: FlushDouble8ft
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: FullGlassDouble8ft
+    <SaveLoadGuid>k__BackingField: gameobject_416c922b14d2d074e96e53f4b6a1ccf7
+    <AssetBundleName>k__BackingField: gameobject_416c922b14d2d074e96e53f4b6a1ccf7
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: FullGlassDouble8ft
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: SideliteDouble8ft
+    <SaveLoadGuid>k__BackingField: gameobject_b8441a7045cf56f4b8eb2445a2f47001
+    <AssetBundleName>k__BackingField: gameobject_b8441a7045cf56f4b8eb2445a2f47001
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: SideliteDouble8ft
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: FlushSingle3ft
+    <SaveLoadGuid>k__BackingField: gameobject_1fb550a24ff26004792905caa427ffb8
+    <AssetBundleName>k__BackingField: gameobject_1fb550a24ff26004792905caa427ffb8
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: FlushSingle3ft
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: FullGlassSingle3ft
+    <SaveLoadGuid>k__BackingField: gameobject_a8e8217e95c359c4182e36475a5dc45c
+    <AssetBundleName>k__BackingField: gameobject_a8e8217e95c359c4182e36475a5dc45c
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: FullGlassSingle3ft
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: SideliteSingle3ft
+    <SaveLoadGuid>k__BackingField: gameobject_9e17c931795005b4f86e23075b0a62b4
+    <AssetBundleName>k__BackingField: gameobject_9e17c931795005b4f86e23075b0a62b4
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: SideliteSingle3ft
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: FlushSingle4ft
+    <SaveLoadGuid>k__BackingField: gameobject_34a2a90f863bf5040a97808b5329a46b
+    <AssetBundleName>k__BackingField: gameobject_34a2a90f863bf5040a97808b5329a46b
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: FlushSingle4ft
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: FullGlassSingle4ft
+    <SaveLoadGuid>k__BackingField: gameobject_84d9af1953c064c458b912a76f9378cd
+    <AssetBundleName>k__BackingField: gameobject_84d9af1953c064c458b912a76f9378cd
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: FullGlassSingle4ft
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: SideliteSingle4ft
+    <SaveLoadGuid>k__BackingField: gameobject_4693636ca28103e4ca7422625616deaa
+    <AssetBundleName>k__BackingField: gameobject_4693636ca28103e4ca7422625616deaa
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: SideliteSingle4ft
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: FlushUnequalEgress1,4ft
+    <SaveLoadGuid>k__BackingField: gameobject_2587e735277529c4bbc12578a6362110
+    <AssetBundleName>k__BackingField: gameobject_2587e735277529c4bbc12578a6362110
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: FlushUnequalEgress1,4ft
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: FullyGlassUnequalEgress1,4ft
+    <SaveLoadGuid>k__BackingField: gameobject_2e6fdd61ad730904db211d247b8f135a
+    <AssetBundleName>k__BackingField: gameobject_2e6fdd61ad730904db211d247b8f135a
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: FullyGlassUnequalEgress1,4ft
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: FlushUnequalEgress2,4ft
+    <SaveLoadGuid>k__BackingField: gameobject_4010245dbed847046bd9a628cbadaac7
+    <AssetBundleName>k__BackingField: gameobject_4010245dbed847046bd9a628cbadaac7
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: FlushUnequalEgress2,4ft
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: FullGlassUnequalEgress2,4ft
+    <SaveLoadGuid>k__BackingField: gameobject_2ffd71fc2cc9b4341b8f585d0f1d3f7b
+    <AssetBundleName>k__BackingField: gameobject_2ffd71fc2cc9b4341b8f585d0f1d3f7b
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: FullGlassUnequalEgress2,4ft
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: Dura Diagnost 4_1
+    <SaveLoadGuid>k__BackingField: gameobject_f18f7622fc644b84cbe2a73959fb32b8
+    <AssetBundleName>k__BackingField: gameobject_f18f7622fc644b84cbe2a73959fb32b8
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Dura Diagnost 4_1
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: EndoscopyTower
+    <SaveLoadGuid>k__BackingField: gameobject_af4bc14824710524eb3823707af229a3
+    <AssetBundleName>k__BackingField: gameobject_af4bc14824710524eb3823707af229a3
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: EndoscopyTower
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: ExtraWall
+    <SaveLoadGuid>k__BackingField: gameobject_7bd757a57385ced4cae53c023bdd860d
+    <AssetBundleName>k__BackingField: gameobject_7bd757a57385ced4cae53c023bdd860d
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: ExtraWall
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: FireAlarm
+    <SaveLoadGuid>k__BackingField: gameobject_c4ade69b6de9d6c4c953221a21239842
+    <AssetBundleName>k__BackingField: gameobject_c4ade69b6de9d6c4c953221a21239842
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: FireAlarm
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: FireAlarm2
+    <SaveLoadGuid>k__BackingField: gameobject_80c2a63dc1e82994e86a0b7acaf57ecf
+    <AssetBundleName>k__BackingField: gameobject_80c2a63dc1e82994e86a0b7acaf57ecf
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: FireAlarm2
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: FirstAidBox
+    <SaveLoadGuid>k__BackingField: gameobject_937e986bb1fb12f45b7209345b406e84
+    <AssetBundleName>k__BackingField: gameobject_937e986bb1fb12f45b7209345b406e84
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: FirstAidBox
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: FloorMat_Ovular
+    <SaveLoadGuid>k__BackingField: gameobject_b3956c80524a89543a7360f28669f82f
+    <AssetBundleName>k__BackingField: gameobject_b3956c80524a89543a7360f28669f82f
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: FloorMat_Ovular
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: FloorMat_Rectangular
+    <SaveLoadGuid>k__BackingField: gameobject_ded53db342f35594e9d55b1e27f88051
+    <AssetBundleName>k__BackingField: gameobject_ded53db342f35594e9d55b1e27f88051
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: FloorMat_Rectangular
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: GasOutlet_Mounted_Blank
+    <SaveLoadGuid>k__BackingField: gameobject_43ac82af7ff661d44b2b323c487d8f3d
+    <AssetBundleName>k__BackingField: gameobject_43ac82af7ff661d44b2b323c487d8f3d
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: 'Mounted Gas Outlet (Blank) '
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Gas Outlets
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: GasOutlet_Mounted_CarbonDioxide
+    <SaveLoadGuid>k__BackingField: gameobject_1ec98387653627649a12821ef9c683aa
+    <AssetBundleName>k__BackingField: gameobject_1ec98387653627649a12821ef9c683aa
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: 'Mounted Gas Outlet (CO2) '
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Gas Outlets
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: GasOutlet_Mounted_He-O2
+    <SaveLoadGuid>k__BackingField: gameobject_914d2a8f12b87a64fb653fbbd1b8ca87
+    <AssetBundleName>k__BackingField: gameobject_914d2a8f12b87a64fb653fbbd1b8ca87
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Mounted Gas Outlet (He-O2)
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Gas Outlets
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: GasOutlet_Mounted_InstrumentAir
+    <SaveLoadGuid>k__BackingField: gameobject_a5ca47f32e079fc43bc738ae9827d00d
+    <AssetBundleName>k__BackingField: gameobject_a5ca47f32e079fc43bc738ae9827d00d
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Mounted Gas Outlet (Instrument Air)
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Gas Outlets
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: GasOutlet_Mounted_MedicalAir
+    <SaveLoadGuid>k__BackingField: gameobject_2f777bb99e3adb24fac08f792ccd5764
+    <AssetBundleName>k__BackingField: gameobject_2f777bb99e3adb24fac08f792ccd5764
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Mounted Gas Outlet (Medical Air)
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Gas Outlets
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: GasOutlet_Mounted_Nitrogen
+    <SaveLoadGuid>k__BackingField: gameobject_cfb7391e3f19377489a9923069fc8b4a
+    <AssetBundleName>k__BackingField: gameobject_cfb7391e3f19377489a9923069fc8b4a
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Mounted Gas Outlet (Nitrogen)
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Gas Outlets
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: GasOutlet_Mounted_NitrousOxide
+    <SaveLoadGuid>k__BackingField: gameobject_0e539a1750ae9e141bdf419ef8059ed6
+    <AssetBundleName>k__BackingField: gameobject_0e539a1750ae9e141bdf419ef8059ed6
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Mounted Gas Outlet (Nitrous Oxide)
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Gas Outlets
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: GasOutlet_Mounted_O2-He
+    <SaveLoadGuid>k__BackingField: gameobject_30dae5ea08011a5408ad15279feb1b4f
+    <AssetBundleName>k__BackingField: gameobject_30dae5ea08011a5408ad15279feb1b4f
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Mounted Gas Outlet (O2-He)
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Gas Outlets
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: GasOutlet_Mounted_Oxygen
+    <SaveLoadGuid>k__BackingField: gameobject_b71d2e36b886d6946b6e9f9069fad351
+    <AssetBundleName>k__BackingField: gameobject_b71d2e36b886d6946b6e9f9069fad351
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Mounted Gas Outlet (Oxygen)
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Gas Outlets
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: GasOutlet_Mounted_VacuumSuction
+    <SaveLoadGuid>k__BackingField: gameobject_3c193512bbcc49749a00ab31f07b5b4f
+    <AssetBundleName>k__BackingField: gameobject_3c193512bbcc49749a00ab31f07b5b4f
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Mounted Gas Outlet (Vacuum Suction)
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Gas Outlets
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: GasOutlet_Mounted_WagdEvac
+    <SaveLoadGuid>k__BackingField: gameobject_41c190c19799ba245a288cc1392ef245
+    <AssetBundleName>k__BackingField: gameobject_41c190c19799ba245a288cc1392ef245
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Mounted Gas Outlet (WAGD Evac)
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Gas Outlets
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: GasOutlet_Variant_Blank
+    <SaveLoadGuid>k__BackingField: gameobject_0ec46401e033cc74aa5c557047fa1804
+    <AssetBundleName>k__BackingField: gameobject_0ec46401e033cc74aa5c557047fa1804
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Gas Outlet (Blank)
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Gas Outlets
+      - Boom Head Low Voltage
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: GasOutlet_Variant_CarbonDioxide
+    <SaveLoadGuid>k__BackingField: gameobject_27573fcce7c9810488cb5ecb9427fc4a
+    <AssetBundleName>k__BackingField: gameobject_27573fcce7c9810488cb5ecb9427fc4a
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Gas Outlet (CO2)
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Gas Outlets
+      - Boom Head Low Voltage
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: GasOutlet_Variant_He-O2
+    <SaveLoadGuid>k__BackingField: gameobject_c291c8d9c22f1d04e8bfdaf412d19e4c
+    <AssetBundleName>k__BackingField: gameobject_c291c8d9c22f1d04e8bfdaf412d19e4c
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Gas Outlet (He-O2)
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Gas Outlets
+      - Boom Head Low Voltage
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: GasOutlet_Variant_InstrumentAir
+    <SaveLoadGuid>k__BackingField: gameobject_5a6bc9a9e6fb14b49b1e9e961e0a5f5c
+    <AssetBundleName>k__BackingField: gameobject_5a6bc9a9e6fb14b49b1e9e961e0a5f5c
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Gas Outlet (Instrument Air)
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Gas Outlets
+      - Boom Head Low Voltage
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: GasOutlet_Variant_MedicalAir
+    <SaveLoadGuid>k__BackingField: gameobject_ee366966e065d2c42a6bcabb1b75d333
+    <AssetBundleName>k__BackingField: gameobject_ee366966e065d2c42a6bcabb1b75d333
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Gas Outlet (Medical Air)
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Gas Outlets
+      - Boom Head Low Voltage
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: GasOutlet_Variant_Nitrogen
+    <SaveLoadGuid>k__BackingField: gameobject_ce102851802e90b4f84aab415aacf928
+    <AssetBundleName>k__BackingField: gameobject_ce102851802e90b4f84aab415aacf928
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Gas Outlet (Nitrogen)
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Gas Outlets
+      - Boom Head Low Voltage
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: GasOutlet_Variant_NitrousOxide
+    <SaveLoadGuid>k__BackingField: gameobject_5c83a6c4249dad14c9d257afa6d62b48
+    <AssetBundleName>k__BackingField: gameobject_5c83a6c4249dad14c9d257afa6d62b48
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Gas Outlet (Nitrous Oxide)
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Gas Outlets
+      - Boom Head Low Voltage
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: GasOutlet_Variant_O2-He
+    <SaveLoadGuid>k__BackingField: gameobject_3a7ac12dbbdb97141be13ccbb527e21a
+    <AssetBundleName>k__BackingField: gameobject_3a7ac12dbbdb97141be13ccbb527e21a
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Gas Outlet (O2-He)
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Gas Outlets
+      - Boom Head Low Voltage
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: GasOutlet_Variant_Oxygen
+    <SaveLoadGuid>k__BackingField: gameobject_61cda5bc021dcb544a5c039c2ca7fef1
+    <AssetBundleName>k__BackingField: gameobject_61cda5bc021dcb544a5c039c2ca7fef1
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Gas Outlet (Oxygen)
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Gas Outlets
+      - Boom Head Low Voltage
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: GasOutlet_Variant_VacuumSuction
+    <SaveLoadGuid>k__BackingField: gameobject_7e3bd2122846d08458a4c167150e11ad
+    <AssetBundleName>k__BackingField: gameobject_7e3bd2122846d08458a4c167150e11ad
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Gas Outlet (Vacuum Suction)
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Gas Outlets
+      - Boom Head Low Voltage
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: GasOutlet_Variant_WagdEvac
+    <SaveLoadGuid>k__BackingField: gameobject_de6cb32bcdbb9b7478753bf5002860fe
+    <AssetBundleName>k__BackingField: gameobject_de6cb32bcdbb9b7478753bf5002860fe
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Gas Outlet (WAGD Evac)
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Gas Outlets
+      - Boom Head Low Voltage
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: IsolationPanel
+    <SaveLoadGuid>k__BackingField: gameobject_9abb18b5b63e79c4195660b06861b450
+    <AssetBundleName>k__BackingField: gameobject_9abb18b5b63e79c4195660b06861b450
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Isolation Panel
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: KickBucketEmpty
+    <SaveLoadGuid>k__BackingField: gameobject_38e3197bc9f895142866313e7e024079
+    <AssetBundleName>k__BackingField: gameobject_38e3197bc9f895142866313e7e024079
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: KickBucketEmpty
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: KickBucketWithBag
+    <SaveLoadGuid>k__BackingField: gameobject_d1f6e2f8317ad8041bd01240375961e5
+    <AssetBundleName>k__BackingField: gameobject_d1f6e2f8317ad8041bd01240375961e5
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: KickBucketWithBag
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: LargeMonitorBoomHead
+    <SaveLoadGuid>k__BackingField: gameobject_6272f7ab3a37f89459ca15ac2ac57f37
+    <AssetBundleName>k__BackingField: gameobject_6272f7ab3a37f89459ca15ac2ac57f37
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: LargeMonitorBoomHead
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: LeadShield
+    <SaveLoadGuid>k__BackingField: gameobject_fb31acd22b36bea428424f976a77c8ee
+    <AssetBundleName>k__BackingField: gameobject_fb31acd22b36bea428424f976a77c8ee
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Lead Shield
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: ImagineU_Logo
+    <SaveLoadGuid>k__BackingField: gameobject_fdbe9a18e2ecb8742b6752e53ef46387
+    <AssetBundleName>k__BackingField: gameobject_fdbe9a18e2ecb8742b6752e53ef46387
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: U_Logo
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: U001_Logo
+    <SaveLoadGuid>k__BackingField: gameobject_939e7988989ab0e45ab69cc0f02e3f9d
+    <AssetBundleName>k__BackingField: gameobject_939e7988989ab0e45ab69cc0f02e3f9d
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: U001_Logo
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: UImagine_WholeLogo
+    <SaveLoadGuid>k__BackingField: gameobject_4ff4a3a21c91871479ff85ba2ac3ba57
+    <AssetBundleName>k__BackingField: gameobject_4ff4a3a21c91871479ff85ba2ac3ba57
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: U_WholeLogo
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: UOne_Logo
+    <SaveLoadGuid>k__BackingField: gameobject_56ebd06235e253d47955aa0adeca06f9
+    <AssetBundleName>k__BackingField: gameobject_56ebd06235e253d47955aa0adeca06f9
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: UONE_Logo
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: MayoStand
+    <SaveLoadGuid>k__BackingField: gameobject_280e7eeaff1f5304492a3d7223887c84
+    <AssetBundleName>k__BackingField: gameobject_280e7eeaff1f5304492a3d7223887c84
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: MayoStand
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: MedicalCityLogo
+    <SaveLoadGuid>k__BackingField: gameobject_95cb2ad817f586949a293b13875d6747
+    <AssetBundleName>k__BackingField: gameobject_95cb2ad817f586949a293b13875d6747
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Medical City Logo
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: Neptune
+    <SaveLoadGuid>k__BackingField: gameobject_88490db2a629f9c42bf53ac8c2f423b8
+    <AssetBundleName>k__BackingField: gameobject_88490db2a629f9c42bf53ac8c2f423b8
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Neptune
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: NewBoomHead
+    <SaveLoadGuid>k__BackingField: gameobject_101b5e4b9ae6778419e042621236a1e9
+    <AssetBundleName>k__BackingField: gameobject_101b5e4b9ae6778419e042621236a1e9
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: NewBoomHead
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: 92f92412-9f9b-426f-af43-8f9759f24cbe
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 92f92412-9f9b-426f-af43-8f9759f24cbe
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: eb2fbd85-366b-4cb2-9d7b-94d7f6816155
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: eb2fbd85-366b-4cb2-9d7b-94d7f6816155
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 7354f80b-d8eb-40cf-a1ca-ba6f7e583650
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 7354f80b-d8eb-40cf-a1ca-ba6f7e583650
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 2ad48583-08c5-45fe-a7ba-93b2f4a05a14
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 2ad48583-08c5-45fe-a7ba-93b2f4a05a14
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 69141551-a605-49f5-b54b-da24236d6853
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 69141551-a605-49f5-b54b-da24236d6853
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: e742573b-e4a3-4ca2-86c1-e29cdae4583c
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: e742573b-e4a3-4ca2-86c1-e29cdae4583c
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 263327d7-5056-4c46-a2f6-18ebca8723f9
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 263327d7-5056-4c46-a2f6-18ebca8723f9
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 77a5e012-29ad-4df4-894b-e105980a9b24
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 77a5e012-29ad-4df4-894b-e105980a9b24
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 527018fe-833b-4479-a806-603d6d76f249
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 527018fe-833b-4479-a806-603d6d76f249
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 36f99302-fee6-4727-8fab-1510a9e79da8
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 36f99302-fee6-4727-8fab-1510a9e79da8
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 525bb825-2990-4425-9238-7b4e33ae81e7
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 525bb825-2990-4425-9238-7b4e33ae81e7
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 71e952f3-8731-472f-a3b3-e1e283d39ef6
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 71e952f3-8731-472f-a3b3-e1e283d39ef6
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 0145d213-a766-4060-a147-0a4578439b43
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 0145d213-a766-4060-a147-0a4578439b43
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: ade9271d-2c92-40fb-b68f-c5bdb1806a23
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: ade9271d-2c92-40fb-b68f-c5bdb1806a23
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: a4268dea-e836-42fb-a08f-c2752c5bb796
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: a4268dea-e836-42fb-a08f-c2752c5bb796
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: d3ca152f-1fb7-44ee-b595-e13dd52bd5a0
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: d3ca152f-1fb7-44ee-b595-e13dd52bd5a0
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 78b6b77b-3aa1-4b3e-8105-8832dbc36ecc
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 78b6b77b-3aa1-4b3e-8105-8832dbc36ecc
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 02b0d382-eec2-42c7-9327-5122d792741c
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 02b0d382-eec2-42c7-9327-5122d792741c
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 3dea4842-16af-4ec7-add9-04ff6bc0a2dd
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 3dea4842-16af-4ec7-add9-04ff6bc0a2dd
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 1fb5afb5-7ea0-4728-ac91-21beb3c06410
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 1fb5afb5-7ea0-4728-ac91-21beb3c06410
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 43bf3ec4-2b82-4a3f-b8ec-edd51af06c0a
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 43bf3ec4-2b82-4a3f-b8ec-edd51af06c0a
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+  - <PrefabName>k__BackingField: OR_Table_0
+    <SaveLoadGuid>k__BackingField: gameobject_839a064b625fb724ab496f21e46986e7
+    <AssetBundleName>k__BackingField: gameobject_839a064b625fb724ab496f21e46986e7
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: OR_Table_0
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: BlankOutlet
+    <SaveLoadGuid>k__BackingField: gameobject_b012101e0764d2443916ae1dcd3be14a
+    <AssetBundleName>k__BackingField: gameobject_b012101e0764d2443916ae1dcd3be14a
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Blank Plate
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Boom Head High Voltage
+      - Boom Head Low Voltage
+      <KeyWords>k__BackingField:
+      - outlet
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: EthernetOutlet
+    <SaveLoadGuid>k__BackingField: gameobject_40729a188c492a14baf33234724df328
+    <AssetBundleName>k__BackingField: gameobject_40729a188c492a14baf33234724df328
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: EthernetOutlet
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Boom Head Low Voltage
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: Outlet_HV_Power
+    <SaveLoadGuid>k__BackingField: gameobject_77aeabcf2efb52446be7765c7bea071e
+    <AssetBundleName>k__BackingField: gameobject_77aeabcf2efb52446be7765c7bea071e
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: HV Power Outlet
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Boom Head High Voltage
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: Outlet_LV_Power
+    <SaveLoadGuid>k__BackingField: gameobject_5e07c647ea9ca964282446690424c288
+    <AssetBundleName>k__BackingField: gameobject_5e07c647ea9ca964282446690424c288
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: LV Power Outlet
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Boom Head Low Voltage
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: StorzAVOutlet
+    <SaveLoadGuid>k__BackingField: gameobject_30698eb732c853846b22a8519a88fb70
+    <AssetBundleName>k__BackingField: gameobject_30698eb732c853846b22a8519a88fb70
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: StorzAVOutlet
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - Boom Head Low Voltage
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: PerfusionMachine
+    <SaveLoadGuid>k__BackingField: gameobject_69082596913b21a4bbace01ac76613ae
+    <AssetBundleName>k__BackingField: gameobject_69082596913b21a4bbace01ac76613ae
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: PerfusionMachine
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: PyxisCounterTop
+    <SaveLoadGuid>k__BackingField: gameobject_de92954fac9c46d4f94fd53a6a31507f
+    <AssetBundleName>k__BackingField: gameobject_de92954fac9c46d4f94fd53a6a31507f
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Pyxis Counter Top
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: PyxisDoubleCabinet
+    <SaveLoadGuid>k__BackingField: gameobject_2a68ad0c96ae19b4a875f6c65efa07c8
+    <AssetBundleName>k__BackingField: gameobject_2a68ad0c96ae19b4a875f6c65efa07c8
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Pyxis Double Cabinet
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: PyxisSingleCabinet(Glass)
+    <SaveLoadGuid>k__BackingField: gameobject_3719ab4b948be3a48bbf27eaad4b1ced
+    <AssetBundleName>k__BackingField: gameobject_3719ab4b948be3a48bbf27eaad4b1ced
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Pyxis Single Cabinet (Glass)
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: PyxisSingleCabinet(Solid)
+    <SaveLoadGuid>k__BackingField: gameobject_2eb4d41dbe15a3148934e2d2ccc39a21
+    <AssetBundleName>k__BackingField: gameobject_2eb4d41dbe15a3148934e2d2ccc39a21
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Pyxis Single Cabinet(Solid)
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: PyxisSixDrawer
+    <SaveLoadGuid>k__BackingField: gameobject_19f148d34094da442af8f0c30ef51908
+    <AssetBundleName>k__BackingField: gameobject_19f148d34094da442af8f0c30ef51908
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Pyxis Six Drawer
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: PyxisSmallDrawer
+    <SaveLoadGuid>k__BackingField: gameobject_257794061c41c92448be6175f3e6fc1c
+    <AssetBundleName>k__BackingField: gameobject_257794061c41c92448be6175f3e6fc1c
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Pyxis Small drawer
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: RollingLaptopStand
+    <SaveLoadGuid>k__BackingField: gameobject_d25f56e329ebb534fb916608def0be88
+    <AssetBundleName>k__BackingField: gameobject_d25f56e329ebb534fb916608def0be88
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: RollingLaptopStand
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: RollingStool
+    <SaveLoadGuid>k__BackingField: gameobject_3c99d6d388f90ba4eb5d70546b279a16
+    <AssetBundleName>k__BackingField: gameobject_3c99d6d388f90ba4eb5d70546b279a16
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: RollingStool
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: S6100AnesthesiaMarchine
+    <SaveLoadGuid>k__BackingField: gameobject_f2ad85d2706e88d4d8b6f02f1f5d8777
+    <AssetBundleName>k__BackingField: gameobject_f2ad85d2706e88d4d8b6f02f1f5d8777
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: S6100AnesthesiaMarchine
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: ScrubSinkDouble
+    <SaveLoadGuid>k__BackingField: gameobject_94d4e858c692e82488c45d43e93fbdd4
+    <AssetBundleName>k__BackingField: gameobject_94d4e858c692e82488c45d43e93fbdd4
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: ScrubSinkDouble
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: ScrubSinkSingle
+    <SaveLoadGuid>k__BackingField: gameobject_46039af55eb1adc47b48d34964e1ecff
+    <AssetBundleName>k__BackingField: gameobject_46039af55eb1adc47b48d34964e1ecff
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: ScrubSinkSingle
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: SH_Shelf_1
+    <SaveLoadGuid>k__BackingField: gameobject_53aa01dc8e396914b80e891824927678
+    <AssetBundleName>k__BackingField: gameobject_53aa01dc8e396914b80e891824927678
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: SH_Shelf_1
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: SH_Shelf_2
+    <SaveLoadGuid>k__BackingField: gameobject_6578fb191fa8907439062b3a3ddc08dc
+    <AssetBundleName>k__BackingField: gameobject_6578fb191fa8907439062b3a3ddc08dc
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: SH_Shelf_2
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: SHP_LV_Knob1
+    <SaveLoadGuid>k__BackingField: gameobject_1d7d6954e148df94d9e6aaefbfd85fe1
+    <AssetBundleName>k__BackingField: gameobject_1d7d6954e148df94d9e6aaefbfd85fe1
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: SHP_LV_Knob1
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: SHP_Rails
+    <SaveLoadGuid>k__BackingField: gameobject_c68c39c95251a364599e9000b451686f
+    <AssetBundleName>k__BackingField: gameobject_c68c39c95251a364599e9000b451686f
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: SHP_Rails
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: 4e0e1b0a-1342-4e01-902e-8a292797b774
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 4e0e1b0a-1342-4e01-902e-8a292797b774
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+  - <PrefabName>k__BackingField: Simeon_Light_7000
+    <SaveLoadGuid>k__BackingField: gameobject_9548e43dbf80de84fa9980537b084d38
+    <AssetBundleName>k__BackingField: gameobject_9548e43dbf80de84fa9980537b084d38
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Simeon_Light_7000
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: SimeonLightPlate
+    <SaveLoadGuid>k__BackingField: gameobject_3c254b739bf7bdd4cbd8df9c73228ef2
+    <AssetBundleName>k__BackingField: gameobject_3c254b739bf7bdd4cbd8df9c73228ef2
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Simeon Light Plate
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: SimFLEXArm
+    <SaveLoadGuid>k__BackingField: gameobject_4ebba47dd257f5447b6d64c102772c20
+    <AssetBundleName>k__BackingField: gameobject_4ebba47dd257f5447b6d64c102772c20
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: SimFlexArm
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: 39a0f036-0263-4c96-9678-05c33031dbcd
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 39a0f036-0263-4c96-9678-05c33031dbcd
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 7aaaa3c0-175b-47ad-bd42-848dc99f110e
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 7aaaa3c0-175b-47ad-bd42-848dc99f110e
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+  - <PrefabName>k__BackingField: SimFlexTube
+    <SaveLoadGuid>k__BackingField: gameobject_4d79268645655de4888801a211c27e95
+    <AssetBundleName>k__BackingField: gameobject_4d79268645655de4888801a211c27e95
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: SimFlexTube
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: 86ed6686-e404-42aa-bad7-525c739a8583
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 86ed6686-e404-42aa-bad7-525c739a8583
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+  - <PrefabName>k__BackingField: SmallCart
+    <SaveLoadGuid>k__BackingField: gameobject_4470415feca38344182b5af7ac8d7f41
+    <AssetBundleName>k__BackingField: gameobject_4470415feca38344182b5af7ac8d7f41
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: SmallCart
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: StainlessFootCover
+    <SaveLoadGuid>k__BackingField: gameobject_fb2c929f55278034d9fee83856ab86cb
+    <AssetBundleName>k__BackingField: gameobject_fb2c929f55278034d9fee83856ab86cb
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Stainless FootPlate
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: b517c99b-5c5b-4765-a5b0-ae0318eb5378
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: b517c99b-5c5b-4765-a5b0-ae0318eb5378
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 548d22be-0b37-4e2d-b414-d570ed4d6c0a
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 548d22be-0b37-4e2d-b414-d570ed4d6c0a
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 28e89f19-1d95-4bf7-81b7-70143183a789
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 28e89f19-1d95-4bf7-81b7-70143183a789
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 00320820-e61b-4dd1-99a5-7b85f26cb86a
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 00320820-e61b-4dd1-99a5-7b85f26cb86a
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 696a96e7-318c-4eb6-9611-5015d0833c24
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 696a96e7-318c-4eb6-9611-5015d0833c24
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 20f3049e-7ddb-4cc3-bfd1-73a2ee295a36
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 20f3049e-7ddb-4cc3-bfd1-73a2ee295a36
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 2dd98dc3-4da3-46b1-a8a0-6f6fbea3939a
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 2dd98dc3-4da3-46b1-a8a0-6f6fbea3939a
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: dff5f096-ecc2-454e-9a5f-246a0168cd72
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: dff5f096-ecc2-454e-9a5f-246a0168cd72
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 8179e176-b810-41cc-aaa2-47b01cd53653
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 8179e176-b810-41cc-aaa2-47b01cd53653
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 9962de27-f576-41f6-88f4-03660dfecdfd
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 9962de27-f576-41f6-88f4-03660dfecdfd
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 50407f93-9c8c-4d25-9e91-77ca53ae1fea
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 50407f93-9c8c-4d25-9e91-77ca53ae1fea
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 1d1fcf9c-abe4-48b0-bbda-466f5b4bbc5c
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 1d1fcf9c-abe4-48b0-bbda-466f5b4bbc5c
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 586c913e-460c-478c-b359-3efbda7470b8
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 586c913e-460c-478c-b359-3efbda7470b8
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 47e6015a-6d73-4776-8bfd-3e653617467f
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 47e6015a-6d73-4776-8bfd-3e653617467f
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: edc2569d-e58d-4f36-bab7-196adcc600ca
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: edc2569d-e58d-4f36-bab7-196adcc600ca
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: e74861a4-400c-4fee-a733-8746d471f373
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: e74861a4-400c-4fee-a733-8746d471f373
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+  - <PrefabName>k__BackingField: Storage1
+    <SaveLoadGuid>k__BackingField: gameobject_5023ee75eff13904ea709322369c0295
+    <AssetBundleName>k__BackingField: gameobject_5023ee75eff13904ea709322369c0295
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Storage1
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: Storage2
+    <SaveLoadGuid>k__BackingField: gameobject_c1be11a56054f34419f1883b4696b23c
+    <AssetBundleName>k__BackingField: gameobject_c1be11a56054f34419f1883b4696b23c
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Storage2
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: Storage3
+    <SaveLoadGuid>k__BackingField: gameobject_218c14cc91d04b847a375fc6ccc69d26
+    <AssetBundleName>k__BackingField: gameobject_218c14cc91d04b847a375fc6ccc69d26
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Storage3
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: Storage4
+    <SaveLoadGuid>k__BackingField: gameobject_ad626fd4c890a374cb53b4da30b290a7
+    <AssetBundleName>k__BackingField: gameobject_ad626fd4c890a374cb53b4da30b290a7
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Storage4
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: Storz55TV
+    <SaveLoadGuid>k__BackingField: gameobject_6291721a51a828d4ba0545a0ecfce75a
+    <AssetBundleName>k__BackingField: gameobject_6291721a51a828d4ba0545a0ecfce75a
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Storz55TV
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: StorzCamera
+    <SaveLoadGuid>k__BackingField: gameobject_1788bf0396377974595d582c73627187
+    <AssetBundleName>k__BackingField: gameobject_1788bf0396377974595d582c73627187
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: StorzCamera
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: StorzCollaborator
+    <SaveLoadGuid>k__BackingField: gameobject_2437dd17cea82de48b64499abb6dfbc0
+    <AssetBundleName>k__BackingField: gameobject_2437dd17cea82de48b64499abb6dfbc0
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: StorzCollaborator
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: StorzCollaboratorGO
+    <SaveLoadGuid>k__BackingField: gameobject_36f34a0a801bbe44a92b261d6c598e51
+    <AssetBundleName>k__BackingField: gameobject_36f34a0a801bbe44a92b261d6c598e51
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Storz Collaborator GO
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: StorzTouch
+    <SaveLoadGuid>k__BackingField: gameobject_7a065fe751fa2524686e8c1663107a35
+    <AssetBundleName>k__BackingField: gameobject_7a065fe751fa2524686e8c1663107a35
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 0
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Storz Touch
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: SupplyCabinet
+    <SaveLoadGuid>k__BackingField: gameobject_a7114a97ef964ce4abab229fd52c0c15
+    <AssetBundleName>k__BackingField: gameobject_a7114a97ef964ce4abab229fd52c0c15
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: SupplyCabinet
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: Surgeon_1
+    <SaveLoadGuid>k__BackingField: gameobject_b643eb8e65251c14ca579fe6c8450c6a
+    <AssetBundleName>k__BackingField: gameobject_b643eb8e65251c14ca579fe6c8450c6a
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Surgeon_1
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: Surgeon_2
+    <SaveLoadGuid>k__BackingField: gameobject_62ddef570adae4d488ad63e5223aea77
+    <AssetBundleName>k__BackingField: gameobject_62ddef570adae4d488ad63e5223aea77
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Surgeon_2
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: SurgicalChair
+    <SaveLoadGuid>k__BackingField: gameobject_529b83f464e2cdf4fa9fbee601e35d3a
+    <AssetBundleName>k__BackingField: gameobject_529b83f464e2cdf4fa9fbee601e35d3a
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: SurgicalChair
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: SurgicalRobot
+    <SaveLoadGuid>k__BackingField: gameobject_fe4fb5c927996944ca9561376bc521f9
+    <AssetBundleName>k__BackingField: gameobject_fe4fb5c927996944ca9561376bc521f9
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: Surgical Robot
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: SurgicalRobotStation
+    <SaveLoadGuid>k__BackingField: gameobject_30c01c1628016b24abd31ee1fc2e9eef
+    <AssetBundleName>k__BackingField: gameobject_30c01c1628016b24abd31ee1fc2e9eef
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: SurgicalRobotStation
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: SurgicalVisionSystem
+    <SaveLoadGuid>k__BackingField: gameobject_7b27f390bb8ee1e43922cfae6f85c6da
+    <AssetBundleName>k__BackingField: gameobject_7b27f390bb8ee1e43922cfae6f85c6da
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: SurgicalVisionSystem
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: TrashBagEmpty
+    <SaveLoadGuid>k__BackingField: gameobject_542c427e16b16b84cb81ac8371ea567b
+    <AssetBundleName>k__BackingField: gameobject_542c427e16b16b84cb81ac8371ea567b
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: TrashBagEmpty
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: TrashBagFull
+    <SaveLoadGuid>k__BackingField: gameobject_216e62328cb19bc498b735a9a2b79435
+    <AssetBundleName>k__BackingField: gameobject_216e62328cb19bc498b735a9a2b79435
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: TrashBagFull
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: TrashCan
+    <SaveLoadGuid>k__BackingField: gameobject_ce313b0543691ce4db78cd838a80294d
+    <AssetBundleName>k__BackingField: gameobject_ce313b0543691ce4db78cd838a80294d
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: TrashCan
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: WallClock
+    <SaveLoadGuid>k__BackingField: gameobject_9ffe86020fe567948b80a4aa24d7b4db
+    <AssetBundleName>k__BackingField: gameobject_9ffe86020fe567948b80a4aa24d7b4db
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: WallClock
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: WallMonitor55
+    <SaveLoadGuid>k__BackingField: gameobject_f8b369d29d2d7d24db3588e77d0786d8
+    <AssetBundleName>k__BackingField: gameobject_f8b369d29d2d7d24db3588e77d0786d8
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: WallMonitor55
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: WallMonitor60
+    <SaveLoadGuid>k__BackingField: gameobject_3296d3045c5e2a547bb4cc84de060879
+    <AssetBundleName>k__BackingField: gameobject_3296d3045c5e2a547bb4cc84de060879
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: WallMonitor60
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: WallMonitor85
+    <SaveLoadGuid>k__BackingField: gameobject_e9944693de72fcc4aa9a7d20aa10aa78
+    <AssetBundleName>k__BackingField: gameobject_e9944693de72fcc4aa9a7d20aa10aa78
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: WallMonitor85
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: WhiteBoard
+    <SaveLoadGuid>k__BackingField: gameobject_65d2952c28dea0545bdf59e9551d8e0f
+    <AssetBundleName>k__BackingField: gameobject_65d2952c28dea0545bdf59e9551d8e0f
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: WhiteBoard
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: WindowSingle2x2
+    <SaveLoadGuid>k__BackingField: gameobject_1416b2378bfdc4d4192d14c00656f39c
+    <AssetBundleName>k__BackingField: gameobject_1416b2378bfdc4d4192d14c00656f39c
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: WindowSingle2x2
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: WindowSingle4x2
+    <SaveLoadGuid>k__BackingField: gameobject_b7dfe12ff190c844ca5457256d07f7c0
+    <AssetBundleName>k__BackingField: gameobject_b7dfe12ff190c844ca5457256d07f7c0
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: WindowSingle4x2
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: WindowSingle8x4
+    <SaveLoadGuid>k__BackingField: gameobject_7e971d4f82d87e24089bb5852125e5c1
+    <AssetBundleName>k__BackingField: gameobject_7e971d4f82d87e24089bb5852125e5c1
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: WindowSingle8x4
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: WorkTable2FT
+    <SaveLoadGuid>k__BackingField: gameobject_9d21063aab0f7d449b919deeb26acc96
+    <AssetBundleName>k__BackingField: gameobject_9d21063aab0f7d449b919deeb26acc96
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: WorkTable2FT
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: 33a8ef90-96f6-4285-a584-b4be3feeb7a7
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 33a8ef90-96f6-4285-a584-b4be3feeb7a7
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+  - <PrefabName>k__BackingField: WorkTable4FT
+    <SaveLoadGuid>k__BackingField: gameobject_ec4f75b7f4c695e4da5c8f18a6efbd11
+    <AssetBundleName>k__BackingField: gameobject_ec4f75b7f4c695e4da5c8f18a6efbd11
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: WorkTable4FT
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: a53526ab-32d3-4d56-8961-75e6d1ef050b
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: a53526ab-32d3-4d56-8961-75e6d1ef050b
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+  - <PrefabName>k__BackingField: WorkTable6FT
+    <SaveLoadGuid>k__BackingField: gameobject_f5c11c24a214f604f91538a3d2d35084
+    <AssetBundleName>k__BackingField: gameobject_f5c11c24a214f604f91538a3d2d35084
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: WorkTable6FT
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField: []
+      <KeyWords>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: 02554ec0-9b4f-4ea2-b0d5-1edc257f2edc
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 02554ec0-9b4f-4ea2-b0d5-1edc257f2edc
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
