@@ -1,0 +1,39 @@
+{
+    "name": "com.splensoft.ezcdn",
+    "version": "1.2.0",
+    "displayName": "Easy CDN",
+    "description": "An addressables-free suite that automatically handles the Unity Cloud Content Delivery API and packaging/deploying assetbundles while providing several tools to make asset management easy",
+    "unity": "2021.3",
+    "unityRelease": "18f1",
+    "documentationUrl": "https://github.com/SplenSoft/ezcdn-public/wiki",
+    "changelogUrl": "https://github.com/SplenSoft/ezcdn-public/blob/main/CHANGELOG.md",
+    "licensesUrl": "https://github.com/SplenSoft/ezcdn-public/blob/main/LICENSE.md",
+    "dependencies": {
+      "com.unity.nuget.newtonsoft-json": "3.2.1"
+   },
+   "samples": [
+    {
+      "displayName": "EZ-CDN Sample Scene",
+      "description": "A scene for testing retrieving assets from the CDN",
+      "path": "Samples~/SampleScene"
+    }
+   ],
+   "keywords": [
+      "addressable",
+      "assetbundle",
+      "asset",
+      "bundle",
+      "easy",
+      "cdn",
+      "cloud",
+      "content",
+      "delivery",
+      "network",
+      "ezcdn"
+    ],
+    "author": {
+      "name": "SplenSoft",
+      "email": "support@splensoft.com",
+      "url": "https://www.splensoft.com"
+    }
+}
