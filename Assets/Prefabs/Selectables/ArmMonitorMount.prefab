@@ -477,9 +477,12 @@ MonoBehaviour:
   <Id>k__BackingField: 
   selectables: []
   zScale: {fileID: 0}
+  zScales: []
   parent: {fileID: 0}
   lightCount: 0
   flatPanel: 0
+  isLightTop: 0
+  isPanelTop: 0
 --- !u!1001 &6412713555679531544
 PrefabInstance:
   m_ObjectHideFlags: 0

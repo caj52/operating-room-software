@@ -15,12 +15,14 @@ public class Measurable : MonoBehaviour
     {
         public Measurement(Measurable measurable) 
         {
+
             Measurable = measurable;
             Measurable.StartCoroutine(GetMeasurer());
         }
 
         private IEnumerator GetMeasurer()
         {
+            Debug.LogError("GetMeasurer");
             if (!Measurer.Initialized)
             {
                 yield return new WaitUntil(() => Measurer.Initialized);
@@ -146,6 +148,7 @@ public class Measurable : MonoBehaviour
 
     public void SetActive(bool active)
     {
+        Debug.LogError("SetActive" + active);
         IsActive = active && !Disabled;
 
         Measurements.ToList().ForEach(item =>

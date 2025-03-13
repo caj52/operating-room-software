@@ -52,4 +52,5 @@ public class UI_LoadingScreen : MonoBehaviour
   
         gameObject.SetActive(Loading.LoadingActive);
     }
+
 }

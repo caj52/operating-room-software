@@ -169,7 +169,7 @@ MonoBehaviour:
   <AllowInverseControl>k__BackingField: 0
   <ScaleLevels>k__BackingField:
   - <Size>k__BackingField: 0.12
-    <Selected>k__BackingField: 1
+    <Selected>k__BackingField: 0
     <ModelDefault>k__BackingField: 0
     <ScaleZ>k__BackingField: 0
     metadata: []
@@ -179,7 +179,7 @@ MonoBehaviour:
     <ScaleZ>k__BackingField: 0
     metadata: []
   - <Size>k__BackingField: 0.3
-    <Selected>k__BackingField: 0
+    <Selected>k__BackingField: 1
     <ModelDefault>k__BackingField: 0
     <ScaleZ>k__BackingField: 0
     metadata: []

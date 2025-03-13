@@ -57,7 +57,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: -6565122453228016778, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: rmsCount
-      value: 6
+      value: 5
       objectReference: {fileID: 0}
     - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: <GUID>k__BackingField
@@ -332,7 +332,7 @@ PrefabInstance:
     - target: {fileID: 1827617257458150305, guid: fd4692e694bb0364f8ee205b2693947f, type: 3}
       propertyPath: m_Materials.Array.data[0]
       value: 
-      objectReference: {fileID: 2100000, guid: fe8fe446f6ef7dc44a08cc64bcf86e85, type: 2}
+      objectReference: {fileID: 2100000, guid: 1e321160d3533b4458c6c1c538c24d8d, type: 2}
     - target: {fileID: 5506188084046867964, guid: fd4692e694bb0364f8ee205b2693947f, type: 3}
       propertyPath: m_Layer
       value: 6

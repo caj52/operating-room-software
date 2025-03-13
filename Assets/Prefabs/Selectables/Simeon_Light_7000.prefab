@@ -1026,6 +1026,27 @@ MeshCollider:
   m_Convex: 1
   m_CookingOptions: 30
   m_Mesh: {fileID: 4190047801007730955, guid: 548fc95ad54091a488645ae7161ee4e2, type: 3}
+--- !u!114 &686781800661037389
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 496620799682976184}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0740ded2b828aff428daeb1e9fb7426a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  <Id>k__BackingField: 
+  selectables: []
+  zScale: {fileID: 0}
+  zScales: []
+  parent: {fileID: 0}
+  lightCount: 0
+  flatPanel: 0
+  isLightTop: 0
+  isPanelTop: 0
 --- !u!114 &1085032996762512355
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1326,22 +1347,6 @@ MonoBehaviour:
   _canUseScaleX: 0
   _canUseScaleY: 0
   _canUseScaleZ: 0
---- !u!114 &686781800661037389
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 496620799682976184}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 0740ded2b828aff428daeb1e9fb7426a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  <Id>k__BackingField: 
-  attachmentPoints: []
-  zEnforce: {fileID: 0}
-  ScaleLevels: []
 --- !u!1 &4369711182650762182 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: -3948995034231107753, guid: 548fc95ad54091a488645ae7161ee4e2, type: 3}

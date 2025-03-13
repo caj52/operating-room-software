@@ -1199,6 +1199,20 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         }
     }
 
+    void ToggleMeasurableActiveStatesWhilePlacing()
+    {
+        Debug.LogError("ToggleMeasurableActiveStatesWhilePlacing");
+        if (Measurables.Count > 0)
+        {
+            Debug.LogError("Measurables.Count > 0");
+            Measurables.ForEach(measurable =>
+            {
+                measurable.ArmAssemblyActiveInElevationPhotoMode = true;
+                _measurableActiveStates[measurable] = measurable.IsActive;
+                measurable.SetActive(true);
+            });
+        }
+    }
     private void ToggleMeasurableActiveStates(bool active)
     {
         if (active)
@@ -1314,7 +1328,9 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     {
         if (!_isRaycastPlacementMode || _hasBeenPlaced) 
             return;
-
+        Debug.LogError("CanPlaceAnywhere");
+        _measurableActiveStates.Clear();
+        ToggleMeasurableActiveStatesWhilePlacing();
         bool isCeilingCam = OperatingRoomCamera.LiveCamera
             .CameraType == OperatingRoomCameraType.OrthoCeiling;
 
@@ -1333,6 +1349,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         if (CanPlaceAnywhere)
         {
+       
             int maskSelectable = 1 << LayerMask.NameToLayer("Selectable");
 
             if (Physics.Raycast(ray, out RaycastHit hit, 

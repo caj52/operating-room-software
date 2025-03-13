@@ -13,6 +13,7 @@ using UnityEngine.UI;
 using FuzzySharp;
 using static ObjectMenu;
 using SplenSoft.UnityUtilities;
+using static pulse.cdm.bind.DataRequestData.Types;
 
 /// <summary>
 /// Singleton object that displays a menu to instantiate selectables.
@@ -533,6 +534,7 @@ public class ObjectMenu : MonoBehaviour
 
         ObjectMenuItems.ForEach(item =>
         {
+          
             if (item.SelectableData == null)
             {
                 item.GameObject.SetActive(false);
@@ -548,10 +550,15 @@ public class ObjectMenu : MonoBehaviour
             var compareMetaData = item.SelectableMetaData;
 
             foreach (var category in compareMetaData.Categories)
-            {
+            { 
                 if (apData.MetaData
                     .AllowedSelectableCategories.Contains(category))
                 {
+                    foreach (var ob in apData.MetaData.AllowedSelectableCategories)
+                    {
+                        Debug.LogError(ob);
+                    }
+                    Debug.LogError("GameObject " + item.GameObject.name);
                     item.GameObject.SetActive(true);
                     return;
                 }
@@ -561,6 +568,11 @@ public class ObjectMenu : MonoBehaviour
                 .AllowedSelectableAssetBundleNames
                 .Contains(item.SelectableData.AssetBundleName))
             {
+                foreach (var ob in apData.MetaData.AllowedSelectableAssetBundleNames)
+                {
+                    Debug.LogError(ob);
+                }
+                Debug.LogError("GameObject " + item.SelectableData.AssetBundleName);
                 item.GameObject.SetActive(true);
                 return;
             }

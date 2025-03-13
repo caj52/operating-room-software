@@ -65,7 +65,7 @@ MonoBehaviour:
   m_ShadowTransparentReceive: 1
   m_RenderingMode: 0
   m_DepthPrimingMode: 0
-  m_CopyDepthMode: 0
+  m_CopyDepthMode: 2
   m_AccurateGbufferNormals: 0
   m_ClusteredRendering: 0
   m_TileSize: 32
@@ -91,5 +91,5 @@ MonoBehaviour:
     NormalSamples: 2
     Intensity: 0.2
     DirectLightingStrength: 0
-    Radius: 0.05
+    Radius: 0.03
     SampleCount: 4
