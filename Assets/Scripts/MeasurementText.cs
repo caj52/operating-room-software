@@ -1,4 +1,5 @@
 using RTG;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using TMPro;
@@ -51,7 +52,7 @@ public class MeasurementText : MonoBehaviour
 
         var quat = GetRotationTowardCamera(camera);
         transform.SetPositionAndRotation(transform.position, quat);
-
+      
         float angleOfMeasurer = Vector3.Angle(_measurer.transform.forward, Vector3.up);
         float angle2 = Vector3.Angle(_measurer.transform.forward, Vector3.down);
         if (angleOfMeasurer < 10f || angle2 < 10f)
@@ -90,12 +91,26 @@ public class MeasurementText : MonoBehaviour
         }
 
         Text.text = _measurer.Distance;
-        transform.position = _measurer.TextPosition;
-        RotateTowardCamera(camera);
 
-        //if (Selectable.IsInElevationPhotoMode)
-        //{
-        //    Debug.Log($"Successfully rotated measurer text toward camera, active state is {gameObject.activeSelf}");
-        //}
+        // Get the direction from camera to text position
+        Vector3 directionFromCamera = (_measurer.TextPosition - camera.transform.position).normalized;
+
+        // Calculate dynamic buffer distance based on distance from camera
+        float distanceToCamera = Vector3.Distance(camera.transform.position, _measurer.TextPosition);
+        float bufferDistance = -0.5f * (distanceToCamera * 0.1f); // Scale buffer with distance
+
+        // Clamp the buffer to reasonable min/max values
+        bufferDistance = Mathf.Clamp(bufferDistance, -2.0f, -0.1f);
+
+        // Apply the buffered position
+        Vector3 bufferedPosition = _measurer.TextPosition + directionFromCamera * bufferDistance;
+
+        // Offset in the Y axis to position the text a bit lower
+        bufferedPosition.y -= 0.18f; // Adjust this value based on your scene scale
+
+        // Apply the buffered position
+        transform.position = bufferedPosition;
+
+        RotateTowardCamera(camera);
     }
 }

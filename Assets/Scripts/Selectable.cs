@@ -45,7 +45,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     public static UnityEvent ActiveSelectablesInSceneChanged { get; } = new();
 
     public Dictionary<GizmoType, Dictionary<Axis, GizmoSetting>>
-        GizmoSettings { get; } = new();
+        GizmoSettings
+    { get; } = new();
 
     public EventHandler MouseOverStateChanged;
     public UnityEvent SelectableDestroyed { get; } = new();
@@ -72,7 +73,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
     [field: SerializeField]
     public List<AttachmentPointData>
-        AttachmentPointDatas { get; set; } = new();
+        AttachmentPointDatas
+    { get; set; } = new();
 
     [field: SerializeField,
     FormerlySerializedAs("<Types>k__BackingField")]
@@ -92,11 +94,11 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     [field: SerializeField]
     public bool IsDestructible { get; private set; } = true;
 
-    [field: SerializeField] 
+    [field: SerializeField]
     public bool AllowInverseControl { get; private set; } = false;
 
-    [field: SerializeField] 
-    public List<ScaleLevel> ScaleLevels { get;  set; } = new();
+    [field: SerializeField]
+    public List<ScaleLevel> ScaleLevels { get; set; } = new();
 
     [field: SerializeField, FormerlySerializedAs("<useLossyScale>k__BackingField")]
     public bool UseLossyScale { get; private set; }
@@ -121,6 +123,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
     [field: SerializeField]
     public List<Measurable> Measurables { get; private set; }
+    public List<Measurer> Measurers = new List<Measurer>();
+    public List<Measurable.Measurement> measurements;
 
     [field: SerializeField,
     Tooltip("True if this object will rotate to its " +
@@ -155,7 +159,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     [field: SerializeField, ReadOnly]
     public List<Selectable> RelatedSelectables { get; set; }
 
-    private List<Selectable> _assemblySelectables = new();
+    public List<Selectable> _assemblySelectables = new();
     private Dictionary<Selectable, Quaternion> _originalRotations = new();
     private Dictionary<Measurable, bool> _measurableActiveStates = new();
     private List<Vector3> _childScales = new();
@@ -175,7 +179,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     /// </summary>
     private bool IsAssemblyRoot => SpecialTypes.Contains(SpecialSelectableType.Mount);
 
-    public bool IsArmAssembly => transform.root.TryGetComponent(out Selectable rootSelectable) && 
+    public bool IsArmAssembly => transform.root.TryGetComponent(out Selectable rootSelectable) &&
         rootSelectable.IsAssemblyRoot;
 
     public bool canBeDuplicated;
@@ -300,12 +304,12 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     public void OnMouseUpAsButton()
     {
 
-       //Debug.Log($"Mouse up detected over {gameObject.name}");
+        //Debug.Log($"Mouse up detected over {gameObject.name}");
 
         if (InputHandler.IsPointerOverUIElement() /*||
         !InputHandler.WasProperClick*/)
         {
-        //    Debug.Log($"Pointer Is Over UI {gameObject.name}");
+            //    Debug.Log($"Pointer Is Over UI {gameObject.name}");
 
             return;
 
@@ -316,7 +320,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
     private void OnMouseEnter()
     {
-      //  Debug.Log($"OnMouse Enter detected over {gameObject.name}");
+        //  Debug.Log($"OnMouse Enter detected over {gameObject.name}");
 
         if (GizmoHandler.GizmoBeingUsed) return;
         IsMouseOver = true;
@@ -385,7 +389,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                         item.ScaleZ = CurrentScaleLevel.ScaleZ * perc;
                     }
 
-                    Debug.Log($"Updated ScaleZ for ScaleLevel {i}: {item.ScaleZ}");
+                    //  Debug.Log($"Updated ScaleZ for ScaleLevel {i}: {item.ScaleZ}");
                 }
                 else
                 {
@@ -421,17 +425,32 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         //_originalRotation2 = transform.localRotation;
         OriginalLocalPosition = transform.localPosition;
-        
+
         //OriginalLocalRotation = transform.localEulerAngles;
 
         Vector3 adjustedOffsetVector = new Vector3
-            (InitialLocalPositionOffset.x * transform.localScale.x, 
-            InitialLocalPositionOffset.y * transform.localScale.y, 
+            (InitialLocalPositionOffset.x * transform.localScale.x,
+            InitialLocalPositionOffset.y * transform.localScale.y,
             InitialLocalPositionOffset.z * transform.localScale.z);
 
         transform.localPosition += adjustedOffsetVector;
         Started = true;
-       
+        ToggleMeasurableActiveStates(true);
+        //Storing Reference for the Measurers
+        Measurers.AddRange(Measurables
+                .SelectMany(m => m.Measurements)
+                .Where(measurement => measurement.Measurer != null)
+                .Select(measurement => measurement.Measurer)
+        );
+
+        Selectable selectable = (MetaData.Name == "OR_Table_0") ? this : null;
+
+        if (selectable)
+        {
+            selectable.Select();
+            SelectionChanged.Invoke();
+        }
+
     }
 
     private void Update()
@@ -552,7 +571,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         var data = RelatedSelectables[0].MetaData;
 
         var matchingItem = ObjectMenu.Instance.ObjectMenuItems
-                .FirstOrDefault(x => x.SelectableData != null && 
+                .FirstOrDefault(x => x.SelectableData != null &&
                     RelatedSelectables[0].GUID == x.SelectableData.AssetBundleName);
 
         if (matchingItem != null)
@@ -644,12 +663,12 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
     #region Gizmos
 
-    private bool CheckConstraints(float currentVal, float originalVal, 
+    private bool CheckConstraints(float currentVal, float originalVal,
         float maxVal, float minVal, out float excess)
     {
         float diff = currentVal - originalVal;
 
-        excess = diff > maxVal ? diff - maxVal : 
+        excess = diff > maxVal ? diff - maxVal :
             diff < minVal ? diff - minVal : 0f;
 
         return excess != 0;
@@ -741,7 +760,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         {
             OnScaleChange?.Invoke(CurrentPreviewScaleLevel);
         }
-        
+
         Quaternion storedRotation = transform.rotation;
         transform.rotation = _originalRotation;
 
@@ -849,7 +868,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         //get closest scale in list
         ScaleLevel closest = ScaleLevels.OrderBy(item => Math.Abs(_gizmoHandler.CurrentScaleDrag.z - item.ScaleZ)).First();
 
-        if (closest == CurrentPreviewScaleLevel && !setSelected) 
+        if (closest == CurrentPreviewScaleLevel && !setSelected)
             return;
 
         SetScaleLevel(closest, setSelected);
@@ -935,7 +954,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         return false;
     }
 
-    private List<PdfExporter.PdfImageData> GetAssemblyPDFImageData(Camera camera)
+    public List<PdfExporter.PdfImageData> GetAssemblyPDFImageData(Camera camera)
     {
         var imageDatas = new List<PdfExporter.PdfImageData>();
         for (int i = 0; i < 2; i++)
@@ -1009,6 +1028,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             if (rootObj != gameObject)
             {
                 rootObj.GetComponent<Selectable>().ExportElevationPdf(title, subtitle, assemblyDatas);
+                Debug.Log($"going to root object! root {rootObj.name} and current {gameObject.name}");
                 return;
             }
 
@@ -1034,7 +1054,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 GetAssemblyPDFImageData(camera),
                 _assemblySelectables, title, subtitle, assemblyDatas);
 
-            for (int i = 0; i < ActiveSelectables.Count; i++) 
+            for (int i = 0; i < ActiveSelectables.Count; i++)
                 ActiveSelectables[i].gameObject.SetActive(visibilities[i]);
 
             RestoreArmAssemblyRotations();
@@ -1042,6 +1062,56 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             IsInElevationPhotoMode = false;
             ToggleMeasurableActiveStates(false);
         }
+    }
+
+
+
+    public List<PdfExporter.PdfImageData> ExportElevationPdf()
+    {
+        if (TryGetArmAssemblyRoot(out GameObject rootObj))
+        {
+            if (rootObj != gameObject)
+            {
+                rootObj.GetComponent<Selectable>().ExportElevationPdf();
+                Debug.Log($"going to root object! root {rootObj.name} and current {gameObject.name}");
+                return null;
+            }
+
+            // this obj is the ceiling mount
+            IsInElevationPhotoMode = true;
+            var camera = GetComponentInChildren<Camera>();
+            ActiveCameraRenderTextureElevation = camera;
+
+            SetAssemblyToDefaultRotations();
+            _measurableActiveStates.Clear();
+            ToggleMeasurableActiveStates(true);
+
+            //store visibility states of all selectables in scene for later
+            List<bool> visibilities = ActiveSelectables.ConvertAll(x => x.gameObject.activeSelf);
+
+            //shut off all selectables in the scene except for the ones in this arm assembly
+            ActiveSelectables
+                .Where(x => !_assemblySelectables.Contains(x))
+                .ToList()
+                .ForEach(x => x.gameObject.SetActive(false));
+
+            //PdfExporter.ExportElevationPdf(GetAssemblyPDFImageData(camera), _assemblySelectables, title, subtitle, assemblyDatas);
+
+            // Generate PDF image data before restoring visibility
+            var pdfImageData = GetAssemblyPDFImageData(camera);
+
+            for (int i = 0; i < ActiveSelectables.Count; i++)
+                ActiveSelectables[i].gameObject.SetActive(visibilities[i]);
+
+            RestoreArmAssemblyRotations();
+            _assemblySelectables.ForEach(x => x.FaceZTowardGround());
+            IsInElevationPhotoMode = false;
+            ToggleMeasurableActiveStates(false);
+            return pdfImageData;
+        }
+
+        return null;
+
     }
 
     private string GetElevationPhoto(Camera camera, Bounds bounds, out int imageWidth, out int imageHeight, int fileIndex)
@@ -1061,7 +1131,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             {
                 item.Measurables.ForEach(measurable =>
                 {
-                    if (measurable.Disabled) 
+                    if (measurable.Disabled)
                         return;
 
                     var validMeasurements = measurable.Measurements
@@ -1078,13 +1148,12 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                             bounds.Encapsulate(measurement.Measurer.Renderer.bounds);
                             var textBounds = new Bounds(measurement.Measurer.TextPosition, Vector3.one * 1f);
                             bounds.Encapsulate(textBounds);
-                            //bounds.Encapsulate(measurement.Measurer.TextPosition + Vector3.up * 0.3f);
-                            //bounds.Encapsulate(measurement.Measurer.TextPosition + Vector3.down * 0.3f);
-                            //bounds.Encapsulate(measurement.Measurer.TextPosition + Vector3.right * 0.3f);
-                            //bounds.Encapsulate(measurement.Measurer.TextPosition + Vector3.left * 0.3f);
-                            //bounds.Encapsulate(measurement.Measurer.TextPosition + Vector3.forward * 0.3f);
-                            //bounds.Encapsulate(measurement.Measurer.TextPosition + Vector3.back * 0.3f);
                         });
+                    }
+                    else
+                    {
+                        // If there are no valid measurements, ensure the measurable is inactive
+                        measurable.SetActive(false);
                     }
                 });
             }
@@ -1101,8 +1170,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         bool IsPointInShot(Vector2 screenPoint)
         {
-            return screenPoint.x > 0 && screenPoint.y > 0 
-                && screenPoint.x < renderTexture.width 
+            return screenPoint.x > 0 && screenPoint.y > 0
+                && screenPoint.x < renderTexture.width
                 && screenPoint.y < renderTexture.height;
         }
 
@@ -1198,21 +1267,24 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             }
         }
     }
-
-    void ToggleMeasurableActiveStatesWhilePlacing()
+    void ToggleMeasurableActiveStatesWhilePlacing(bool enable)
     {
-        Debug.LogError("ToggleMeasurableActiveStatesWhilePlacing");
+        //Debug.LogError("ToggleMeasurableActiveStatesWhilePlacing");
         if (Measurables.Count > 0)
         {
-            Debug.LogError("Measurables.Count > 0");
+            //  Debug.LogError("Measurables.Count > 0");
             Measurables.ForEach(measurable =>
             {
-                measurable.ArmAssemblyActiveInElevationPhotoMode = true;
-                _measurableActiveStates[measurable] = measurable.IsActive;
-                measurable.SetActive(true);
+                if (measurable.ArmAssemblyActiveInElevationPhotoMode)
+                {
+                    measurable.ArmAssemblyActiveInElevationPhotoMode = enable;
+                }
+                _measurableActiveStates[measurable] = enable;
+                measurable.SetActive(enable);
             });
         }
     }
+
     private void ToggleMeasurableActiveStates(bool active)
     {
         if (active)
@@ -1289,9 +1361,9 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
     #region Raycasting
 
-    public async void    StartRaycastPlacementMode()
+    public async void StartRaycastPlacementMode()
     {
-        if (ParentAttachmentPoint != null) 
+        if (ParentAttachmentPoint != null)
             return;
 
         DeselectAll();
@@ -1326,18 +1398,19 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
     private async void UpdateRaycastPlacementMode()
     {
-        if (!_isRaycastPlacementMode || _hasBeenPlaced) 
+        if (!_isRaycastPlacementMode || _hasBeenPlaced)
             return;
-        Debug.LogError("CanPlaceAnywhere");
+        //  Debug.LogError("CanPlaceAnywhere");
         _measurableActiveStates.Clear();
-        ToggleMeasurableActiveStatesWhilePlacing();
+        ToggleMeasurableActiveStatesWhilePlacing(true);
+
         bool isCeilingCam = OperatingRoomCamera.LiveCamera
             .CameraType == OperatingRoomCameraType.OrthoCeiling;
 
         bool isOrbitalCam = OperatingRoomCamera.LiveCamera
             .CameraType == OperatingRoomCameraType.Orbital;
 
-        if (WallRestrictions[0] == RoomBoundaryType.Ceiling && 
+        if (WallRestrictions[0] == RoomBoundaryType.Ceiling &&
             (isCeilingCam || isOrbitalCam))
         {
             RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling).Collider.enabled = true;
@@ -1349,10 +1422,9 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         if (CanPlaceAnywhere)
         {
-       
             int maskSelectable = 1 << LayerMask.NameToLayer("Selectable");
 
-            if (Physics.Raycast(ray, out RaycastHit hit, 
+            if (Physics.Raycast(ray, out RaycastHit hit,
                 float.MaxValue, maskSelectable))
             {
                 transform.position = hit.point;
@@ -1379,7 +1451,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         {
             //int mask = 1 << LayerMask.NameToLayer("Wall");
             var hits = Physics.RaycastAll(ray, float.MaxValue);
-            foreach(var hit in hits)
+            foreach (var hit in hits)
             {
                 void SetPosition(RaycastHit hit)
                 {
@@ -1456,13 +1528,13 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
                 if (_virtualParent == null)
                 {
-                    Vector3 direction = WallRestrictions[0] == RoomBoundaryType.Ceiling ? Vector3.up : 
-                        WallRestrictions[0] == RoomBoundaryType.Floor ? Vector3.down : 
+                    Vector3 direction = WallRestrictions[0] == RoomBoundaryType.Ceiling ? Vector3.up :
+                        WallRestrictions[0] == RoomBoundaryType.Floor ? Vector3.down :
                         Vector3.right;
 
                     var ray2 = new Ray(Vector3.zero + Vector3.up, direction);
 
-                    if (Physics.Raycast(ray2, out RaycastHit raycastHit2, 
+                    if (Physics.Raycast(ray2, out RaycastHit raycastHit2,
                         float.MaxValue, 1 << LayerMask.NameToLayer("Wall")))
                     {
                         SetPosition(raycastHit2);
@@ -1471,7 +1543,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 }
                 else if (WallRestrictions.Count > 0)
                 {
-                    if (hit.collider.CompareTag("Wall") && 
+                    if (hit.collider.CompareTag("Wall") &&
                         WallRestrictions.Any(x => (int)x > 1))
                     {
                         // Additional Wall
@@ -1522,7 +1594,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                     Debug.LogWarning("No virtual parent detected.");
                 }
 
-                if (WallRestrictions[0] == RoomBoundaryType.Ceiling && 
+                if (WallRestrictions[0] == RoomBoundaryType.Ceiling &&
                     (isCeilingCam || isOrbitalCam))
                 {
                     RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling).Collider.enabled = false;
@@ -1548,18 +1620,22 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             }
 
             await Task.Yield();
+            Debug.Log("Anas => Object Placed");
+            EventManager.OnCompareProximatryAlertWithOR_Table.Invoke(this.gameObject, 1, 1.5f);
             if (!Application.isPlaying) return;
 
             Debug.Log($"Selectable: Raycast placement mode = false");
             _isRaycastPlacementMode = false;
             OnPlaced?.Invoke();
+            ToggleMeasurableActiveStatesWhilePlacing(false);
+
             if (FindObjectOfType<DuplicateRoom>(true))
             {
                 DuplicateRoom room = FindObjectOfType<DuplicateRoom>(true);
                 room.onObjectPlaced?.Invoke(this.gameObject);
             }
-          
-         
+
+
         }
     }
 

@@ -109,6 +109,9 @@ MonoBehaviour:
   <MeasurementTypes>k__BackingField: 00000000
   <ForwardOnly>k__BackingField: 1
   <ShowInElevationPhoto>k__BackingField: 0
+  minThreshold: 1
+  maxThreshold: 2
+  isAdjustmentNeeded: 0
   <Disabled>k__BackingField: 0
 --- !u!1 &5975259529744374933
 GameObject:
@@ -157,6 +160,9 @@ MonoBehaviour:
   <MeasurementTypes>k__BackingField: 02000000
   <ForwardOnly>k__BackingField: 1
   <ShowInElevationPhoto>k__BackingField: 0
+  minThreshold: 1
+  maxThreshold: 2
+  isAdjustmentNeeded: 0
   <Disabled>k__BackingField: 0
 --- !u!1 &6845131091077555914
 GameObject:
@@ -236,6 +242,9 @@ MonoBehaviour:
   <MeasurementTypes>k__BackingField: 00000000
   <ForwardOnly>k__BackingField: 1
   <ShowInElevationPhoto>k__BackingField: 0
+  minThreshold: 1
+  maxThreshold: 2
+  isAdjustmentNeeded: 0
   <Disabled>k__BackingField: 0
 --- !u!1001 &2866533127200821579
 PrefabInstance:
@@ -843,12 +852,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f68425babe0141945b7bb62bfa707421, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  _lineRenderer: {fileID: 0}
   <IncludeChildrenInMeasurement>k__BackingField: 0
-  <BufferSize>k__BackingField: 0
   <DoorHinge>k__BackingField: {fileID: 3905397443523466137}
   <DoorStrike>k__BackingField: {fileID: 2729007806516137629}
   <DoorSwingAngle>k__BackingField: 90
   <Type>k__BackingField: 1
+  epsilon: 0.00001
+  renderMaterialColor: {fileID: 0}
+  value: 0
+  min: 0
+  max: 0
 --- !u!114 &7519392179438398858
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -861,12 +875,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f68425babe0141945b7bb62bfa707421, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  _lineRenderer: {fileID: 0}
   <IncludeChildrenInMeasurement>k__BackingField: 0
-  <BufferSize>k__BackingField: 0
   <DoorHinge>k__BackingField: {fileID: 3017709448153834260}
   <DoorStrike>k__BackingField: {fileID: 2729007806516137629}
   <DoorSwingAngle>k__BackingField: -90
   <Type>k__BackingField: 1
+  epsilon: 0.00001
+  renderMaterialColor: {fileID: 0}
+  value: 0
+  min: 0
+  max: 0
 --- !u!4 &6027947500981273730 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 3702329968397827254, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}

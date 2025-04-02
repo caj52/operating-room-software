@@ -222,6 +222,10 @@ public class RoomBoundary : MonoBehaviour
         });
     }
 
+    public RoomBoundary GetRoomBoundaryNonStatic(RoomBoundaryType roomBoundaryType)
+    {
+        return RoomBoundariesByType[roomBoundaryType];
+    }
     public static RoomBoundary GetRoomBoundary(RoomBoundaryType roomBoundaryType)
     {
         return RoomBoundariesByType[roomBoundaryType];

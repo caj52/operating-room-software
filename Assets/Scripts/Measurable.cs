@@ -8,12 +8,15 @@ using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 
 public class Measurable : MonoBehaviour
 {
+
+    [System.Serializable]
     public class Measurement
     {
-        public Measurement(Measurable measurable) 
+        public Measurement(Measurable measurable)
         {
 
             Measurable = measurable;
@@ -22,7 +25,7 @@ public class Measurable : MonoBehaviour
 
         private IEnumerator GetMeasurer()
         {
-            Debug.LogError("GetMeasurer");
+
             if (!Measurer.Initialized)
             {
                 yield return new WaitUntil(() => Measurer.Initialized);
@@ -47,10 +50,20 @@ public class Measurable : MonoBehaviour
     [field: SerializeField] public bool ShowInElevationPhoto { get; private set; }
     private AttachmentPoint HighestAssemblyAttachmentPoint { get; set; }
     public bool ArmAssemblyActiveInElevationPhotoMode { get; set; }
+    private Selectable proxyAlertWithORTABLE;
     public bool IsActive { get; private set; }
+    [SerializeField] float minThreshold = 1;
+    [SerializeField] float maxThreshold = 2;
+    [SerializeField] bool isAdjustmentNeeded;
 
-    [field: SerializeField] 
+
+    [field: SerializeField]
     public bool Disabled { get; set; }
+
+    private void OnEnable()
+    {
+        EventManager.OnCompareProximatryAlertWithOR_Table += CheckProximity;
+    }
 
     private void Awake()
     {
@@ -72,6 +85,8 @@ public class Measurable : MonoBehaviour
         }
 
         Initialize();
+        proxyAlertWithORTABLE = FindObjectsByType<Selectable>(FindObjectsSortMode.None)
+    .FirstOrDefault(x => x.MetaData.Name == "OR_Table_0");
     }
 
     private void Initialize()
@@ -105,7 +120,7 @@ public class Measurable : MonoBehaviour
                         });
                     });
                 }
-                
+
             }
             else
             {
@@ -148,13 +163,17 @@ public class Measurable : MonoBehaviour
 
     public void SetActive(bool active)
     {
-        Debug.LogError("SetActive" + active);
+
         IsActive = active && !Disabled;
 
         Measurements.ToList().ForEach(item =>
         {
-            item.Measurer.gameObject.SetActive(IsActive);
-            item.Measurer.LineRenderers.ForEach(renderer => renderer.enabled = item.MeasurementType == MeasurementType.ToArmAssemblyOrigin && IsActive);
+            if (item.Measurer)
+            {
+                item.Measurer.gameObject.SetActive(IsActive);
+                item.Measurer.LineRenderers.ForEach(renderer => renderer.enabled = item.MeasurementType == MeasurementType.ToArmAssemblyOrigin && IsActive);
+            }
+           
         });
         ActiveMeasurablesChanged?.Invoke();
     }
@@ -168,6 +187,7 @@ public class Measurable : MonoBehaviour
                 Destroy(item.Measurer.gameObject);
             }
         });
+        EventManager.OnCompareProximatryAlertWithOR_Table -= CheckProximity;
     }
 
     private int GetTotalNeededMeasurements()
@@ -190,7 +210,7 @@ public class Measurable : MonoBehaviour
         return count;
     }
 
-    private static Dictionary<RoomBoundaryType, Vector3> _wallDirectionVectors = new ()
+    private static Dictionary<RoomBoundaryType, Vector3> _wallDirectionVectors = new()
     {
         { RoomBoundaryType.WallNorth, Vector3.forward },
         { RoomBoundaryType.WallSouth, -Vector3.forward },
@@ -201,7 +221,7 @@ public class Measurable : MonoBehaviour
     private void UpdateMeasurementViaRaycast(Vector3 direction, Measurement measurement, bool ignoreSelectables = false)
     {
         Ray ray = new Ray(transform.position, direction);
-        int mask = LayerMask.GetMask("Wall", "Selectable");
+        int mask = LayerMask.GetMask("Wall");
         if (ignoreSelectables)
         {
             mask = LayerMask.GetMask("Wall");
@@ -217,7 +237,7 @@ public class Measurable : MonoBehaviour
         if (Physics.Raycast(ray, out RaycastHit raycastHit, 1000f, mask))
         {
             var obj = raycastHit.collider.gameObject;
-            if (obj.layer == LayerMask.NameToLayer("Wall") || obj.CompareTag("Wall"))
+            if (obj.layer == LayerMask.NameToLayer("Wall") || obj.CompareTag("Wall") || obj.CompareTag("Baseboard"))
             {
                 measurement.Origin = ray.origin;
                 measurement.HitPoint = raycastHit.point;
@@ -232,7 +252,7 @@ public class Measurable : MonoBehaviour
 
     private float GetDistanceToCameraPlane(Vector3 point, Camera camera = null)
     {
-        if (camera == null) 
+        if (camera == null)
         {
             camera = Camera.main;
         }
@@ -281,7 +301,7 @@ public class Measurable : MonoBehaviour
                     item.HitPoint = HighestAssemblyAttachmentPoint.transform.position + addedHeight;
                     origin.y = HighestAssemblyAttachmentPoint.transform.position.y;
                     item.Origin = origin + addedHeight;
-                    
+
                     var measurer = item.Measurer;
 
                     if (Selectable.IsInElevationPhotoMode)
@@ -315,17 +335,165 @@ public class Measurable : MonoBehaviour
 
     private void Update()
     {
+        //CheckProximity(GetComponentInParent<Selectable>().gameObject, 1, 2);
+
         if (!IsActive) return;
         float _ = 0;
         UpdateMeasurements(ref _);
     }
+
+    public void CheckProximity(GameObject referenceObject, float minThresholdDistance, float maxThresholdDistance)
+    {
+        Selectable selectable = referenceObject.GetComponent<Selectable>();
+
+        if (selectable.SpecialTypes.Count == 0)
+            return;
+        if (selectable.SpecialTypes[0].Equals(SpecialSelectableType.Mount) && proxyAlertWithORTABLE)
+        {
+            Vector3 refPos = referenceObject.transform.position;
+            Vector3 tablePos = proxyAlertWithORTABLE.transform.position;
+
+            Vector3 adjustedRefPos = new Vector3(refPos.x, 0, refPos.z);
+            Vector3 adjustedTablePos = new Vector3(tablePos.x, 0, tablePos.z);
+
+            float distance = Vector3.Distance(adjustedRefPos, adjustedTablePos);
+            float moveAwayBy = minThresholdDistance - distance;
+            float moveCloserBy = distance - maxThresholdDistance;
+
+            if (distance < minThresholdDistance)
+            {                
+                UI_DialogPrompt.Open($"{selectable.MetaData.Name} is TOO CLOSE to OR_Table_0 . Suggested Adjustment: Move it farther by {moveAwayBy:F2} meters.",
+                new ButtonAction
+                {
+                    //ButtonText = "Auto Placement",
+                    //Action = () =>
+                    //{
+                    //    isAdjustmentNeeded = false;
+                    //    Vector3 newPosition = MoveAway(referenceObject, tablePos, moveAwayBy);
+                    //    referenceObject.transform.position = newPosition;
+                    //    Debug.Log($"Auto-Moving {selectable.MetaData.Name} farther by {moveAwayBy:F2} meters.");
+                    //    UI_DialogPrompt.Close();
+                    //},
+                    ButtonText = "OK",
+                    Action = () =>
+                    {
+                        isAdjustmentNeeded = true;
+                        UI_DialogPrompt.Close();
+                    },
+
+                }
+                //new ButtonAction
+                //{
+                //    ButtonText = "Cancel",
+                //    Action = () =>
+                //    {
+                //        UI_DialogPrompt.Close();
+                //    },
+                //}
+               );
+            }
+            else if (distance > maxThresholdDistance)
+            {
+                Vector3 newPosition = MoveCloser(referenceObject, tablePos, moveCloserBy);
+                Debug.Log($"Auto-Moving {selectable.MetaData.Name} closer by {moveCloserBy:F2} meters.");
+                UI_DialogPrompt.Open($"{selectable.MetaData.Name} is TOO FAR from OR_Table_0.Suggested Adjustment: Move it closer by {moveCloserBy:F2} meters.",
+                 new ButtonAction
+                 {
+                     ButtonText = "Ok",
+                     Action = () =>
+                     {
+                         UI_DialogPrompt.Close();
+                         isAdjustmentNeeded = true;
+                     },
+                 }
+                );
+            }
+            else
+            {
+                if (isAdjustmentNeeded) 
+                {
+                    Debug.Log($"Anas => {selectable.MetaData.Name} is at an IDEAL DISTANCE from OR_Table_0");
+                    UI_DialogPrompt.Open($"{selectable.MetaData.Name} is at an IDEAL DISTANCE from OR_Table_0.No adjustment needed",
+                     new ButtonAction
+                     {
+                         ButtonText = "Ok",
+                         Action = () =>
+                         {
+                             UI_DialogPrompt.Close();
+                             isAdjustmentNeeded = false;
+                         },
+                     }
+                    );
+                }
+            }
+        }
+    }
+    private Vector3 MoveAway(GameObject obj, Vector3 tablePos, float moveBy)
+    {
+        Vector3 direction = (obj.transform.position - tablePos).normalized;
+        Vector3 newPosition = new Vector3(obj.transform.position.x + (direction.x * moveBy), obj.transform.position.y, obj.transform.position.z + (direction.z * moveBy));
+
+        return FindValidPosition(newPosition, obj);
+    }
+    private Vector3 MoveCloser(GameObject obj, Vector3 tablePos, float moveBy)
+    {
+        float offset = 3;
+        Vector3 direction = (tablePos - obj.transform.position).normalized;
+        Vector3 newPosition = new Vector3(obj.transform.position.x + (direction.x * moveBy) + offset, obj.transform.position.y, obj.transform.position.z + (direction.z * moveBy) + offset);
+
+        return FindValidPosition(newPosition, obj);
+    }
+    private Vector3 FindValidPosition(Vector3 targetPosition, GameObject obj)
+    {
+        int maxAttempts = 8;
+        float offset = 0.5f;
+        int layerMask = ~LayerMask.GetMask("Wall");
+
+        for (int i = 0; i < maxAttempts; i++)
+        {
+            if (!Physics.CheckSphere(targetPosition, 0.1f, layerMask))
+            {
+                Debug.Log($"Valid position found for {obj.name} at {targetPosition}");
+                return targetPosition;
+            }
+
+            // Try shifting in multiple directions instead of just one
+            targetPosition += new Vector3(offset * (i % 2 == 0 ? 1 : -1), 0, offset * (i % 3 == 0 ? 1 : -1));
+        }
+
+        Debug.LogWarning($"{obj.name} could not find a valid position after multiple attempts.");
+        return obj.transform.position;
+    }
+    //private Vector3 FindValidPosition(Vector3 targetPosition, GameObject obj)
+    //{
+    //    int maxAttempts = 5; 
+    //    float offset = 0.5f;
+    //    Debug.Log("Checking the Adjusted Location");
+    //    int layerMask = ~LayerMask.GetMask("Wall");
+
+    //    for (int i = 0; i < maxAttempts; i++)
+    //    {
+    //        if (!Physics.CheckSphere(targetPosition, 0.2f, layerMask)) 
+    //        {
+
+    //            Debug.Log("Checking the Adjusted Location 1");
+    //            return targetPosition;
+    //        }
+
+    //        targetPosition += new Vector3(offset, 0, offset);
+
+    //        Debug.Log("Checking the Adjusted Location 2");
+    //    }
+
+    //    Debug.LogWarning($"{obj.name} could not find a valid position after multiple attempts.");
+    //    return obj.transform.position;
+    //}
 }
 
 public enum MeasurementType
-{ 
+{
     Walls,
     Floor,
     Ceiling,
     ToArmAssemblyOrigin
 }
-    

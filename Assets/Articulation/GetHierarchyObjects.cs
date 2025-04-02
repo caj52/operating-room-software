@@ -341,7 +341,8 @@ public class GetHierarchyObjects : MonoBehaviour
                 }
                 AssignTransformReferences(allChildren);
                 Debug.Log("Unique Children: " + string.Join(", ", allChildren));
-
+                Debug.Log(obj.name, gameObject);
+                EventManager.OnCompareProximatryAlertWithOR_Table.Invoke(obj.gameObject, 1, 1.5f);
             }
         }
     }

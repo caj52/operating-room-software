@@ -47,6 +47,9 @@ MonoBehaviour:
   <MeasurementTypes>k__BackingField: 01000000
   <ForwardOnly>k__BackingField: 1
   <ShowInElevationPhoto>k__BackingField: 1
+  minThreshold: 1
+  maxThreshold: 2
+  isAdjustmentNeeded: 0
   <Disabled>k__BackingField: 0
 --- !u!1001 &2028536270868664389
 PrefabInstance:
@@ -610,6 +613,8 @@ MonoBehaviour:
   <ZAlwaysFacesGroundElevationOnly>k__BackingField: 0
   <ZAlignUpIsParentForward>k__BackingField: 0
   <Measurables>k__BackingField: []
+  Measurers: []
+  measurements: []
   <AlignForElevationPhoto>k__BackingField: 0
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
@@ -620,6 +625,7 @@ MonoBehaviour:
   - {fileID: 8537093520404394872}
   - {fileID: 660829841143322550}
   - {fileID: 3139040730448002193}
+  _assemblySelectables: []
   canBeDuplicated: 0
   <CurrentScaleLevel>k__BackingField:
     <Size>k__BackingField: 0
@@ -914,6 +920,8 @@ MonoBehaviour:
   <ZAlwaysFacesGroundElevationOnly>k__BackingField: 0
   <ZAlignUpIsParentForward>k__BackingField: 0
   <Measurables>k__BackingField: []
+  Measurers: []
+  measurements: []
   <AlignForElevationPhoto>k__BackingField: 0
   <ChangeHeightForElevationPhoto>k__BackingField: 1
   <CanPlaceAnywhere>k__BackingField: 0
@@ -924,6 +932,7 @@ MonoBehaviour:
   - {fileID: 8537093520404394872}
   - {fileID: 660829841143322550}
   - {fileID: 3139040730448002193}
+  _assemblySelectables: []
   canBeDuplicated: 0
   <CurrentScaleLevel>k__BackingField:
     <Size>k__BackingField: 0
@@ -1338,6 +1347,9 @@ MonoBehaviour:
   <MeasurementTypes>k__BackingField: 0100000003000000
   <ForwardOnly>k__BackingField: 0
   <ShowInElevationPhoto>k__BackingField: 0
+  minThreshold: 1
+  maxThreshold: 2
+  isAdjustmentNeeded: 0
   <Disabled>k__BackingField: 0
 --- !u!4 &6859058702094304871 stripped
 Transform:

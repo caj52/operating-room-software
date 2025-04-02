@@ -78,6 +78,9 @@ MonoBehaviour:
   <MeasurementTypes>k__BackingField: 01000000
   <ForwardOnly>k__BackingField: 1
   <ShowInElevationPhoto>k__BackingField: 1
+  minThreshold: 1
+  maxThreshold: 2
+  isAdjustmentNeeded: 0
   <Disabled>k__BackingField: 0
 --- !u!1001 &1198960638586086457
 PrefabInstance:
@@ -457,12 +460,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f68425babe0141945b7bb62bfa707421, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  _lineRenderer: {fileID: 0}
   <IncludeChildrenInMeasurement>k__BackingField: 1
-  <BufferSize>k__BackingField: 0
   <DoorHinge>k__BackingField: {fileID: 0}
   <DoorStrike>k__BackingField: {fileID: 0}
   <DoorSwingAngle>k__BackingField: 90
   <Type>k__BackingField: 0
+  epsilon: 0.00001
+  renderMaterialColor: {fileID: 0}
+  value: 0
+  min: 0
+  max: 0
 --- !u!1001 &4213370397791021084
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -1111,6 +1119,8 @@ MonoBehaviour:
   <ZAlwaysFacesGroundElevationOnly>k__BackingField: 1
   <ZAlignUpIsParentForward>k__BackingField: 0
   <Measurables>k__BackingField: []
+  Measurers: []
+  measurements: []
   <AlignForElevationPhoto>k__BackingField: 0
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
@@ -1121,6 +1131,7 @@ MonoBehaviour:
   - {fileID: 994789852051424456}
   - {fileID: 2816230040811063533}
   - {fileID: 8654360463299064796}
+  _assemblySelectables: []
   canBeDuplicated: 0
   <CurrentScaleLevel>k__BackingField:
     <Size>k__BackingField: 0

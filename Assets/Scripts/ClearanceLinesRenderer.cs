@@ -1,9 +1,12 @@
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using TMPro;
 using Unity.Mathematics;
+using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -60,7 +63,7 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
 
     private static List<Vector3> _circlePositions = new();
 
-    private LineRenderer _lineRenderer;
+    public LineRenderer _lineRenderer;
 
     /// <summary>
     /// "Should be \"true\" on heads that can have attachements (i.e. boom head that can have added shelves)"
@@ -71,7 +74,7 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
     /// <summary>
     /// Adds a buffer amount to clearance lines to account for inaccuracies
     /// </summary>
-    [field: SerializeField] private float BufferSize { get; set; }
+    [SerializeField] private float BufferSize { get; set; }
 
     /// <summary>Only takes XZ data</summary>
     [field: SerializeField]private Transform DoorHinge { get; set; }
@@ -100,11 +103,19 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
     private bool _needsUpdate = true;
     private bool _taskRunning = false;
     private bool _cancelTask = false;
+
+    [SerializeField] float epsilon = 0.00001f;
     private float MedianY => ((_highestY + _lowestY) / 2f) - _highestSelectable.transform.position.y;
     private object _lockObj = new();
+    [SerializeField] Material renderMaterialColor;
     #endregion
 
     #region Monobehaviour
+    private void OnEnable()
+    {
+        //EventManager.OnChangeColorOfClearanceLineSelectable += CheckCircleIntersections;
+        //EventManager.OnDefaultColorClearanceLine += SetDefaultColor;
+    }
     private void Awake()
     {
         if (SceneManager.GetActiveScene().name == "ObjectEditor")
@@ -114,6 +125,10 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         }
 
         _selectable = GetComponent<Selectable>();
+        //if (BufferSize == 0) // Set default only if it's not set in Inspector
+        //{
+        //    BufferSize = 0.05f;
+        //}
     }
 
     private void OnDestroy()
@@ -148,7 +163,7 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
 
             _rotateMeshWhenFindingFarthestVert = _selectable != null && _selectable.IsGizmoSettingAllowed(GizmoType.Rotate, Axis.Z);
         }
-       
+        //InitializeDistanceLineRenderer();
         CheckStatus();
     }
 
@@ -160,6 +175,8 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         {
             UpdateLineRenderer();
         }
+
+        //UpdateDistanceLine();
 
         if (FreeLookCam.IsActive)
         {
@@ -173,6 +190,8 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
             _lineRenderer.startWidth = size;
             _lineRenderer.endWidth = size;
         }
+
+        //CheckCircleIntersections();
     }
     #endregion
 
@@ -228,13 +247,17 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
     {
         if (_lineRenderer == null)
         {
+            Debug.Log("Anas => Adding ClearacneLine ");
             var prefab = Resources.Load<GameObject>("Prefabs/ClearanceLinesRenderer");
             var newObj = Instantiate(prefab, Type == RendererType.ArmAssembly ? _highestSelectable.transform : transform.root);
+            newObj.name = gameObject.name;
             newObj.transform.rotation = Quaternion.identity;
             _lineRenderer = newObj.GetComponent<LineRenderer>();
+            //_lineRenderer.gameObject.GetComponentInParent<Selectable>().ClearanceLineAddOrRemoveToList(_lineRenderer.gameObject, true);
         }
 
         _lineRenderer.gameObject.SetActive(UI_ToggleClearanceLines.IsActive);
+
 
 #if UNITY_EDITOR
         if (Type == RendererType.Door)
@@ -403,6 +426,7 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         });
 
         await task;
+        //CheckCircleIntersections();
 #endif
 
         // object was destroyed while task was running
@@ -426,12 +450,15 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         for (int i = 0; i < _positions.Count; i++)
         {
             Vector3 newPos = _positions[i] * _farthestDistance;
-            newPos.y = MedianY;
+            newPos.y = 0;
             _positions[i] = newPos;
         }
 
         _lineRenderer.positionCount = _positions.Count;
         _lineRenderer.SetPositions(_positions.ToArray());
+
+        Debug.Log("Array: " + string.Join(", ", _positions.ToArray()));
+
 
         _taskRunning = false;
         _cancelTask = false;
@@ -463,5 +490,152 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
 
         _needsUpdate = false;
     }
+    //private void CheckCircleIntersections(List<ClearanceLinesRenderer> clearanceGameObjects = null)
+    //{
+    //    List<ClearanceLinesRenderer> allClearanceRenderers = FindObjectsOfType<ClearanceLinesRenderer>().ToList();
+    //    Debug.Log("Anas => Clearance List Count " + allClearanceRenderers.Count);
+
+    //    for (int i = 0; i < allClearanceRenderers.Count; i++)
+    //    {
+    //        for (int j = i; j < allClearanceRenderers.Count; j++)
+    //        {
+
+    //            var rendererA = allClearanceRenderers[i];
+    //            var rendererB = allClearanceRenderers[j];
+
+    //            Debug.Log($"Anas => {rendererA._highestSelectable} == {rendererB._highestSelectable}");
+
+    //            Vector3 centerA = rendererA.transform.position;
+    //            Vector3 centerB = rendererB.transform.position;
+
+    //            float radiusA = rendererA._farthestDistance + rendererA.BufferSize;
+    //            float radiusB = rendererB._farthestDistance + rendererB.BufferSize;
+
+    //            float distance = Vector3.Distance(centerA, centerB);
+
+    //            if (rendererA._highestSelectable == rendererB._highestSelectable)
+    //            {
+    //                Debug.Log("Anas => Same Highest Selectable");
+    //                SetRendererColor(rendererA, new Color(0, 1, 0, 0.5f)); // Green
+    //                SetRendererColor(rendererB, new Color(0, 1, 0, 0.5f));
+    //            }
+    //            else if (distance <= (radiusA + radiusB))
+    //            {
+    //                Debug.Log("Anas => Intersection detected between " + rendererA.gameObject.name , rendererA.gameObject);
+    //                Debug.Log("Anas => and " + rendererB.gameObject.name , rendererB.gameObject);
+    //                SetRendererColor(rendererA, new Color(1f, 0f, 0f, 0.5f)); // Red
+    //                SetRendererColor(rendererB, new Color(1f, 0f, 0f, 0.5f));
+    //            }
+    //            else 
+    //            {
+    //                Debug.Log("Anas => Not Same Highest Selectable and Intersaction");
+    //                SetRendererColor(rendererA, new Color(0, 1, 0, 0.5f)); // Green
+    //                SetRendererColor(rendererB, new Color(0, 1, 0, 0.5f));
+
+    //            }
+    //        }
+    //    }
+    //    bool isSelectedObjectAvailable = false;
+    //    if (clearanceGameObjects != null) 
+    //    {
+    //        isSelectedObjectAvailable = clearanceGameObjects.Where(x => x.gameObject == this.gameObject).FirstOrDefault();
+    //    }
+
+    //    if (isSelectedObjectAvailable)
+    //    {
+    //        Color redColor = new Color(1f, 0f, 0f, 0.5f);
+    //        Color currentColor = _lineRenderer.materials[0].color;
+    //        if (CompareRGB(currentColor, redColor))
+    //        {
+    //            Debug.Log("Anas => Changing Color Red of " + this.gameObject.name, gameObject);
+    //            SetRendererColor(this, new Color(1f, 0f, 0f, 1f)); // Red
+    //        }
+    //        else
+    //        {
+    //            Debug.Log("Anas => Changing Color Green of " + this.gameObject.name , gameObject);
+    //            SetRendererColor(this, new Color(0, 1, 0, 1f)); // Green
+    //        }
+    //    }
+    //}
+
+    private void CheckCircleIntersections(List<ClearanceLinesRenderer> clearanceGameObjects = null)
+    {
+        List<ClearanceLinesRenderer> allClearanceRenderers = FindObjectsOfType<ClearanceLinesRenderer>().ToList();
+
+        for (int i = 0; i < allClearanceRenderers.Count; i++)
+        {
+            for (int j = i + 1; j < allClearanceRenderers.Count; j++)
+            {
+                if (allClearanceRenderers[i].transform.parent == allClearanceRenderers[j].transform.parent)
+                    continue;
+
+                var rendererA = allClearanceRenderers[i];
+                var rendererB = allClearanceRenderers[j];
+
+                if (rendererA == null || rendererB == null || rendererA._lineRenderer == null || rendererB._lineRenderer == null)
+                {
+                    continue;
+                }
+
+                Vector3 centerA = rendererA.transform.position;
+                Vector3 centerB = rendererB.transform.position;
+
+                float radiusA = rendererA._farthestDistance + rendererA.GetDynamicBufferSize();
+                float radiusB = rendererB._farthestDistance + rendererB.GetDynamicBufferSize();
+
+                Debug.Log($"Anas => radiusA {radiusA} + radiusB {radiusB} = {radiusA + radiusB}");
+
+                float distance = Vector3.Distance(centerA, centerB);
+                Debug.Log("Anas => Distance " + distance);
+
+                if (distance <= (radiusA + radiusB))
+                {
+                    Debug.Log("Anas => Red " + rendererA, rendererA.gameObject);
+                    Debug.Log("Anas => Red " + rendererB, rendererB.gameObject);
+                    SetRendererColor(rendererA, Color.red);
+                    SetRendererColor(rendererB, Color.red);
+                   
+                }
+                else
+                {
+                    Debug.Log("Anas => Green " + rendererA, rendererA.gameObject);
+                    Debug.Log("Anas => Green " + rendererB, rendererB.gameObject);
+                        
+                    SetRendererColor(rendererA, Color.green);
+                    SetRendererColor(rendererB, Color.green);
+                }
+            }
+        }
+    }
+
+
+    [SerializeField] float value;
+    [SerializeField] float min;
+    [SerializeField] float max;
+
+    private float GetDynamicBufferSize()
+    {
+        return Mathf.Clamp(_farthestDistance * 0.1f, 0.05f, 0.1f); 
+    }
+    private void SetRendererColor(ClearanceLinesRenderer renderer, Color color)
+    {
+        if (renderer != null && renderer._lineRenderer != null && renderer._lineRenderer.materials.Length > 0)
+        {
+            renderer._lineRenderer.materials[0].color = color;
+        }
+    }
+
+    private bool CompareRGB(Color a, Color b)
+    {
+        return Mathf.Approximately(a.r, b.r) && Mathf.Approximately(a.g, b.g) && Mathf.Approximately(a.b, b.b);
+    }
+
+    private void SetDefaultColor() 
+    {           
+        Color defaultColor = (_lineRenderer.materials[0].color == Color.green) ? new Color(0, 1, 0, 0.5f) : new Color(0, 1, 0, 0.5f);
+        _lineRenderer.materials[0].color  = defaultColor;
+    }
+
+
     #endregion
 }

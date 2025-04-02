@@ -47,6 +47,9 @@ MonoBehaviour:
   <MeasurementTypes>k__BackingField: 03000000
   <ForwardOnly>k__BackingField: 0
   <ShowInElevationPhoto>k__BackingField: 1
+  minThreshold: 1
+  maxThreshold: 2
+  isAdjustmentNeeded: 0
   <Disabled>k__BackingField: 0
 --- !u!1001 &2648799364888017384
 PrefabInstance:
@@ -911,6 +914,9 @@ MonoBehaviour:
   <MeasurementTypes>k__BackingField: 
   <ForwardOnly>k__BackingField: 0
   <ShowInElevationPhoto>k__BackingField: 0
+  minThreshold: 1
+  maxThreshold: 2
+  isAdjustmentNeeded: 0
   <Disabled>k__BackingField: 0
 --- !u!4 &6103357333319172959 stripped
 Transform:
@@ -1342,6 +1348,8 @@ MonoBehaviour:
   <ZAlwaysFacesGroundElevationOnly>k__BackingField: 0
   <ZAlignUpIsParentForward>k__BackingField: 0
   <Measurables>k__BackingField: []
+  Measurers: []
+  measurements: []
   <AlignForElevationPhoto>k__BackingField: 0
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
@@ -1351,6 +1359,7 @@ MonoBehaviour:
   - {fileID: 7152650348232616790}
   - {fileID: 8914001475444777367}
   - {fileID: 1401955292755039548}
+  _assemblySelectables: []
   canBeDuplicated: 0
   <CurrentScaleLevel>k__BackingField:
     <Size>k__BackingField: 0
@@ -1409,12 +1418,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f68425babe0141945b7bb62bfa707421, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  _lineRenderer: {fileID: 0}
   <IncludeChildrenInMeasurement>k__BackingField: 0
-  <BufferSize>k__BackingField: 0
   <DoorHinge>k__BackingField: {fileID: 0}
   <DoorStrike>k__BackingField: {fileID: 0}
   <DoorSwingAngle>k__BackingField: 90
   <Type>k__BackingField: 0
+  epsilon: 0.00001
+  renderMaterialColor: {fileID: 0}
+  value: 0
+  min: 0
+  max: 0
 --- !u!1 &7335373838242843100 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 919132149155446097, guid: 7aa393eafe077db46b1090af76678ed1, type: 3}

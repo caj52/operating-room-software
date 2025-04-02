@@ -2623,12 +2623,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f68425babe0141945b7bb62bfa707421, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  _lineRenderer: {fileID: 0}
   <IncludeChildrenInMeasurement>k__BackingField: 1
-  <BufferSize>k__BackingField: 0
   <DoorHinge>k__BackingField: {fileID: 0}
   <DoorStrike>k__BackingField: {fileID: 0}
   <DoorSwingAngle>k__BackingField: 90
   <Type>k__BackingField: 0
+  epsilon: 0.00001
+  renderMaterialColor: {fileID: 0}
+  value: 0
+  min: 0
+  max: 0
 --- !u!1001 &3657081356003985799
 PrefabInstance:
   m_ObjectHideFlags: 0

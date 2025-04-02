@@ -102,10 +102,10 @@ public class FlyCamera : MonoBehaviour
     private Vector3 GetBaseInput()
     {
         Vector3 p_Velocity = Vector3.zero;
-        if (Input.GetKey(KeyCode.W)) p_Velocity += Vector3.forward;
-        if (Input.GetKey(KeyCode.S)) p_Velocity += Vector3.back;
-        if (Input.GetKey(KeyCode.A)) p_Velocity += Vector3.left;
-        if (Input.GetKey(KeyCode.D)) p_Velocity += Vector3.right;
+        if (Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.UpArrow)) p_Velocity += Vector3.forward;
+        if (Input.GetKey(KeyCode.DownArrow) || Input.GetKey(KeyCode.S)) p_Velocity += Vector3.back;
+        if (Input.GetKey(KeyCode.LeftArrow) || Input.GetKey(KeyCode.A)) p_Velocity += Vector3.left;
+        if (Input.GetKey(KeyCode.RightArrow) || Input.GetKey(KeyCode.D)) p_Velocity += Vector3.right;
         if (Input.GetKey(KeyCode.Q)) p_Velocity += Vector3.down;
         if (Input.GetKey(KeyCode.E)) p_Velocity += Vector3.up;
         return p_Velocity;

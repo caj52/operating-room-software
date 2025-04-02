@@ -17,7 +17,7 @@ public class DuplicateRoom : MonoBehaviour
     public TextMeshProUGUI currentRoomHeading;
     public UnityAction<GameObject> onObjectPlaced;
 
-    private Dictionary<int, RoomData> roomObjectsMapping = new Dictionary<int, RoomData>();
+    public  Dictionary<int, RoomData> roomObjectsMapping = new Dictionary<int, RoomData>();
     private int roomCount = 1; // Keeps track of total rooms
     private const int roomOffset = 20; // Fixed offset
 
@@ -42,9 +42,30 @@ public class DuplicateRoom : MonoBehaviour
     private void OnObjectPlaced(GameObject obj)
     {
         Debug.Log("Object Added To The List: " + obj);
-        if (roomObjectsMapping.TryGetValue(roomCount, out RoomData room))
+        AddObjectToCurrentRoom(obj);
+    }
+
+    public void AddObjectToCurrentRoom(GameObject obj)
+    {
+        // Find the room index that matches the current room
+        int currentRoomIndex = -1;
+        foreach (var kvp in roomObjectsMapping)
+        {
+            if (kvp.Value.RoomObject == currentRoom)
+            {
+                currentRoomIndex = kvp.Key;
+                break;
+            }
+        }
+
+        if (currentRoomIndex != -1 && roomObjectsMapping.TryGetValue(currentRoomIndex, out RoomData room))
         {
             room.ObjectsInRoom.Add(obj);
+            Debug.Log($"Added object {obj.name} to Room {currentRoomIndex}");
+        }
+        else
+        {
+            Debug.LogWarning("Failed to add object to current room: Room not found");
         }
     }
 
@@ -78,12 +99,13 @@ public class DuplicateRoom : MonoBehaviour
                     UI_DialogPrompt.Close();
                     // Update currentRoom to the new room.
                     currentRoom = newRoom;
+                    // Update roomCount to match the new room index
+                    roomCount = newRoomIndex; // Add this line!
                 },
             },
             new ButtonAction { ButtonText = "Cancel" }
         );
     }
-
 
     private GameObject DuplicateEntireRoom(GameObject room, int newRoomIndex)
     {
@@ -314,12 +336,13 @@ public class DuplicateRoom : MonoBehaviour
     }
 
 
-
+[System.Serializable]
 public class RoomData
 {
     public GameObject RoomObject { get; private set; }
     public List<GameObject> ObjectsInRoom { get; private set; }
 
+    
     public RoomData(GameObject room)
     {
         RoomObject = room;

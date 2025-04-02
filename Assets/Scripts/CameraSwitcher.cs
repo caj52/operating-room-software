@@ -5,8 +5,8 @@ using TMPro;
 
 public class CameraSwitcher : MonoBehaviour
 {
-    private List<Camera> cameras = new List<Camera>();
-    private int currentCameraIndex = 1;
+    public List<Camera> cameras = new List<Camera>();
+    private int currentCameraIndex = 0;
     public GameObject camFlyGameObject;
     public GameObject objectToDisableWhenCamFly;
     public TextMeshProUGUI buttonText;
@@ -15,7 +15,7 @@ public class CameraSwitcher : MonoBehaviour
     void Start()
     {
         buttonText = GetComponentInChildren<TextMeshProUGUI>();
-        FindAllCameras();
+    
         if (cameras.Count == 0)
         {
             Debug.LogError("No cameras found in the scene.");

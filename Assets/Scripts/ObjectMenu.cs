@@ -41,14 +41,14 @@ public class ObjectMenu : MonoBehaviour
 
     private const int _minFuzzyRatio = 50;
 
-    [field: SerializeField] 
+    [field: SerializeField]
     private GameObject ItemTemplate { get; set; }
 
-    [field: SerializeField] 
-    private TextMeshProUGUI ItemTemplateTextObjectName 
+    [field: SerializeField]
+    private TextMeshProUGUI ItemTemplateTextObjectName
     { get; set; }
 
-    [field:SerializeField] 
+    [field: SerializeField]
     private GameObject TemplateCategory { get; set; }
 
     [field: SerializeField]
@@ -60,16 +60,16 @@ public class ObjectMenu : MonoBehaviour
 
     private AttachmentPoint _attachmentPoint;
 
-    public List<ObjectMenuItem> ObjectMenuItems 
+    public List<ObjectMenuItem> ObjectMenuItems
     { get; private set; } = new();
 
-    public static Selectable LastOpenedSelectable 
+    public static Selectable LastOpenedSelectable
     { get; private set; }
 
-    public static SelectableData LastOpenedSelectableData 
+    public static SelectableData LastOpenedSelectableData
     { get; private set; }
 
-    private bool SearchIsActive => 
+    private bool SearchIsActive =>
         !string.IsNullOrWhiteSpace(InputField_Search.text);
 
     private List<string> _currentCategoryFilters = new();
@@ -98,7 +98,7 @@ public class ObjectMenu : MonoBehaviour
 
     private IEnumerator Start()
     {
-      
+
         var loadingToken = Loading.GetLoadingToken();
 
         yield return new WaitUntil
@@ -205,7 +205,7 @@ public class ObjectMenu : MonoBehaviour
     {
         if (!onlyShowStandalones)
         {
-            _instantiatedCategories.ForEach(x => 
+            _instantiatedCategories.ForEach(x =>
             {
                 string text = x.GetComponentInChildren<TextMeshProUGUI>(true).text;
                 bool isFile = text == "Save Data";
@@ -217,7 +217,7 @@ public class ObjectMenu : MonoBehaviour
                 }
 
                 x.SetActive(true);
-            
+
             });
             return;
         }
@@ -233,13 +233,13 @@ public class ObjectMenu : MonoBehaviour
         validCats.ForEach(x => Debug.Log(x));
 
         _instantiatedCategories
-            .ForEach(x => 
+            .ForEach(x =>
             {
                 string text = x.GetComponentInChildren<TextMeshProUGUI>(true).text;
                 bool textIsMatch = validCats.Contains(text);
                 bool isFile = text == "Save Data";
 
-                if (isFile) 
+                if (isFile)
                 {
                     x.SetActive(SceneManager.GetActiveScene().name != "ObjectEditor");
                     return;
@@ -393,6 +393,7 @@ public class ObjectMenu : MonoBehaviour
                 GameObject prefab = task.Result;
 
                 var newSelectableGameObject = Instantiate(prefab);
+                //newSelectableGameObject.AddComponent<SelectablePrice>();
                 var selectable2 = newSelectableGameObject.GetComponent<Selectable>();
                 LastOpenedSelectable = selectable2;
                 LastOpenedSelectableData = data;
@@ -419,11 +420,44 @@ public class ObjectMenu : MonoBehaviour
                 {
                     selectable2.StartRaycastPlacementMode();
                 }
+                //Check if the object has already attached the price script or not. we are checking this due to boom head object.
+                SelectablePrice isSelectablePriceAlreadyAttached = newSelectableGameObject.transform.root.GetComponentInChildren<SelectablePrice>();
+
+                if (newSelectableGameObject.name.StartsWith("NewBoomHead"))//if boom head object is created then attach the price script to it without detrmining that it has attachment point left or not.
+                {
+                    var selectablePrice = newSelectableGameObject.AddComponent<SelectablePrice>();
+                    selectablePrice.pricingObjectName = newMenuItem.GetComponentInChildren<TextMeshProUGUI>().text;//extract the Name of the object from UI for matching with excel name and retrive price
+                    string boomExcelFileName = DataFilePaths.ExcelFileBoomPricingSheet;
+                    Debug.Log("Boom Object found");
+                    selectablePrice.GetPricingDataFromExcel(boomExcelFileName);
+
+                }
+                else
+                {
+                    if (isSelectablePriceAlreadyAttached == null)//This is additional check due to boom head Object.
+                    {
+                        // Check if the object has no attachment points left, it means object placement completed. 
+                        bool hasAttachmentPoints = newSelectableGameObject.GetComponentsInChildren<AttachmentPoint>().Length > 0;
+
+                        Debug.Log(newSelectableGameObject.name, newSelectableGameObject);
+                        if (!hasAttachmentPoints)
+                        {
+                            Debug.Log("Light Object found");
+                            var selectablePrice = newSelectableGameObject.AddComponent<SelectablePrice>();
+                            selectablePrice.pricingObjectName = newMenuItem.GetComponentInChildren<TextMeshProUGUI>().text;//extract the Name of the object from UI for matching with excel name and retrive price
+                            string excelFileNameForLight = DataFilePaths.ExcelFilePricingSheetForLight;
+                            selectablePrice.GetPricingDataFromExcel(excelFileNameForLight);
+                        }
+                    }
+
+
+                }
+
             });
 
-            ObjectMenuItems.Add(new ObjectMenuItem 
-            { 
-                SelectableData = data, 
+            ObjectMenuItems.Add(new ObjectMenuItem
+            {
+                SelectableData = data,
                 GameObject = newMenuItem,
                 SelectableMetaData = metadata
             });
@@ -505,7 +539,7 @@ public class ObjectMenu : MonoBehaviour
             .First();
 
         var task = Database.GetMetaData(
-            selectableData.AssetBundleName, 
+            selectableData.AssetBundleName,
             selectableData.MetaData);
 
         await task;
@@ -534,7 +568,6 @@ public class ObjectMenu : MonoBehaviour
 
         ObjectMenuItems.ForEach(item =>
         {
-          
             if (item.SelectableData == null)
             {
                 item.GameObject.SetActive(false);
@@ -550,7 +583,7 @@ public class ObjectMenu : MonoBehaviour
             var compareMetaData = item.SelectableMetaData;
 
             foreach (var category in compareMetaData.Categories)
-            { 
+            {
                 if (apData.MetaData
                     .AllowedSelectableCategories.Contains(category))
                 {
@@ -568,6 +601,7 @@ public class ObjectMenu : MonoBehaviour
                 .AllowedSelectableAssetBundleNames
                 .Contains(item.SelectableData.AssetBundleName))
             {
+
                 foreach (var ob in apData.MetaData.AllowedSelectableAssetBundleNames)
                 {
                     Debug.LogError(ob);
@@ -585,8 +619,8 @@ public class ObjectMenu : MonoBehaviour
     {
         ObjectMenuItems.ForEach(item =>
         {
-            if (item.SelectableData == null || 
-            assetBundleNames.Contains(item.SelectableData.AssetBundleName) || 
+            if (item.SelectableData == null ||
+            assetBundleNames.Contains(item.SelectableData.AssetBundleName) ||
             (SearchIsActive && !item.ValidForSearch) ||
             !IsCategoryValid(item))
             {
@@ -600,8 +634,8 @@ public class ObjectMenu : MonoBehaviour
 
     private bool IsCategoryValid(ObjectMenuItem item)
     {
-        if (!Categories.activeSelf || 
-        _currentCategoryFilters.Count == 0) 
+        if (!Categories.activeSelf ||
+        _currentCategoryFilters.Count == 0)
             return true;
 
         if (!string.IsNullOrEmpty(item.CustomFile))
@@ -609,7 +643,7 @@ public class ObjectMenu : MonoBehaviour
             return _currentCategoryFilters.Contains("Save Data");
         }
 
-        if (item.SelectableMetaData.Categories.Count == 0) 
+        if (item.SelectableMetaData.Categories.Count == 0)
             return false;
 
         foreach (var category in item.SelectableMetaData.Categories)
@@ -637,7 +671,7 @@ public class ObjectMenu : MonoBehaviour
             if (!SearchIsActive)
                 item.GameObject.transform.SetSiblingIndex(i);
 
-            if (SearchIsActive && !item.ValidForSearch) 
+            if (SearchIsActive && !item.ValidForSearch)
             {
                 item.GameObject.SetActive(false);
                 continue;
@@ -659,7 +693,7 @@ public class ObjectMenu : MonoBehaviour
             }
 
             item.GameObject.SetActive
-                (item.SelectableData.MetaData.IsStandalone && 
+                (item.SelectableData.MetaData.IsStandalone &&
                 IsCategoryValid(item));
         }
     }
@@ -678,7 +712,7 @@ public class ObjectMenu : MonoBehaviour
 
     public static async void Open()
     {
-        while (!_initialized) 
+        while (!_initialized)
             await Task.Yield();
 
         if (!Application.isPlaying) return;

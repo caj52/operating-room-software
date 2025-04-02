@@ -6,6 +6,7 @@ using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 using System.Linq;
 using System.Reflection;
+using System.Collections.Generic;
 
 public class ScreenshotCapture : MonoBehaviour
 {
@@ -13,12 +14,16 @@ public class ScreenshotCapture : MonoBehaviour
     public string screenshotFileName = "Screenshot";
     public Camera captureCamera; // Assign your Camera
     public Transform[] cameraPositions; // Assign multiple Transform positions in Inspector
+    public List<Vector3> cameraPostionsList;
     public Canvas uiCanvas; // Assign UI Canvas if you want to hide it
     public AudioSource shutterSound; // Optional: Assign an AudioSource to play a sound on capture
-    private MethodInfo setActiveMethod;
     public string folderPath;
+    public float buffer;
     // URP volume reference
     public Volume postProcessingVolume;
+    public DuplicateRoom rooms;
+    // Ceiling position reference
+    public Transform ceilingPosition; // Assign the ceiling transform in Inspector
 
     // Capture options
     [Tooltip("Method to capture screenshots")]
@@ -26,19 +31,13 @@ public class ScreenshotCapture : MonoBehaviour
     public enum CaptureMethod
     {
         CameraRender,
-        ScreenCapture,
-        CameraStacking
     }
 
     private CanvasGroup canvasGroup;
     private UniversalAdditionalCameraData urpCameraData;
 
-    // SSAO component reference
-
-
     void Start()
     {
-
         if (uiCanvas != null)
             canvasGroup = uiCanvas.GetComponent<CanvasGroup>();
 
@@ -60,20 +59,113 @@ public class ScreenshotCapture : MonoBehaviour
             if (postProcessingVolume != null)
                 Debug.Log("Found post-processing volume: " + postProcessingVolume.name);
         }
+        rooms = FindObjectOfType<DuplicateRoom>();
         captureCamera.enabled = false;
-        // Try to get SSAO component
+    }
+
+    Vector3[] roomCorners;
+    Vector3 ceilingPoint;
+
+    public void TakeScreenshot()
+    {
+        // Make sure cameraPositions array is large enough for all positions (4 walls + ceiling)
+        if (cameraPositions.Length < 5)
+        {
+            Debug.LogError("Camera positions array needs to be at least size 5 (4 walls + ceiling)");
+            return;
+        }
+        RoomBoundary[] roomBoundaries = rooms.currentRoom.GetComponentsInChildren<RoomBoundary>();
+        cameraPositions[0] = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.WallSouth).transform;
+        cameraPositions[1] = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.WallNorth).transform;
+        cameraPositions[2] = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.WallEast).transform;
+        cameraPositions[3] = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.WallWest).transform;
+
+        // Assign ceiling position if available or calculate it
+        if (ceilingPosition != null)
+        {
+            cameraPositions[4] = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.Ceiling).transform;
+        }
+        else
+        {
+            // If no ceiling transform is provided, we'll calculate a ceiling point later
+        }
+
+        GetRoomCorners(cameraPositions, out roomCorners, buffer, rooms.currentRoom.transform);
+
+        // Calculate ceiling point at the center of the room but elevated
+        Vector3 roomCenter = GetRoomCenter();
+        float ceilingHeight = RoomSize.Instance.CurrentDimensions.Height.ToMeters()+9;
+        ceilingPoint = new Vector3(roomCenter.x, ceilingHeight, roomCenter.z);
+
+        // Add all positions to the list
+        cameraPostionsList = roomCorners.ToList();
+        cameraPostionsList.Add(ceilingPoint);
+
+        captureCamera.enabled = true;
+        StartCoroutine(CaptureMultipleScreenshots());
       
     }
 
 
-    public void TakeScreenshot()
+    Vector3 GetCornerPosition(Transform wallA, Transform wallB, float buffer, Vector3 roomCenter)
     {
-        captureCamera.enabled = true;
-        StartCoroutine(CaptureMultipleScreenshots());
+        // Calculate direction from room center to walls
+        Vector3 directionA = (wallA.position - roomCenter).normalized;
+        Vector3 directionB = (wallB.position - roomCenter).normalized;
+
+        // Apply buffer in those directions
+        return new Vector3(
+            wallA.position.x + directionA.x * buffer,
+            2, // Fixed height
+            wallB.position.z + directionB.z * buffer
+        );
+    }
+    Vector3 GetCornerPosition(Transform wallA, Transform wallB, float buffer)
+    {
+        // Use the actual wall positions to determine corner coordinates
+        // This uses the x-coordinate from wallA and z-coordinate from wallB
+        float cornerX = wallA.position.x;
+        float cornerZ = wallB.position.z;
+
+        // Determine whether to add or subtract the buffer based on wall orientation
+        // For example, for the west wall, add buffer to X position
+        // For the east wall, subtract buffer from X position
+        if (wallA.name.Contains("Wall_W"))
+            cornerX -= buffer;
+        else if (wallA.name.Contains("Wall_E"))
+            cornerX += buffer;
+
+        if (wallB.name.Contains("Wall_S"))
+            cornerZ -= buffer;
+        else if (wallB.name.Contains("Wall_N"))
+            cornerZ += buffer;
+
+        return new Vector3(cornerX, 2, cornerZ);
+    }
+
+    void GetRoomCorners(Transform[] cameraPositions, out Vector3[] corners, float buffer, Transform room)
+    {
+        corners = new Vector3[4]; // 4 Corners: SW, SE, NW, NE
+
+        // Calculate room center
+        Vector3 roomCenter = room.position;
+
+        // Assuming cameraPositions are assigned correctly:
+        Transform southWall = cameraPositions[0];
+        Transform northWall = cameraPositions[1];
+        Transform eastWall = cameraPositions[2];
+        Transform westWall = cameraPositions[3];
+
+        // Compute corners with buffer
+        corners[0] = GetCornerPosition(westWall, southWall, buffer); // Southwest corner
+        corners[1] = GetCornerPosition(eastWall, southWall, buffer); // Southeast corner
+        corners[2] = GetCornerPosition(westWall, northWall, buffer); // Northwest corner
+        corners[3] = GetCornerPosition(eastWall, northWall, buffer); // Northeast corner
     }
 
     IEnumerator CaptureMultipleScreenshots()
     {
+      
         UI_GeneralLoadingScreen.instance.ShowLoadingScreen();
         // Hide UI before capturing
         if (uiCanvas != null)
@@ -81,12 +173,15 @@ public class ScreenshotCapture : MonoBehaviour
 
         // Store original camera settings
         CameraCaptureState originalState = new CameraCaptureState(captureCamera, urpCameraData);
-   
-        for (int i = 0; i < cameraPositions.Length; i++)
+
+        // First capture the 4 corner positions
+        for (int i = 0; i < roomCorners.Length; i++)
         {
             // Move Camera to New Position
-            captureCamera.transform.position = cameraPositions[i].position;
-            captureCamera.transform.rotation = cameraPositions[i].rotation;
+            captureCamera.transform.position = roomCorners[i];
+            Vector3 lookDirection = GetRoomCenter() - captureCamera.transform.position;
+            lookDirection.y = 0; // Remove any vertical component to keep camera level
+            captureCamera.transform.rotation = Quaternion.LookRotation(lookDirection, Vector3.up);
 
             // Wait for the end of frame to ensure all rendering is complete
             yield return new WaitForEndOfFrame();
@@ -97,10 +192,21 @@ public class ScreenshotCapture : MonoBehaviour
             yield return new WaitForSeconds(0.5f); // Short delay for smooth capturing
         }
 
+        RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling).MeshRenderer.enabled = false;
+        // Now capture the ceiling position
+        captureCamera.transform.position = ceilingPoint;
+        // Look down from ceiling
+        captureCamera.transform.rotation = Quaternion.Euler(90, 0, 0);
+
+        yield return new WaitForEndOfFrame();
+
+        // Capture ceiling screenshot
+        TakeScreenshot(roomCorners.Length + 1);
+
+        yield return new WaitForSeconds(0.5f);
+
         // Restore original camera settings
         originalState.Restore(captureCamera, urpCameraData);
-
-        // Restore SSAO state
 
         UI_GeneralLoadingScreen.instance.HideLoadingScreen();
         // Re-enable UI after all screenshots are taken
@@ -111,12 +217,39 @@ public class ScreenshotCapture : MonoBehaviour
                   $"Success! PDF saved to {folderPath}",
              new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = folderPath),
             new ButtonAction("Done"));
-        
+        RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling).MeshRenderer.enabled = true;
+    }
+
+    public Vector3 GetRoomCenter()
+    {
+        if (roomCorners == null || roomCorners.Length == 0)
+        {
+            Debug.LogWarning("Room corners are not assigned.");
+            return Vector3.zero;
+        }
+
+        Bounds bounds = new Bounds(roomCorners[0], Vector3.zero);
+
+        // Expand bounds to include all corners
+        for (int i = 1; i < roomCorners.Length; i++)
+        {
+            bounds.Encapsulate(roomCorners[i]);
+        }
+
+        return bounds.center;
     }
 
     void TakeScreenshot(int index)
     {
-         folderPath = Path.Combine(Application.persistentDataPath, "Screenshots");
+        if (string.IsNullOrEmpty(FullRoomSave.GetRoomPath()))
+        {
+            folderPath = Path.Combine(Application.persistentDataPath, "Renders");
+        }
+        else
+        {
+            folderPath = Path.Combine(FullRoomSave.GetRoomPath(), "Renders");
+        }
+     
         if (!Directory.Exists(folderPath))
             Directory.CreateDirectory(folderPath);
 
@@ -127,17 +260,6 @@ public class ScreenshotCapture : MonoBehaviour
         {
             case CaptureMethod.CameraRender:
                 CaptureUsingCameraRender(filePath);
-                break;
-
-            case CaptureMethod.ScreenCapture:
-                // Force immediate render to ensure all post-processing is visible
-                captureCamera.Render();
-                // Use Unity's built-in screenshot function
-                ScreenCapture.CaptureScreenshot(filePath, resolutionMultiplier);
-                break;
-
-            case CaptureMethod.CameraStacking:
-                CaptureUsingCameraStack(filePath);
                 break;
         }
 
@@ -200,68 +322,7 @@ public class ScreenshotCapture : MonoBehaviour
         File.WriteAllBytes(filePath, bytes);
         Destroy(screenShot);
 
-       
-
         Debug.Log("URP Screenshot saved: " + filePath);
-    }
-
-    void CaptureUsingCameraStack(string filePath)
-    {
-        // This method ensures all cameras in the stack are rendered
-        if (urpCameraData == null)
-        {
-            Debug.LogError("Cannot use camera stacking method without URP camera data");
-            return;
-        }
-
-        // Create render texture
-        RenderTextureDescriptor rtDesc = new RenderTextureDescriptor(
-            Screen.width * resolutionMultiplier,
-            Screen.height * resolutionMultiplier,
-            RenderTextureFormat.DefaultHDR,
-            24);
-        rtDesc.msaaSamples = QualitySettings.antiAliasing > 0 ? QualitySettings.antiAliasing : 1;
-
-        RenderTexture rt = new RenderTexture(rtDesc);
-
-        // Original values
-        RenderTexture originalTarget = captureCamera.targetTexture;
-        bool wasUsingStack = urpCameraData.renderPostProcessing;
-
-        try
-        {
-            // Force render to texture with post-processing
-            urpCameraData.renderPostProcessing = true;
-            captureCamera.targetTexture = rt;
-
-            // Setup and use custom rendering
-            ScriptableRenderContext context = new ScriptableRenderContext();
-
-            // URP-specific: Request to render the camera (and its stack if applicable)
-            UniversalRenderPipeline.RenderSingleCamera(context, captureCamera);
-
-            // Read the result
-            RenderTexture.active = rt;
-            Texture2D screenShot = new Texture2D(rt.width, rt.height, TextureFormat.RGBA32, false);
-            screenShot.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
-            screenShot.Apply(false);
-
-            // Save to file
-            byte[] bytes = screenShot.EncodeToPNG();
-            File.WriteAllBytes(filePath, bytes);
-            Destroy(screenShot);
-        }
-        finally
-        {
-            // Restore original settings
-            captureCamera.targetTexture = originalTarget;
-            urpCameraData.renderPostProcessing = wasUsingStack;
-            RenderTexture.active = null;
-            rt.Release();
-            Destroy(rt);
-        }
-
-        Debug.Log("URP Camera Stack Screenshot saved: " + filePath);
     }
 
     void ToggleUI(bool isVisible)
