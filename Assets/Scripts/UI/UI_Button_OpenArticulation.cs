@@ -6,7 +6,6 @@ using UnityEngine.UI;
 public class UI_Button_OpenArticulation : MonoBehaviour
 {
     private Button button;
-    public GameObject ArticulationPanel;
     // Start is called before the first frame update
     void Start()
     {
@@ -16,9 +15,11 @@ public class UI_Button_OpenArticulation : MonoBehaviour
 
     private void OnButtonClicked()
     {
-        if (ArticulationPanel != null)
+        var Selectible = Selectable.SelectedSelectables;
+        if (Selectible.Count>0)
         {
-            ArticulationPanel.SetActive(!ArticulationPanel.activeSelf);
+            GetHierarchyObjects.instance.SelectObject(Selectable.SelectedSelectables[0].gameObject.transform);
         }
+         
     }
 }

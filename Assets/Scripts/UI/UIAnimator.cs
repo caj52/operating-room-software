@@ -5,6 +5,8 @@ using TMPro;
 
 public class UIAnimator : MonoBehaviour
 {
+    public Image Arrow;
+
     [Header("UI Panel Settings")]
     [SerializeField] private RectTransform uiPanel;
     [SerializeField] private Vector2 visiblePanelPosition = Vector2.zero;
@@ -91,7 +93,7 @@ public class UIAnimator : MonoBehaviour
             closeButton, visibleButtonPosition, hiddenButtonPosition,
             1f, 0f
         ));
-        closeButton.GetComponentInChildren<TextMeshProUGUI>().text = ">";
+        Arrow.rectTransform.rotation = Quaternion.Euler(0, 0, 0);
         isVisible = false;
     }
 
@@ -109,7 +111,7 @@ public class UIAnimator : MonoBehaviour
             closeButton, hiddenButtonPosition, visibleButtonPosition,
             0f, 1f
         ));
-        closeButton.GetComponentInChildren<TextMeshProUGUI>().text = "<";
+        Arrow.rectTransform.rotation = Quaternion.Euler(0, 0, 180);
         isVisible = true;
     }
 

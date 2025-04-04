@@ -344,89 +344,94 @@ public class Measurable : MonoBehaviour
 
     public void CheckProximity(GameObject referenceObject, float minThresholdDistance, float maxThresholdDistance)
     {
-        Selectable selectable = referenceObject.GetComponent<Selectable>();
-
-        if (selectable.SpecialTypes.Count == 0)
-            return;
-        if (selectable.SpecialTypes[0].Equals(SpecialSelectableType.Mount) && proxyAlertWithORTABLE)
+        if (UI_ToggleProximityAlerts.IsActive)
         {
-            Vector3 refPos = referenceObject.transform.position;
-            Vector3 tablePos = proxyAlertWithORTABLE.transform.position;
 
-            Vector3 adjustedRefPos = new Vector3(refPos.x, 0, refPos.z);
-            Vector3 adjustedTablePos = new Vector3(tablePos.x, 0, tablePos.z);
+            Selectable selectable = referenceObject.GetComponent<Selectable>();
 
-            float distance = Vector3.Distance(adjustedRefPos, adjustedTablePos);
-            float moveAwayBy = minThresholdDistance - distance;
-            float moveCloserBy = distance - maxThresholdDistance;
+            if (selectable.SpecialTypes.Count == 0)
+                return;
+            if (selectable.SpecialTypes[0].Equals(SpecialSelectableType.Mount) && proxyAlertWithORTABLE)
+            {
+                Vector3 refPos = referenceObject.transform.position;
+                Vector3 tablePos = proxyAlertWithORTABLE.transform.position;
 
-            if (distance < minThresholdDistance)
-            {                
-                UI_DialogPrompt.Open($"{selectable.MetaData.Name} is TOO CLOSE to OR_Table_0 . Suggested Adjustment: Move it farther by {moveAwayBy:F2} meters.",
-                new ButtonAction
+                Vector3 adjustedRefPos = new Vector3(refPos.x, 0, refPos.z);
+                Vector3 adjustedTablePos = new Vector3(tablePos.x, 0, tablePos.z);
+
+                float distance = Vector3.Distance(adjustedRefPos, adjustedTablePos);
+                float moveAwayBy = minThresholdDistance - distance;
+                float moveCloserBy = distance - maxThresholdDistance;
+
+                if (distance < minThresholdDistance)
                 {
-                    //ButtonText = "Auto Placement",
-                    //Action = () =>
-                    //{
-                    //    isAdjustmentNeeded = false;
-                    //    Vector3 newPosition = MoveAway(referenceObject, tablePos, moveAwayBy);
-                    //    referenceObject.transform.position = newPosition;
-                    //    Debug.Log($"Auto-Moving {selectable.MetaData.Name} farther by {moveAwayBy:F2} meters.");
-                    //    UI_DialogPrompt.Close();
-                    //},
-                    ButtonText = "OK",
-                    Action = () =>
+                    UI_DialogPrompt.Open($"{selectable.MetaData.Name} is TOO CLOSE to OR_Table_0 . Suggested Adjustment: Move it farther by {moveAwayBy:F2} meters.",
+                    new ButtonAction
                     {
-                        isAdjustmentNeeded = true;
-                        UI_DialogPrompt.Close();
-                    },
+                        //ButtonText = "Auto Placement",
+                        //Action = () =>
+                        //{
+                        //    isAdjustmentNeeded = false;
+                        //    Vector3 newPosition = MoveAway(referenceObject, tablePos, moveAwayBy);
+                        //    referenceObject.transform.position = newPosition;
+                        //    Debug.Log($"Auto-Moving {selectable.MetaData.Name} farther by {moveAwayBy:F2} meters.");
+                        //    UI_DialogPrompt.Close();
+                        //},
+                        ButtonText = "OK",
+                        Action = () =>
+                        {
+                            isAdjustmentNeeded = true;
+                            UI_DialogPrompt.Close();
+                        },
 
+                    }
+                   //new ButtonAction
+                   //{
+                   //    ButtonText = "Cancel",
+                   //    Action = () =>
+                   //    {
+                   //        UI_DialogPrompt.Close();
+                   //    },
+                   //}
+                   );
                 }
-                //new ButtonAction
-                //{
-                //    ButtonText = "Cancel",
-                //    Action = () =>
-                //    {
-                //        UI_DialogPrompt.Close();
-                //    },
-                //}
-               );
-            }
-            else if (distance > maxThresholdDistance)
-            {
-                Vector3 newPosition = MoveCloser(referenceObject, tablePos, moveCloserBy);
-                Debug.Log($"Auto-Moving {selectable.MetaData.Name} closer by {moveCloserBy:F2} meters.");
-                UI_DialogPrompt.Open($"{selectable.MetaData.Name} is TOO FAR from OR_Table_0.Suggested Adjustment: Move it closer by {moveCloserBy:F2} meters.",
-                 new ButtonAction
-                 {
-                     ButtonText = "Ok",
-                     Action = () =>
-                     {
-                         UI_DialogPrompt.Close();
-                         isAdjustmentNeeded = true;
-                     },
-                 }
-                );
-            }
-            else
-            {
-                if (isAdjustmentNeeded) 
+                else if (distance > maxThresholdDistance)
                 {
-                    Debug.Log($"Anas => {selectable.MetaData.Name} is at an IDEAL DISTANCE from OR_Table_0");
-                    UI_DialogPrompt.Open($"{selectable.MetaData.Name} is at an IDEAL DISTANCE from OR_Table_0.No adjustment needed",
+                    Vector3 newPosition = MoveCloser(referenceObject, tablePos, moveCloserBy);
+                    Debug.Log($"Auto-Moving {selectable.MetaData.Name} closer by {moveCloserBy:F2} meters.");
+                    UI_DialogPrompt.Open($"{selectable.MetaData.Name} is TOO FAR from OR_Table_0.Suggested Adjustment: Move it closer by {moveCloserBy:F2} meters.",
                      new ButtonAction
                      {
                          ButtonText = "Ok",
                          Action = () =>
                          {
                              UI_DialogPrompt.Close();
-                             isAdjustmentNeeded = false;
+                             isAdjustmentNeeded = true;
                          },
                      }
                     );
                 }
+                else
+                {
+                    if (isAdjustmentNeeded)
+                    {
+                        Debug.Log($"Anas => {selectable.MetaData.Name} is at an IDEAL DISTANCE from OR_Table_0");
+                        UI_DialogPrompt.Open($"{selectable.MetaData.Name} is at an IDEAL DISTANCE from OR_Table_0.No adjustment needed",
+                         new ButtonAction
+                         {
+                             ButtonText = "Ok",
+                             Action = () =>
+                             {
+                                 UI_DialogPrompt.Close();
+                                 isAdjustmentNeeded = false;
+                             },
+                         }
+                        );
+                    }
+                }
             }
         }
+
     }
     private Vector3 MoveAway(GameObject obj, Vector3 tablePos, float moveBy)
     {

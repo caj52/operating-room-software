@@ -50,6 +50,7 @@ public class Measurer : MonoBehaviour
 
     public void UpdateTransform(Camera camera = null)
     {
+ 
         if (camera == null)
         {
             camera = Camera.main;

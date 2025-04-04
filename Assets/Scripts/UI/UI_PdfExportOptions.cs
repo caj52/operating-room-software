@@ -76,6 +76,9 @@ public class UI_PdfExportOptions : MonoBehaviour
 
     public void AddNewPdfData()
     {
+        Debug.LogError("+InputField_PdfData_Table.text" + InputField_PdfData_Table.text);
+        Debug.LogError("+InputField_PdfData_Key.text" + InputField_PdfData_Key.text);
+        Debug.LogError("+InputField_PdfData_Value.text" + InputField_PdfData_Value.text);
         AddNewPdfData(
             InputField_PdfData_Table.text,
             InputField_PdfData_Key.text,

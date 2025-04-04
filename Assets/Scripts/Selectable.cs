@@ -613,7 +613,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     public void Select()
     {
         Debug.Log($"Attempting to select {gameObject.name}");
-        GetHierarchyObjects.instance.SelectObject(gameObject.transform);
+       
         if (SceneManager.GetActiveScene().name == "ObjectEditor")
         {
             return;
