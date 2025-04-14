@@ -18,7 +18,7 @@ public class UI_Button_OpenArticulation : MonoBehaviour
         var Selectible = Selectable.SelectedSelectables;
         if (Selectible.Count>0)
         {
-            GetHierarchyObjects.instance.SelectObject(Selectable.SelectedSelectables[0].gameObject.transform);
+             ArticualtionToolScript.instance.SelectedObject = Selectible[0].gameObject;
         }
          
     }

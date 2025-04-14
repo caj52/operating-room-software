@@ -113,8 +113,16 @@ public class FreeLookCam : MonoBehaviour
     private void HandleRotation()
     {
         if (GizmoHandler.GizmoBeingUsed || _noRotating) return;
+
+        if (_skipNextMouseInput)
+        {
+            _skipNextMouseInput = false;
+            return; // Skip this frame to avoid jerk
+        }
+
         transform.Rotate(new Vector3(0, InputHandler.MouseDeltaScreenPercentage.x * LookSensitivityX, 0));
         Head.transform.Rotate(new Vector3(-InputHandler.MouseDeltaScreenPercentage.y * LookSensitivityY, 0, 0));
+
         var signedAngle = Vector3.SignedAngle(transform.forward, Head.forward, transform.right);
 
         if (signedAngle > 70)
@@ -127,4 +135,17 @@ public class FreeLookCam : MonoBehaviour
             Head.transform.localEulerAngles = new Vector3(-70, 0, 0);
         }
     }
+
+
+
+    private bool _skipNextMouseInput = false;
+
+    void OnApplicationFocus(bool hasFocus)
+    {
+        if (hasFocus)
+        {
+            _skipNextMouseInput = true;
+        }
+    }
+
 }

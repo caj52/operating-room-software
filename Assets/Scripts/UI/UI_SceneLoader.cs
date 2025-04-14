@@ -10,11 +10,19 @@ public class UI_SceneLoader : MonoBehaviour
 {
     private VideoPlayer videoPlayer;
 
-    void Start()
+    private void Awake()
     {
         videoPlayer = GetComponent<VideoPlayer>();
+        videoPlayer.Prepare();
         videoPlayer.loopPointReached += CheckVideoEnd;
+       
     }
+
+    private void Start()
+    {
+        videoPlayer.Play();
+    }
+
 
     private void Update()
     {
@@ -23,7 +31,7 @@ public class UI_SceneLoader : MonoBehaviour
             // Stop the video when space is pressed
             if (videoPlayer != null && videoPlayer.isPlaying)
             {
-                videoPlayer.Stop();
+                videoPlayer.Pause();
             }
 
             // Call the parameterless version of CheckVideoEnd
@@ -51,5 +59,11 @@ public class UI_SceneLoader : MonoBehaviour
     {
         Debug.LogError("LoadScene");
         SceneManager.LoadScene("Start");
+    }
+
+
+    private void OnDestroy()
+    {
+        videoPlayer.loopPointReached -= CheckVideoEnd;
     }
 }

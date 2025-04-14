@@ -443,13 +443,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 .Select(measurement => measurement.Measurer)
         );
 
-        Selectable selectable = (MetaData.Name == "OR_Table_0") ? this : null;
-
-        if (selectable)
-        {
-            selectable.Select();
-            SelectionChanged.Invoke();
-        }
+   
 
     }
 
@@ -753,7 +747,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         //    oldParent = transform.parent;
         //    transform.SetParent(null);
         //}
-
+ 
         CurrentPreviewScaleLevel = scaleLevel;
 
         if (fireEvent)
@@ -862,7 +856,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         //}
     }
 
-    private void UpdateZScaling(bool setSelected)
+    public void UpdateZScaling(bool setSelected)
     {
         if (ScaleLevels.Count == 0) return;
         //get closest scale in list

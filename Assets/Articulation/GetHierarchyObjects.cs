@@ -49,6 +49,7 @@ public class GetHierarchyObjects : MonoBehaviour
         {
             Destroy(gameObject);
         }
+        gameObject.SetActive(false);
     }
 
     private void Start()

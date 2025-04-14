@@ -63,6 +63,7 @@ public class Measurable : MonoBehaviour
     private void OnEnable()
     {
         EventManager.OnCompareProximatryAlertWithOR_Table += CheckProximity;
+     
     }
 
     private void Awake()

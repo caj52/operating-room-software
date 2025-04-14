@@ -42,5 +42,6 @@ public class GizmoSelector : MonoBehaviour
         { 
             GizmoModeChanged?.Invoke(this, null);
         }
+        ArticualtionToolScript.gizmoChanged?.Invoke();
     }
 }

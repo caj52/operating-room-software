@@ -90,7 +90,8 @@ public class MeasurementText : MonoBehaviour
             camera = Camera.main;
         }
 
-        Text.text = _measurer.Distance;
+
+        Text.text = NormalizeFeetInches(_measurer.Distance);
 
         // Get the direction from camera to text position
         Vector3 directionFromCamera = (_measurer.TextPosition - camera.transform.position).normalized;
@@ -113,4 +114,28 @@ public class MeasurementText : MonoBehaviour
 
         RotateTowardCamera(camera);
     }
+
+    string NormalizeFeetInches(string input)
+    {
+        // Expected format: "32'6\""
+        int footIndex = input.IndexOf('\'');
+        int inchIndex = input.IndexOf('\"');
+
+        if (footIndex == -1 || inchIndex == -1)
+            return input; // format not as expected
+
+        // Extract numbers
+        string feetStr = input.Substring(0, footIndex);
+        string inchesStr = input.Substring(footIndex + 1, inchIndex - footIndex - 1);
+
+        if (!int.TryParse(feetStr, out int feet) || !int.TryParse(inchesStr, out int inches))
+            return input;
+
+        // Normalize inches
+        feet += inches / 12;
+        inches = inches % 12;
+
+        return $"{feet}'{inches}\"";
+    }
+
 }

@@ -10,7 +10,8 @@ using System.Collections.Generic;
 
 public class ScreenshotCapture : MonoBehaviour
 {
-    public int resolutionMultiplier = 2;
+    [Range(1, 8)]
+    public int resolutionMultiplier = 4; // Increased from 2 to 4 for higher resolution
     public string screenshotFileName = "Screenshot";
     public Camera captureCamera; // Assign your Camera
     public Transform[] cameraPositions; // Assign multiple Transform positions in Inspector
@@ -25,6 +26,16 @@ public class ScreenshotCapture : MonoBehaviour
     // Ceiling position reference
     public Transform ceilingPosition; // Assign the ceiling transform in Inspector
 
+    // Enhanced quality settings
+    [Range(0.5f, 3.0f)]
+    public float exposureAdjustment = 1.2f; // Brightness adjustment (>1 = brighter)
+    [Range(1, 16)]
+    public int antiAliasingLevel = 8; // MSAA level
+    [Range(0.0f, 1.0f)]
+    public float jpegQuality = 1.0f; // Image quality (1.0 = highest)
+    public bool useHDR = true;
+    public bool linearColorSpace = true;
+
     // Capture options
     [Tooltip("Method to capture screenshots")]
     public CaptureMethod captureMethod = CaptureMethod.CameraRender;
@@ -35,6 +46,9 @@ public class ScreenshotCapture : MonoBehaviour
 
     private CanvasGroup canvasGroup;
     private UniversalAdditionalCameraData urpCameraData;
+    private Tonemapping tonemapping;
+    private ColorAdjustments colorAdjustments;
+    private float originalExposure = 0f;
 
     void Start()
     {
@@ -59,6 +73,16 @@ public class ScreenshotCapture : MonoBehaviour
             if (postProcessingVolume != null)
                 Debug.Log("Found post-processing volume: " + postProcessingVolume.name);
         }
+
+        // Try to get Tonemapping and Color Adjustment settings
+        if (postProcessingVolume != null)
+        {
+            postProcessingVolume.profile.TryGet(out tonemapping);
+            postProcessingVolume.profile.TryGet(out colorAdjustments);
+            if (colorAdjustments != null)
+                originalExposure = colorAdjustments.postExposure.value;
+        }
+
         rooms = FindObjectOfType<DuplicateRoom>();
         captureCamera.enabled = false;
     }
@@ -94,7 +118,7 @@ public class ScreenshotCapture : MonoBehaviour
 
         // Calculate ceiling point at the center of the room but elevated
         Vector3 roomCenter = GetRoomCenter();
-        float ceilingHeight = RoomSize.Instance.CurrentDimensions.Height.ToMeters()+9;
+        float ceilingHeight = RoomSize.Instance.CurrentDimensions.Height.ToMeters() + 9;
         ceilingPoint = new Vector3(roomCenter.x, ceilingHeight, roomCenter.z);
 
         // Add all positions to the list
@@ -103,23 +127,8 @@ public class ScreenshotCapture : MonoBehaviour
 
         captureCamera.enabled = true;
         StartCoroutine(CaptureMultipleScreenshots());
-      
     }
 
-
-    Vector3 GetCornerPosition(Transform wallA, Transform wallB, float buffer, Vector3 roomCenter)
-    {
-        // Calculate direction from room center to walls
-        Vector3 directionA = (wallA.position - roomCenter).normalized;
-        Vector3 directionB = (wallB.position - roomCenter).normalized;
-
-        // Apply buffer in those directions
-        return new Vector3(
-            wallA.position.x + directionA.x * buffer,
-            2, // Fixed height
-            wallB.position.z + directionB.z * buffer
-        );
-    }
     Vector3 GetCornerPosition(Transform wallA, Transform wallB, float buffer)
     {
         // Use the actual wall positions to determine corner coordinates
@@ -165,7 +174,6 @@ public class ScreenshotCapture : MonoBehaviour
 
     IEnumerator CaptureMultipleScreenshots()
     {
-      
         UI_GeneralLoadingScreen.instance.ShowLoadingScreen();
         // Hide UI before capturing
         if (uiCanvas != null)
@@ -173,6 +181,9 @@ public class ScreenshotCapture : MonoBehaviour
 
         // Store original camera settings
         CameraCaptureState originalState = new CameraCaptureState(captureCamera, urpCameraData);
+
+        // Apply enhanced brightness settings
+        AdjustExposureForScreenshot(true);
 
         // First capture the 4 corner positions
         for (int i = 0; i < roomCorners.Length; i++)
@@ -205,8 +216,9 @@ public class ScreenshotCapture : MonoBehaviour
 
         yield return new WaitForSeconds(0.5f);
 
-        // Restore original camera settings
+        // Restore original camera settings and exposure settings
         originalState.Restore(captureCamera, urpCameraData);
+        AdjustExposureForScreenshot(false);
 
         UI_GeneralLoadingScreen.instance.HideLoadingScreen();
         // Re-enable UI after all screenshots are taken
@@ -214,7 +226,7 @@ public class ScreenshotCapture : MonoBehaviour
             ToggleUI(true);
         Debug.Log("Capturing Screenshot...");
         UI_DialogPrompt.Open(
-                  $"Success! PDF saved to {folderPath}",
+                  $"Success! Enhanced screenshots saved to {folderPath}",
              new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = folderPath),
             new ButtonAction("Done"));
         RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling).MeshRenderer.enabled = true;
@@ -249,11 +261,11 @@ public class ScreenshotCapture : MonoBehaviour
         {
             folderPath = Path.Combine(FullRoomSave.GetRoomPath(), "Renders");
         }
-     
+
         if (!Directory.Exists(folderPath))
             Directory.CreateDirectory(folderPath);
 
-        string fileName = $"{screenshotFileName}_{index}_{System.DateTime.Now:yyyy-MM-dd_HH-mm-ss}.png";
+        string fileName = $"{screenshotFileName}_HD_{index}_{System.DateTime.Now:yyyy-MM-dd_HH-mm-ss}.png";
         string filePath = Path.Combine(folderPath, fileName);
 
         switch (captureMethod)
@@ -272,23 +284,25 @@ public class ScreenshotCapture : MonoBehaviour
 
     void CaptureUsingCameraRender(string filePath)
     {
-        // Key for URP: Set proper render texture format
+        // Set up enhanced render texture format
         RenderTextureDescriptor rtDesc = new RenderTextureDescriptor(
             Screen.width * resolutionMultiplier,
             Screen.height * resolutionMultiplier,
-            RenderTextureFormat.DefaultHDR,
+            useHDR ? RenderTextureFormat.DefaultHDR : RenderTextureFormat.ARGB32,
             24);
-        rtDesc.sRGB = true;
-        rtDesc.msaaSamples = 8; // Higher AA for quality
+        rtDesc.sRGB = !linearColorSpace; // Use linear color space for better quality
+        rtDesc.msaaSamples = antiAliasingLevel; // Higher AA for quality
         rtDesc.enableRandomWrite = false;
+        rtDesc.depthBufferBits = 24; // Ensure proper depth buffer
 
         RenderTexture rt = new RenderTexture(rtDesc);
+        rt.Create();
 
         // Save original camera settings
         RenderTexture originalTarget = captureCamera.targetTexture;
         bool originalAllowMSAA = QualitySettings.antiAliasing > 0;
 
-        // For URP, specifically set rendering features
+        // For URP, specifically enhance rendering features
         if (urpCameraData != null)
         {
             // Ensure post-processing is enabled for this camera
@@ -297,6 +311,8 @@ public class ScreenshotCapture : MonoBehaviour
             // Make sure to preserve framebuffer alpha
             urpCameraData.requiresColorOption = CameraOverrideOption.On;
             urpCameraData.requiresDepthOption = CameraOverrideOption.On;
+
+
         }
 
         // Set camera to render to RT
@@ -305,9 +321,12 @@ public class ScreenshotCapture : MonoBehaviour
         // Force a render that includes URP post-processing (including SSAO)
         captureCamera.Render();
 
-        // Read pixels into texture
+        // Read pixels into texture with enhanced settings
         RenderTexture.active = rt;
-        Texture2D screenShot = new Texture2D(rt.width, rt.height, TextureFormat.RGBA32, false);
+        Texture2D screenShot = new Texture2D(rt.width, rt.height,
+                                           TextureFormat.RGBA32,
+                                           false,
+                                           linearColorSpace);
         screenShot.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
         screenShot.Apply(false);
 
@@ -317,12 +336,21 @@ public class ScreenshotCapture : MonoBehaviour
         rt.Release();
         Destroy(rt);
 
-        // Save to file
-        byte[] bytes = screenShot.EncodeToPNG();
+        // Save to file with quality settings
+        byte[] bytes;
+        if (filePath.ToLower().EndsWith(".jpg") || filePath.ToLower().EndsWith(".jpeg"))
+        {
+            bytes = screenShot.EncodeToJPG(Mathf.RoundToInt(jpegQuality * 100));
+        }
+        else
+        {
+            bytes = screenShot.EncodeToPNG(); // PNG for highest quality
+        }
+
         File.WriteAllBytes(filePath, bytes);
         Destroy(screenShot);
 
-        Debug.Log("URP Screenshot saved: " + filePath);
+        Debug.Log("Enhanced Screenshot saved: " + filePath);
     }
 
     void ToggleUI(bool isVisible)
@@ -336,6 +364,31 @@ public class ScreenshotCapture : MonoBehaviour
         else if (uiCanvas != null)
         {
             uiCanvas.enabled = isVisible;
+        }
+    }
+
+    // Method to adjust exposure for brighter screenshots
+    void AdjustExposureForScreenshot(bool forScreenshot)
+    {
+        if (colorAdjustments != null)
+        {
+            if (forScreenshot)
+            {
+                // Save original exposure and set brightness higher for screenshot
+                colorAdjustments.postExposure.Override(originalExposure + Mathf.Log(exposureAdjustment, 2f));
+            }
+            else
+            {
+                // Restore original exposure
+                colorAdjustments.postExposure.Override(originalExposure);
+            }
+        }
+
+        // Also adjust tonemapping if available
+        if (tonemapping != null && forScreenshot)
+        {
+            // Store original settings but adjust for screenshots
+            // Could add more sophisticated tonemapping adjustments here
         }
     }
 

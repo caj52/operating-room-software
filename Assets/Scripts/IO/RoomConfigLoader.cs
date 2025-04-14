@@ -14,6 +14,7 @@ public class RoomConfigLoader : MonoBehaviour
     void Awake()
     {
         Instance = this;
+        Debug.LogError(Application.persistentDataPath + "/Saved/");
         if (Directory.Exists(Application.persistentDataPath + "/Saved/"))
         {
             string[] files = Directory.GetFiles(Application.persistentDataPath + "/Saved/");
@@ -28,6 +29,7 @@ public class RoomConfigLoader : MonoBehaviour
 
     public void GenerateRoomItem(string f)
     {
+      
         GameObject go = Instantiate(filePrefab, Vector3.zero, Quaternion.identity);
 
         go.transform.SetParent(contentView);

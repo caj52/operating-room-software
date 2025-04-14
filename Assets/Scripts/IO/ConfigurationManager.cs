@@ -55,6 +55,8 @@ public class ConfigurationManager : MonoBehaviour
         CreateTracker();
         NewRoomSave();
         HandleBackwardsCompatibility();
+
+
     }
 
     private void HandleBackwardsCompatibility()
@@ -228,6 +230,7 @@ public class ConfigurationManager : MonoBehaviour
         return string.Join("_", filename.Split(Path.GetInvalidFileNameChars()));
     }
 
+
     public async void SaveRoom(string title)
     {
         CreateTracker();
@@ -252,6 +255,7 @@ public class ConfigurationManager : MonoBehaviour
         // We need to go through each object
         foreach (TrackedObject obj in foundObjects) 
         {
+           
             if (obj.transform == obj.transform.root)
             {
                 // creating trackers as we go
@@ -301,7 +305,7 @@ public class ConfigurationManager : MonoBehaviour
 
         await Task.Delay(1000);
         token.SetProgress(1);
-
+        
         RoomConfigLoader.Instance.GenerateRoomItem(path);
 
         foreach (TrackedObject obj in foundObjects) // We need to go through each object
@@ -367,7 +371,7 @@ public class ConfigurationManager : MonoBehaviour
         //existingObjects.Clear();
         //existingObjects.TrimExcess();
 
-        Selectable.DestroyAll();
+        //Selectable.DestroyAll();
 
         Debug.Log($"Loading Room at {file}");
 
@@ -375,7 +379,7 @@ public class ConfigurationManager : MonoBehaviour
         {
             CreateTracker();
             string json = File.ReadAllText(file);
-
+            
             _roomConfiguration = JsonConvert
                 .DeserializeObject<RoomConfiguration>(json);
 
