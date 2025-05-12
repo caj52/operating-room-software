@@ -4,237 +4,284 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-
 using Pulse.CDM;
 
 namespace Pulse.Unity
 {
-  // This is very similar to PulseEngineDriver, only we will use a SEScenario to hold data requests and engine initialization data
-  [ExecuteInEditMode]
-  public class PulseEngineScenarioDriver : PulseEngineSource
-  {
-    public static PulseEngineScenarioDriver Instance { get; private set; }
-
-    public TextAsset scenarioJson;  // Scenario file to use 
-
-    [NonSerialized]
-    protected SEScenario scenario;         // A scenario file
-
-
-    protected List<Tuple<double, SEAction>> actions = new List<Tuple<double, SEAction>>();// The scenario actions and the time they need to be processed
-    protected List<Tuple<double, SEAction>> activeActions = new List<Tuple<double, SEAction>>(); // List of actions we are processing and will remove from actions list
-
-    // MARK: Monobehavior methods
-
-    // Called when the inspector inputs are modified
-    protected virtual void OnValidate()
+    [ExecuteInEditMode]
+    public class PulseEngineScenarioDriver : PulseEngineSource
     {
-      // Round down to closest factor of 0.02. Need to use doubles due to
-      // issues with floats multiplication (0.1 -> 0.0999999)
-      sampleRate = Math.Round(sampleRate / 0.02) * 0.02;
-    }
+        public static PulseEngineScenarioDriver Instance { get; private set; }
 
-    // Called when application or editor opens
-    protected virtual void Awake()
-    {
+        public TextAsset scenarioJson;
+
+        [NonSerialized]
+        protected SEScenario scenario;
+
+        // Use sorted list for better lookup performance
+        protected SortedList<double, SEAction> actions = new SortedList<double, SEAction>();
+        protected List<KeyValuePair<double, SEAction>> actionsToRemove = new List<KeyValuePair<double, SEAction>>(16);
+
+        // Cache these values to avoid repeated calculations
+        private double nextUpdateTime = 0;
+        private double nextSampleTime = 0;
+        private int preAllocatedSize = 1000; // Pre-allocate memory for collections
+
+        // MARK: Monobehavior methods
+
+        protected virtual void OnValidate()
+        {
+            sampleRate = Math.Round(sampleRate / 0.02) * 0.02;
+        }
+
+        protected virtual void Awake()
+        {
             Instance = this;
-          // Create our data container
-          data = ScriptableObject.CreateInstance<PulseData>();
 
-      // Store data field names
-      // The rest of the data values are in order of the data_requests list
-      data.fields = new StringList();// Field names
-      data.timeStampList = new DoubleList(); // One or more datasets from the engine
-      data.valuesTable = new List<DoubleList>();// The values received from the engine
-                                                // The first field is always the simulation time in seconds
-      data.fields.Add("Simulation Time(s)");
-      data.valuesTable.Add(new DoubleList());
-      foreach (var request in data_requests)
-      {
-        data.fields.Add(request.ToString().Replace("/", "\u2215"));
-        data.valuesTable.Add(new DoubleList());
-      }
+            // Create data container with pre-allocated capacity
+            data = ScriptableObject.CreateInstance<PulseData>();
+            data.fields = new StringList(data_requests.Count + 1);
+            data.timeStampList = new DoubleList(preAllocatedSize);
+            data.valuesTable = new List<DoubleList>(data_requests.Count + 1);
 
-      pullAllData = (sampleRate == pulseTimeStep);
+            // The first field is always the simulation time in seconds
+            data.fields.Add("Simulation Time(s)");
+            var timeValues = new DoubleList(preAllocatedSize);
+            data.valuesTable.Add(timeValues);
 
-      if (Application.isPlaying)
-      {
-            DontDestroyOnLoad(gameObject);
+            foreach (var request in data_requests)
+            {
+                data.fields.Add(request.ToString().Replace("/", "\u2215"));
+                data.valuesTable.Add(new DoubleList(preAllocatedSize));
+            }
+
+            pullAllData = (Math.Abs(sampleRate - pulseTimeStep) < 0.0001);
+
+            if (Application.isPlaying)
+            {
+                DontDestroyOnLoad(gameObject);
+                gameObject.SetActive(false);
+            }
         }
-            
+
+        protected virtual void Start()
+        {
+            if (!Application.isPlaying)
+                return;
+            InitializeEngine();
+            PrepareScenarioActions();
+
+            pulseTime = 0;
+            pulseSampleTime = 0;
+            nextUpdateTime = pulseTimeStep;
+            nextSampleTime = sampleRate;
+        }
+
+        private void InitializeEngine()
+        {
+            string dateAndTimeVar = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
+            string logFilePath = $"{Application.persistentDataPath}/{gameObject.name}{dateAndTimeVar}.log";
+            engine = new PulseUnityEngine();
+            engine.SetLogFilename(logFilePath);
+            scenario = new SEScenario();
+
+            if (scenarioJson != null)
+            {
+                if (!scenario.SerializeFromString(scenarioJson.text, eSerializationFormat.JSON))
+                {
+                    Debug.LogError($"Unable to load scenario file {scenarioJson}", this);
+                    return;
+                }
+            }
+            else
+            {
+                LoadDefaultScenario();
+            }
+
+            if (scenario.HasPatientConfiguration())
+                scenario.GetPatientConfiguration().SetDataRootDir($"{Application.streamingAssetsPath}/Data/");
+
+            MergeDataRequests();
+            InitializeEngineState();
+        }
+
+        private void LoadDefaultScenario()
+        {
+            string streamingScenarioFilename = $"{Application.streamingAssetsPath}/test_scenario.json";
+            if (!scenario.SerializeFromFile(streamingScenarioFilename))
+            {
+                Debug.LogError($"Unable to load scenario file {streamingScenarioFilename}", this);
+                CreateDefaultScenario();
+            }
+        }
+
+        private void CreateDefaultScenario()
+        {
+            scenario.SetName("Scenario");
+            scenario.SetDescription("Simple Scenario to demonstrate building a scenario by the CDM API");
+            scenario.GetPatientConfiguration().SetPatientFile("StandardMale.json");
+
+            SEDataRequest dr = SEDataRequest.CreatePhysiologyDataRequest("BloodVolume", VolumeUnit.mL);
+            scenario.GetDataRequestManager().GetDataRequests().Add(dr);
+        }
+
+        private void MergeDataRequests()
+        {
+            // Add scenario data requests to our data container
+            foreach (var request in scenario.GetDataRequestManager().GetDataRequests())
+            {
+                data.fields.Add(request.ToString().Replace("/", "\u2215"));
+                data.valuesTable.Add(new DoubleList(preAllocatedSize));
+            }
+
+            // Push standard data requests to the front of the scenario
+            for (int i = data_requests.Count; i > 0; i--)
+                scenario.GetDataRequestManager().GetDataRequests().Insert(0, data_requests[i - 1]);
+        }
+
+        private void InitializeEngineState()
+        {
+            if (scenario.HasEngineState())
+            {
+                string state = $"{Application.streamingAssetsPath}/Data/states/{scenario.GetEngineState()}";
+                if (!engine.SerializeFromFile(state, scenario.GetDataRequestManager()))
+                {
+                    Debug.LogError($"Unable to load state file {state}", this);
+                }
+            }
+            else if (scenario.HasPatientConfiguration())
+            {
+                if (!engine.InitializeEngine(scenario.GetPatientConfiguration(), scenario.GetDataRequestManager()))
+                {
+                    Debug.LogError("Unable to initialize patient", this);
+                }
+            }
+            else
+            {
+                Debug.LogError("Invalid Scenario provided", this);
+            }
+        }
+
+        private void PrepareScenarioActions()
+        {
+            double simTime_s = 0;
+            foreach (SEAction a in scenario.GetActions())
+            {
+                if (a is SEAdvanceTime advanceTime)
+                {
+                    simTime_s += advanceTime.GetTime().GetValue(TimeUnit.s);
+                }
+                else
+                {
+                    actions.Add(simTime_s, a);
+                }
+            }
+        }
+
+        protected virtual void Update()
+        {
+            if (!Application.isPlaying || engine == null || pauseUpdate)
+                return;
+
+            double currentTime = Time.time;
+            if (currentTime < nextUpdateTime)
+                return; // Not time to update yet
+
+            // Clear data only when we'll be adding new data
+            if (pullAllData || pulseSampleTime >= sampleRate)
+            {
+                ClearDataContainer();
+            }
+
+            ProcessTimeSteps(currentTime);
+
+            nextUpdateTime = Time.time + pulseTimeStep;
+        }
+
+        private void ClearDataContainer()
+        {
+            if (!data.timeStampList.IsEmpty())
+            {
+                data.timeStampList.Clear();
+                for (int j = 0; j < data.valuesTable.Count; ++j)
+                    data.valuesTable[j].Clear();
+            }
+        }
+
+        private void ProcessTimeSteps(double currentTime)
+        {
+            int stepsToProcess = Mathf.CeilToInt((float)((currentTime - pulseTime) / pulseTimeStep));
+            stepsToProcess = Mathf.Clamp(stepsToProcess, 1, 10); // Limit maximum steps to prevent freezing
+
+            for (int i = 0; i < stepsToProcess; ++i)
+            {
+                ProcessActions();
+                AdvanceSimulation();
+
+                if (pullAllData || pulseSampleTime >= sampleRate)
+                {
+                    SampleData();
+                }
+            }
+        }
+
+        private void ProcessActions()
+        {
+            actionsToRemove.Clear();
+
+            // Find actions to process at current time
+            foreach (var actionPair in actions)
+            {
+                if (actionPair.Key <= pulseTime)
+                {
+                    actionsToRemove.Add(actionPair);
+                    if (!engine.ProcessAction(actionPair.Value))
+                    {
+                        Debug.LogError($"Could not process action {actionPair.Value}", this);
+                    }
+                }
+                else
+                {
+                    // Actions are sorted, so we can break early
+                    break;
+                }
+            }
+
+            // Remove processed actions
+            foreach (var action in actionsToRemove)
+            {
+                actions.Remove(action.Key);
+            }
+        }
+
+        private void AdvanceSimulation()
+        {
+            // Increment time
+            pulseTime += pulseTimeStep;
+            pulseSampleTime += pulseTimeStep;
+
+            // Advance simulation
+            engine.AdvanceTime_s(pulseTimeStep);
+        }
+
+        private void SampleData()
+        {
+            pulseSampleTime = 0;
+            data.timeStampList.Add(pulseTime);
+            data_values = engine.PullData();
+
+            for (int j = 0; j < data_values.Length; ++j)
+            {
+                data.valuesTable[j].Add(data_values[j]);
+            }
+        }
+
+        protected virtual void OnApplicationQuit()
+        {
+            if (engine != null)
+            {
+                engine = null;
+            }
+        }
     }
-
-    // Called at the first frame when the component is enabled
-    protected virtual void Start()
-    {
-      // Ensure we only read data if the application is playing
-      // and we have a state file to initialize the engine with
-      if (!Application.isPlaying)
-        return;
-
-      // Allocate PulseEngine with path to logs and needed data files
-      string dateAndTimeVar = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
-      string logFilePath = Application.persistentDataPath + "/" +
-                                      gameObject.name +
-                                      dateAndTimeVar + ".log";
-      engine = new PulseUnityEngine();
-      engine.SetLogFilename(logFilePath);
-      scenario = new SEScenario();
-
-      // Initialize engine state from tje state file content
-      if (scenarioJson != null)
-      {
-        if (!scenario.SerializeFromString(scenarioJson.text, eSerializationFormat.JSON))
-          Debug.unityLogger.LogError("PulsePhysiologyEngine", "Unable to load scenario file " + scenarioJson);
-      }
-      else
-      {
-        // You do not have to use the Editor control if you don't want to,
-        // You could simply specify a file on disk via use of the Streaming Assets folder
-        string streamingScenarioFilename = Application.streamingAssetsPath + "/test_scenario.json";
-        if (!scenario.SerializeFromFile(streamingScenarioFilename))
-        {
-          Debug.unityLogger.LogError("PulsePhysiologyEngine", "Unable to load scenario file " + streamingScenarioFilename);
-          return;
-        }
-
-        // You could also procedurally create a scenario
-        scenario.SetName("Scenario");
-        scenario.SetDescription("Simple Scenario to demonstraight building a scenario by the CDM API");
-        scenario.GetPatientConfiguration().SetPatientFile("StandardMale.json");
-        // Any extra data you want
-        SEDataRequest dr = SEDataRequest.CreatePhysiologyDataRequest("BloodVolume", VolumeUnit.mL);
-        scenario.GetDataRequestManager().GetDataRequests().Add(dr);
-      }
-      // If there a patient configuration, Pulse will need to stabilize, which means its starting from scratch
-      // In this case, Pulse is going to need to read files off disk to initialize properly
-      // Make sure you have copied the Pulse asset data directory to your applications streaming assets path
-      if (scenario.HasPatientConfiguration())
-        scenario.GetPatientConfiguration().SetDataRootDir(Application.streamingAssetsPath+"/Data/");
-
-      // !!! NOTE !!!
-      // We need to combine any predefined editor data requests with data requests provided in the scenario
-      // PLEASE ENSURE THERE ARE NO DUPLICATE DATA REQUESTS, THE ENGINE WILL NOT INITIALIZE
-      // IT IS UNABLE TO PROPERLY ORDER THE PullData ARRAY WITH DUPLIATES
-      // Push the scenario data requests to the back of the data container
-      foreach (var request in scenario.GetDataRequestManager().GetDataRequests())
-      {
-        data.fields.Add(request.ToString().Replace("/", "\u2215"));
-        data.valuesTable.Add(new DoubleList());
-      }
-      // The vitals monitor is expecting the data_requests associated with the monitor to be in the beginning of data_values
-      // So we need to push these to the front of the scenario data request list in reverse order
-      // So data requests in the scenario file, or that you procedurally created will be AFTER
-      // the vitals_monitor_data_requests in the data_values array
-      for (int i = data_requests.Count; i > 0; i--)
-        scenario.GetDataRequestManager().GetDataRequests().Insert(0, data_requests[i - 1]);
-      // So the file/procedurally created requests will start at index data_requests.length
-      // If you have duplicates, you are just going to get the same data multiple times
-
-      if (scenario.HasEngineState())
-      {
-        // This code is assuming the scenario engine state file is relative to the application streaming path
-        string state = Application.streamingAssetsPath + "/Data/states/" + scenario.GetEngineState();
-        if (!engine.SerializeFromFile(state, scenario.GetDataRequestManager()))
-        {
-          Debug.unityLogger.LogError("PulsePhysiologyEngine", "Unable to load state file " + state);
-          return;
-        }
-      }
-      else if (scenario.HasPatientConfiguration())
-      {
-        if (!engine.InitializeEngine(scenario.GetPatientConfiguration(), scenario.GetDataRequestManager()))
-        {
-          Debug.unityLogger.LogError("PulsePhysiologyEngine", "Unable to initialize patient");
-          return;
-        }
-      }
-      else
-      {
-        Debug.unityLogger.LogError("PulsePhysiologyEngine", "Invalid Scenario provided");
-        return;
-      }
-
-      // Go through the scenario actions and figure out what time they need to be processed
-      double simTime_s = 0;
-      foreach (SEAction a in scenario.GetActions())
-      {
-        if (a is SEAdvanceTime)
-        {
-          simTime_s += ((SEAdvanceTime)a).GetTime().GetValue(TimeUnit.s);
-        }
-        else
-          actions.Add(new Tuple<double, SEAction>(simTime_s, a));
-      }
-
-      pulseTime = 0;
-      pulseSampleTime = 0;
-    }
-
-    // Called before every frame
-    protected virtual void Update()
-    {
-      // Ensure we only broadcast data if the application is playing
-      // and there a valid pulse engine to simulate data from
-      if (!Application.isPlaying || engine == null || pauseUpdate)
-        return;
-
-      double timeElapsed = Time.time - pulseTime;
-      if (timeElapsed < pulseTimeStep)
-        return;// Not running yet
-
-      // Clear PulseData container
-      if (!data.timeStampList.IsEmpty())
-      {
-        data.timeStampList.Clear();
-        for (int j = 0; j < data.valuesTable.Count; ++j)
-          data.valuesTable[j].Clear();
-      }
-
-      // Iterate over multiple time steps if needed
-      int numberOfDataPointsNeeded = (int)Math.Floor(timeElapsed / pulseTimeStep);
-      //if (numberOfDataPointsNeeded > 2)
-      //  Debug.unityLogger.Log("Big Catchup "+ numberOfDataPointsNeeded + ", timeElapsed = " + timeElapsed);
-      for (int i = 0; i < numberOfDataPointsNeeded; ++i)
-      {
-        // Check to see if we need to process any actions at this time
-        foreach (var e in actions)
-        {
-          if (e.Item1 <= pulseTime)
-          {
-            activeActions.Add(e);
-            if (!engine.ProcessAction(e.Item2))
-              Debug.unityLogger.LogError("PulsePhysiologyEngine", "Could not process action " + e.Item2.ToString());
-          }
-        }
-        foreach (var e in activeActions)
-          actions.Remove(e);
-        activeActions.Clear();
-
-        // Increment pulse time
-        pulseTime += pulseTimeStep;
-        pulseSampleTime += pulseTimeStep;
-
-        // Advance simulation by time step
-        bool success = engine.AdvanceTime_s(pulseTimeStep);
-        if (!success)
-          continue;
-
-        // Copy simulated data to data container (if its time)
-        if (pullAllData || pulseSampleTime >= sampleRate)
-        {
-          pulseSampleTime = 0;
-          data.timeStampList.Add(pulseTime);
-          data_values = engine.PullData();
-          for (int j = 0; j < data_values.Length; ++j)
-            data.valuesTable[j].Add((float)data_values[j]);
-        }
-      }
-    }
-
-    protected virtual void OnApplicationQuit()
-    {
-      engine = null;
-    }
-  }
 }

@@ -33,31 +33,33 @@ public static class ObjExporter
             foreach (var filter in meshFilters)
             {
                 var meshRenderer = filter.GetComponent<MeshRenderer>();
-
                 if (meshRenderer != null)
                     rendererFilterMap[meshRenderer] = filter;
             }
 
-
             List<Material> materials = new();
             List<List<CombineInstance>> combineInstancesByMaterial = new();
-            Dictionary<Material, Material> materialInstanceMap = new ();
+            Dictionary<Material, Material> materialInstanceMap = new();
 
+            int counter = 0;
             foreach (var kvp in rendererFilterMap)
             {
-                var renderer = kvp.Key;
-                var filter = kvp.Value;
-   
-    
-                ProcessMaterials(renderer, filter, materials, combineInstancesByMaterial,materialInstanceMap);
+                ProcessMaterials(kvp.Key, kvp.Value, materials, combineInstancesByMaterial, materialInstanceMap);
+                OnMeshCombiningUpdate?.Invoke((float)(counter + 1) / (meshFilters.Length + 1));
 
-                OnMeshCombiningUpdate?.Invoke((float)rendererFilterMap.Count / (meshFilters.Length + 1));
-                await Task.Yield();
+                // Only yield every 10 items to avoid task flood
+                if (counter % 10 == 0)
+                    await Task.Yield();
+
+                counter++;
+
                 if (!Application.isPlaying)
                     throw new Exception("App quit during task");
             }
 
             List<CombineInstance> finalCombiners = new();
+            List<Mesh> tempSubmeshes = new(); // Store temporary meshes for cleanup
+
             for (int i = 0; i < combineInstancesByMaterial.Count; i++)
             {
                 Mesh submesh = new();
@@ -70,64 +72,38 @@ public static class ObjExporter
                     subMeshIndex = 0,
                     transform = Matrix4x4.identity
                 };
-                ;
-                finalCombiners.Add(
-                EnsureOutwardFacingNormals(ci));
+
+                finalCombiners.Add(EnsureOutwardFacingNormals(ci));
+                tempSubmeshes.Add(submesh); // Track for cleanup
             }
 
             Mesh finalMesh = new();
             finalMesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
-
-
-
-
-
             finalMesh.CombineMeshes(finalCombiners.ToArray(), false);
-
-
-            //finalMesh.RecalculateNormals();
-            //finalMesh.RecalculateTangents();
-            //finalMesh.RecalculateBounds();
-
-            //finalMesh.Optimize();
 
             OnMeshCombineSuccess?.Invoke();
             await Task.Yield();
 
             ObjExportData data = new();
-           
             data.Obj.Append($"#{meshName}.obj\n# {System.DateTime.Now.ToLongDateString()}\n# {System.DateTime.Now.ToLongTimeString()}\n#-------\n\n");
             string id = Guid.NewGuid().ToString();
             data.Obj.Append($"mtllib {id}.mtl\n\n");
 
             var obj = new GameObject("CombinedMesh", typeof(MeshFilter));
             obj.GetComponent<MeshFilter>().sharedMesh = finalMesh;
+            obj.transform.position = Vector3.zero;
 
-
-
-
-            Transform t = obj.transform;
-            t.position = Vector3.zero;
-
-            var task = ProcessTransform(t, makeSubmeshes, materials, data);
-            await task;
+            await ProcessTransform(obj.transform, makeSubmeshes, materials, data);
 
             foreach (var material in materials)
-            {
                 AddMaterialToMtl(data, material);
-            }
 
             data.Bake();
-            string path = "";
-            //string path = Path.Combine(Application.persistentDataPath , "obj", id);
-            if (meshName.Equals("Scene")) { 
-             path = Path.Combine(FullRoomSave.GetRoomPath(), "ObjFile");
-            }
-            else
-            {
-                path = Path.Combine(FullRoomSave.GetRoomPath(), "ObjFile",meshName);
 
-            }
+            string path = meshName.Equals("Scene")
+                ? Path.Combine(FullRoomSave.GetRoomPath(), "ObjFile")
+                : Path.Combine(FullRoomSave.GetRoomPath(), "ObjFile", meshName);
+
             Directory.CreateDirectory(path);
             File.WriteAllText(Path.Combine(path, $"{meshName}.obj"), data.ObjString);
             File.WriteAllText(Path.Combine(path, $"{meshName}.mtl"), data.MtlString);
@@ -142,8 +118,15 @@ public static class ObjExporter
 
             ExportFinishedSuccessfully?.Invoke(path);
 
-            Object.Destroy(finalMesh);
-            Object.Destroy(obj);
+            // Cleanup all temporary objects
+            foreach (var m in tempSubmeshes)
+                UnityEngine.Object.Destroy(m);
+
+            UnityEngine.Object.Destroy(finalMesh);
+            UnityEngine.Object.Destroy(obj);
+
+            GC.Collect();
+            Resources.UnloadUnusedAssets();
         }
         catch (Exception e)
         {
@@ -157,7 +140,6 @@ public static class ObjExporter
     }
 
 
-  
 
     public static void ProcessMaterials(MeshRenderer renderer, MeshFilter filter, List<Material> materials, List<List<CombineInstance>> combineInstancesByMaterial, Dictionary<Material, Material> materialInstanceMap)
     {

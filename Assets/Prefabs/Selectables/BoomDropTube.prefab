@@ -212,11 +212,19 @@ PrefabInstance:
       value: 0c9d363b-25d9-457f-a539-4d8ad0833aff
       objectReference: {fileID: 0}
     - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
+      propertyPath: <AttachmentPointDatas>k__BackingField.Array.data[1].<Guid>k__BackingField
+      value: 0c9d363b-25d9-457f-a539-4d8ad0833aff
+      objectReference: {fileID: 0}
+    - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: <MetaData>k__BackingField.<AttachmentPointGuidMetaData>k__BackingField.Array.size
       value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: <AttachmentPointDatas>k__BackingField.Array.data[0].<AttachmentPoint>k__BackingField
+      value: 
+      objectReference: {fileID: 2952488900163567009}
+    - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
+      propertyPath: <AttachmentPointDatas>k__BackingField.Array.data[1].<AttachmentPoint>k__BackingField
       value: 
       objectReference: {fileID: 2952488900163567009}
     - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
@@ -574,6 +582,11 @@ MonoBehaviour:
       _isExpanded: 1
       _transformableLayers: -1
   <_rotateGizmo>k__BackingField:
+    _settings:
+      _canBeDisplayed: 1
+      _isExpanded: 1
+      _transformableLayers: -1
+  _scaleGizmo:
     _settings:
       _canBeDisplayed: 1
       _isExpanded: 1

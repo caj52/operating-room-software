@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using System.IO;
 using System.Collections;
 // URP-specific imports
@@ -7,6 +7,7 @@ using UnityEngine.Rendering.Universal;
 using System.Linq;
 using System.Reflection;
 using System.Collections.Generic;
+using System;
 
 public class ScreenshotCapture : MonoBehaviour
 {
@@ -229,7 +230,10 @@ public class ScreenshotCapture : MonoBehaviour
                   $"Success! Enhanced screenshots saved to {folderPath}",
              new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = folderPath),
             new ButtonAction("Done"));
+        if (OperatingRoomCamera.LiveCamera.CameraType == OperatingRoomCameraType.FreeLook)
+        {
         RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling).MeshRenderer.enabled = true;
+        }
     }
 
     public Vector3 GetRoomCenter()
@@ -251,7 +255,11 @@ public class ScreenshotCapture : MonoBehaviour
         return bounds.center;
     }
 
-    void TakeScreenshot(int index)
+    // Add this flag as a class member variable
+    private bool screenshotCompleted = false;
+
+    // Modified TakeScreenshot method
+    string TakeScreenshot(int index)
     {
         if (string.IsNullOrEmpty(FullRoomSave.GetRoomPath()))
         {
@@ -261,98 +269,114 @@ public class ScreenshotCapture : MonoBehaviour
         {
             folderPath = Path.Combine(FullRoomSave.GetRoomPath(), "Renders");
         }
-
         if (!Directory.Exists(folderPath))
             Directory.CreateDirectory(folderPath);
-
         string fileName = $"{screenshotFileName}_HD_{index}_{System.DateTime.Now:yyyy-MM-dd_HH-mm-ss}.png";
         string filePath = Path.Combine(folderPath, fileName);
+
+        // Reset completion flag before starting capture
+        screenshotCompleted = false;
 
         switch (captureMethod)
         {
             case CaptureMethod.CameraRender:
-                CaptureUsingCameraRender(filePath);
+                StartCoroutine(CaptureAfterFrame(filePath));
                 break;
         }
-
         // Play Shutter Sound (if assigned)
         if (shutterSound != null)
             shutterSound.Play();
-
         captureCamera.enabled = false;
+        return filePath;
     }
 
-    void CaptureUsingCameraRender(string filePath)
+    // Modified CaptureAfterFrame method with completion flag
+    private IEnumerator CaptureAfterFrame(string filePath)
     {
+        // Wait for full frame render to avoid lighting/post issues
+        yield return new WaitForEndOfFrame();
+        // Optionally wait another frame for heavier setups
+        // yield return null;
         // Set up enhanced render texture format
         RenderTextureDescriptor rtDesc = new RenderTextureDescriptor(
             Screen.width * resolutionMultiplier,
             Screen.height * resolutionMultiplier,
             useHDR ? RenderTextureFormat.DefaultHDR : RenderTextureFormat.ARGB32,
-            24);
-        rtDesc.sRGB = !linearColorSpace; // Use linear color space for better quality
-        rtDesc.msaaSamples = antiAliasingLevel; // Higher AA for quality
-        rtDesc.enableRandomWrite = false;
-        rtDesc.depthBufferBits = 24; // Ensure proper depth buffer
-
+            24)
+        {
+            sRGB = !linearColorSpace,
+            msaaSamples = antiAliasingLevel,
+            enableRandomWrite = false,
+            depthBufferBits = 24
+        };
         RenderTexture rt = new RenderTexture(rtDesc);
         rt.Create();
-
-        // Save original camera settings
+        // Save original camera state
         RenderTexture originalTarget = captureCamera.targetTexture;
-        bool originalAllowMSAA = QualitySettings.antiAliasing > 0;
-
-        // For URP, specifically enhance rendering features
         if (urpCameraData != null)
         {
-            // Ensure post-processing is enabled for this camera
             urpCameraData.renderPostProcessing = true;
-
-            // Make sure to preserve framebuffer alpha
             urpCameraData.requiresColorOption = CameraOverrideOption.On;
             urpCameraData.requiresDepthOption = CameraOverrideOption.On;
-
-
         }
-
-        // Set camera to render to RT
         captureCamera.targetTexture = rt;
-
-        // Force a render that includes URP post-processing (including SSAO)
+        // Force render (after pipeline is fully ready)
         captureCamera.Render();
-
-        // Read pixels into texture with enhanced settings
+        // Read pixels
         RenderTexture.active = rt;
-        Texture2D screenShot = new Texture2D(rt.width, rt.height,
-                                           TextureFormat.RGBA32,
-                                           false,
-                                           linearColorSpace);
+        Texture2D screenShot = new Texture2D(rt.width, rt.height, TextureFormat.RGBA32, false, linearColorSpace);
         screenShot.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
         screenShot.Apply(false);
-
-        // Restore original camera settings
+        // Cleanup
         captureCamera.targetTexture = originalTarget;
         RenderTexture.active = null;
         rt.Release();
         Destroy(rt);
-
-        // Save to file with quality settings
-        byte[] bytes;
-        if (filePath.ToLower().EndsWith(".jpg") || filePath.ToLower().EndsWith(".jpeg"))
-        {
-            bytes = screenShot.EncodeToJPG(Mathf.RoundToInt(jpegQuality * 100));
-        }
-        else
-        {
-            bytes = screenShot.EncodeToPNG(); // PNG for highest quality
-        }
-
+        byte[] bytes = filePath.ToLower().EndsWith(".jpg") || filePath.ToLower().EndsWith(".jpeg")
+            ? screenShot.EncodeToJPG(Mathf.RoundToInt(jpegQuality * 100))
+            : screenShot.EncodeToPNG();
         File.WriteAllBytes(filePath, bytes);
         Destroy(screenShot);
+        Debug.Log("Screenshot saved: " + filePath);
 
-        Debug.Log("Enhanced Screenshot saved: " + filePath);
+        // Set completion flag when done
+        screenshotCompleted = true;
     }
+    string filePath = "";
+    // Modified CaptureCeilingOnly method
+    public IEnumerator CaptureCeilingOnly(Vector3 position, Quaternion? rotation, Action<string> onComplete)
+    {
+        UI_GeneralLoadingScreen.instance.ShowLoadingScreen();
+        if (uiCanvas != null)
+            ToggleUI(false);
+        captureCamera.enabled = true;
+        CameraCaptureState originalState = new CameraCaptureState(captureCamera, urpCameraData);
+        AdjustExposureForScreenshot(true);
+        captureCamera.transform.position = position;
+        captureCamera.transform.rotation = rotation ?? Quaternion.Euler(90, 0, 0);
+        captureCamera.orthographic = true;
+        RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling).MeshRenderer.enabled = false;
+        yield return new WaitForEndOfFrame();
 
+        filePath = TakeScreenshot(999);
+
+        // Wait until the screenshot is ACTUALLY completed
+        yield return new WaitUntil(() => screenshotCompleted);
+
+        // Now restore ceiling visibility after screenshot is truly saved
+        if (OperatingRoomCamera.LiveCamera.CameraType == OperatingRoomCameraType.FreeLook)
+        {
+            RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling).MeshRenderer.enabled = true;
+        }
+
+        AdjustExposureForScreenshot(false);
+        originalState.Restore(captureCamera, urpCameraData);
+        if (uiCanvas != null)
+            ToggleUI(true);
+        UI_GeneralLoadingScreen.instance.HideLoadingScreen();
+        Debug.Log("Custom ceiling shot captured.");
+        onComplete?.Invoke(filePath);
+    }
     void ToggleUI(bool isVisible)
     {
         if (canvasGroup != null)

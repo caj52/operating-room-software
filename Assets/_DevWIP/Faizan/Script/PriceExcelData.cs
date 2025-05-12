@@ -8,4 +8,8 @@ public class PriceExcelData
     public double ListPrice { get; set; }
     public double SimFlexPrice { get; set; }
     public bool isSimFlexArmAvailable { get; set; }
+
+    public string ObjectSize { get; set; }
+
+  
 }

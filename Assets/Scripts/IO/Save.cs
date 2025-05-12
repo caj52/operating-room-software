@@ -41,14 +41,6 @@ public class Save : MonoBehaviour
 
         b_Save.onClick.AddListener(() =>
         {
-            if (string.IsNullOrEmpty(FullRoomSave.GetRoomPath()))
-            {
-                UI_DialogPrompt.Open(
-                         $"Please Export Room First",
-                          new ButtonAction("OK"));
-            }
-            else
-            {
                 if (Selectable.SelectedSelectables.Count == 0)
                 {
                     header.text = "Save Room";
@@ -60,8 +52,6 @@ public class Save : MonoBehaviour
 
                 FreeLookCam.Instance.isLocked = true;
                 savePanel.SetActive(true);
-            }
-
         });
 
         b_Confirm.onClick.AddListener(() =>

@@ -6,6 +6,9 @@ using UnityEngine;
 
 public class UI_ButtonDeleteObject : MonoBehaviour
 {
+    public delegate void ButtonActionDelegate();
+    public static event ButtonActionDelegate OnButtonAction;
+
     private void Awake()
     {
         Selectable.SelectionChanged += UpdateActiveState;
@@ -43,6 +46,7 @@ public class UI_ButtonDeleteObject : MonoBehaviour
                         var selectables = Selectable.SelectedSelectables;
                         Destroy(selectables[0].gameObject);
                         UI_DialogPrompt.Close();
+                        OnButtonAction?.Invoke();
                     },
             },
             new ButtonAction

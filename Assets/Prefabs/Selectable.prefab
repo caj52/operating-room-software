@@ -51,16 +51,16 @@ MonoBehaviour:
   <GUID>k__BackingField: gameobject_85d8679646b1a2140b71e2dbe4709489
   <MetaData>k__BackingField:
     <IsSubSelectable>k__BackingField: 0
-    <Enabled>k__BackingField: 0
+    <Enabled>k__BackingField: 1
     <IsStandalone>k__BackingField: 0
     <ThumbnailBase64>k__BackingField: 
-    <Name>k__BackingField: Selectable
+    <Name>k__BackingField: Single Mount - Light (Slim)Simplw
     <SubPartName>k__BackingField: 
     <Categories>k__BackingField: []
     <KeyWords>k__BackingField: []
     <AttachmentPointGuidMetaData>k__BackingField: []
   <AttachmentPointDatas>k__BackingField: []
-  <SpecialTypes>k__BackingField: 
+  <SpecialTypes>k__BackingField: 00000000
   <WallRestrictions>k__BackingField: 
   <GizmoSettingsList>k__BackingField: []
   <InitialLocalPositionOffset>k__BackingField: {x: 0, y: 0, z: 0}
@@ -279,6 +279,11 @@ MonoBehaviour:
       _isExpanded: 1
       _transformableLayers: -1
   <_rotateGizmo>k__BackingField:
+    _settings:
+      _canBeDisplayed: 1
+      _isExpanded: 1
+      _transformableLayers: -1
+  _scaleGizmo:
     _settings:
       _canBeDisplayed: 1
       _isExpanded: 1

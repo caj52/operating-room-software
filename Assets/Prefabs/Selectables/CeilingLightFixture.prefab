@@ -299,6 +299,10 @@ PrefabInstance:
       value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 5886017757515193121, guid: 507423c88dca02e44bf1e266b76f2d06, type: 3}
+      propertyPath: m_Range
+      value: 1.8
+      objectReference: {fileID: 0}
+    - target: {fileID: 5886017757515193121, guid: 507423c88dca02e44bf1e266b76f2d06, type: 3}
       propertyPath: m_Shadows.m_Type
       value: 2
       objectReference: {fileID: 0}

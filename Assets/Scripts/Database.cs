@@ -23,7 +23,8 @@ internal static class Database
 
     //private const string _uri = "https://orswebapi-app-20240309191859.ambitioussky-1264637f.eastus.azurecontainerapps.io";
  //  private const string _uri = "https://localhost:7285";
-    private const string _uri = "https://ors-d3fjgngqeue0bcd6.canadacentral-01.azurewebsites.net/";
+   private const string _uri = "https://ors-d3fjgngqeue0bcd6.canadacentral-01.azurewebsites.net/";
+   // private const string _uri = "https://ors-dev-api-eza3hagfddcxgmfn.canadacentral-01.azurewebsites.net/";
 
     public static bool Initialized { get; private set; }
 
@@ -101,7 +102,7 @@ internal static class Database
         try
         {
             var json = JsonConvert.SerializeObject(operation);
-            //Debug.Log(json);
+            Debug.Log(json);
             byte[] bytes = Encoding.UTF8.GetBytes(json);
             string uri = _uri + "/metadata";
 
@@ -473,6 +474,7 @@ internal static class Database
     {
         var loadingToken = Loading.GetLoadingToken();
         string uri = _uri + "/lastmodified";
+        Debug.Log(uri);
         using var request = UnityWebRequest.Get(uri);
         var operation = request.SendWebRequest();
 
@@ -490,7 +492,7 @@ internal static class Database
         if (request.result != UnityWebRequest.Result.Success)
         {
             // no internet or server malfunction
-
+            Debug.Log(uri);
             Debug.LogError($"Couldn't retrieve database info (no internet?) | response code {request.responseCode}");
 
             return -1;
@@ -552,6 +554,7 @@ internal static class Database
     /// <exception cref="Exception"></exception>
     public static async Task<bool> ValidatePassword(string password)
     {
+        Debug.LogError($"{nameof(ValidatePassword)}: {password}");
         string sessionId = Guid.NewGuid().ToString();
         var task = DoMetaDataOperation(new MetaDataOperation
         {

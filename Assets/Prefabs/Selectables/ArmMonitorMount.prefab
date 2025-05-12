@@ -470,7 +470,7 @@ MonoBehaviour:
   value: 0
   min: 0
   max: 0
---- !u!114 &3355617944146532510
+--- !u!114 &5171402276706061540
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -483,14 +483,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   <Id>k__BackingField: 
-  selectables: []
-  zScale: {fileID: 0}
-  zScales: []
-  parent: {fileID: 0}
-  lightCount: 0
-  flatPanel: 0
-  isLightTop: 0
-  isPanelTop: 0
 --- !u!1001 &6412713555679531544
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -571,6 +563,10 @@ PrefabInstance:
       value: 3
       objectReference: {fileID: 0}
     - target: {fileID: 4014627101839371476, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
+      propertyPath: <AttachmentPointDatas>k__BackingField.Array.size
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 4014627101839371476, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
       propertyPath: <RelatedSelectables>k__BackingField.Array.data[0]
       value: 
       objectReference: {fileID: 1078374745571109936}
@@ -582,6 +578,22 @@ PrefabInstance:
       propertyPath: <RelatedSelectables>k__BackingField.Array.data[2]
       value: 
       objectReference: {fileID: 8018759280580034252}
+    - target: {fileID: 4014627101839371476, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
+      propertyPath: <AttachmentPointDatas>k__BackingField.Array.data[0].<Guid>k__BackingField
+      value: 0c9d363b-25d9-457f-a539-4d8ad0833aff
+      objectReference: {fileID: 0}
+    - target: {fileID: 4014627101839371476, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
+      propertyPath: <MetaData>k__BackingField.<AttachmentPointGuidMetaData>k__BackingField.Array.size
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 4014627101839371476, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
+      propertyPath: <MetaData>k__BackingField.<AttachmentPointGuidMetaData>k__BackingField.Array.data[0].<Guid>k__BackingField
+      value: 0c9d363b-25d9-457f-a539-4d8ad0833aff
+      objectReference: {fileID: 0}
+    - target: {fileID: 4014627101839371476, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
+      propertyPath: <MetaData>k__BackingField.<AttachmentPointGuidMetaData>k__BackingField.Array.data[0].<MetaData>k__BackingField.<Guid>k__BackingField
+      value: 0c9d363b-25d9-457f-a539-4d8ad0833aff
+      objectReference: {fileID: 0}
     - target: {fileID: 4297370789474308351, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
       propertyPath: m_LocalScale.x
       value: 0.34
@@ -880,6 +892,11 @@ MonoBehaviour:
       _isExpanded: 1
       _transformableLayers: -1
   <_rotateGizmo>k__BackingField:
+    _settings:
+      _canBeDisplayed: 1
+      _isExpanded: 1
+      _transformableLayers: -1
+  _scaleGizmo:
     _settings:
       _canBeDisplayed: 1
       _isExpanded: 1

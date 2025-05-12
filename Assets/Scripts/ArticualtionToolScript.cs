@@ -3,9 +3,9 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using TMPro;
-using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using static Selectable;
 
@@ -41,33 +41,6 @@ public class ArticualtionToolScript : MonoBehaviour
     }
 
 
-
-    public void Update()
-    {
-        UpdateSlidersFromTransform();
-    }
-
-    private void UpdateSlidersFromTransform()
-    {
-     /*   if (GizmoSelector.CurrentGizmoMode == GizmoMode.Translate)
-        {
-            xSlider.value = SelectedObject.transform.position.x;
-            ySlider.value = SelectedObject.transform.position.z;
-            zSlider.value = SelectedObject.transform.position.y;
-        }
-        else if (GizmoSelector.CurrentGizmoMode == GizmoMode.Rotate)
-        {
-            xSlider.value = SelectedObject.transform.rotation.x;
-            ySlider.value = SelectedObject.transform.rotation.y;
-            zSlider.value = SelectedObject.transform.rotation.z;
-        }
-        else if (GizmoSelector.CurrentGizmoMode == GizmoMode.Scale)
-        {
-            xSlider.value = SelectedObject.transform.localScale.x;
-            ySlider.value = SelectedObject.transform.localScale.y;
-            zSlider.value = SelectedObject.transform.localScale.z;
-        }*/
-    }
 
     private void GizmoChanged()
     {
@@ -306,36 +279,47 @@ public class ArticualtionToolScript : MonoBehaviour
 
             foreach (var settings in selectable.GizmoSettingsList)
             {
-                if (settings.Axis == axis && settings.GizmoType == GizmoType.Move)
-                {
-                    RoomBoundary[] roomBoundaries = rooms.currentRoom.GetComponentsInChildren<RoomBoundary>();
-
-                    var wallSouth = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.WallSouth);
-                    var wallNorth = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.WallNorth);
-                    var wallEast = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.WallEast);
-                    var wallWest = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.WallWest);
-                    var ceiling = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.Ceiling);
-                    var floor = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.Floor);
-
-                    if (axis == Axis.X)
+                    if (settings.Axis == axis && settings.GizmoType == GizmoType.Move)
                     {
-                        minValue = Mathf.Min(wallWest.transform.position.x, wallEast.transform.position.x);
-                        maxValue = Mathf.Max(wallWest.transform.position.x, wallEast.transform.position.x);
-                    }
-                    else if (axis == Axis.Y)
-                    {
-                        minValue = Mathf.Min(wallSouth.transform.position.z, wallNorth.transform.position.z);
-                        maxValue = Mathf.Max(wallSouth.transform.position.z, wallNorth.transform.position.z);
-                    }
-                    else if (axis == Axis.Z)
-                    {
-                        minValue = Mathf.Min(floor.transform.position.y, ceiling.transform.position.y);
-                        maxValue = Mathf.Max(floor.transform.position.y, ceiling.transform.position.y);
+                        if (settings.MinValue==0 && settings.MaxValue==0 )
+                        {
+                            RoomBoundary[] roomBoundaries = rooms.currentRoom.GetComponentsInChildren<RoomBoundary>();
 
-                    }
+                            var wallSouth = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.WallSouth);
+                            var wallNorth = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.WallNorth);
+                            var wallEast = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.WallEast);
+                            var wallWest = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.WallWest);
+                            var ceiling = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.Ceiling);
+                            var floor = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.Floor);
 
-                    foundSetting = true;
-                }
+                            if (axis == Axis.X)
+                            {
+                                minValue = Mathf.Min(wallWest.transform.position.x, wallEast.transform.position.x);
+                                maxValue = Mathf.Max(wallWest.transform.position.x, wallEast.transform.position.x);
+                            }
+                            else if (axis == Axis.Y)
+                            {
+                                minValue = Mathf.Min(wallSouth.transform.position.z, wallNorth.transform.position.z);
+                                maxValue = Mathf.Max(wallSouth.transform.position.z, wallNorth.transform.position.z);
+                            }
+                            else if (axis == Axis.Z)
+                            {
+                                minValue = Mathf.Min(floor.transform.position.y, ceiling.transform.position.y);
+                                maxValue = Mathf.Max(floor.transform.position.y, ceiling.transform.position.y);
+
+                            }
+                        }
+                        else
+                        {
+                            minValue = settings.MinValue;
+                            maxValue = settings.MaxValue;
+                        }
+
+
+                        foundSetting = true;
+                    }
+                
+               
             }
         
         
@@ -445,7 +429,14 @@ public class ArticualtionToolScript : MonoBehaviour
     {
         if (GizmoSelector.CurrentGizmoMode == GizmoMode.Translate)
         {
+            if (SelectedObject.name.StartsWith("SH_Shelf"))
+            {
+                UpdateTransformPositiom(value, Axis.Z);
+            }
+            else
+            {
             UpdateTransformPositiom(value,Axis.Y);
+            }
         }
         else if (GizmoSelector.CurrentGizmoMode == GizmoMode.Rotate)
         {
@@ -493,6 +484,10 @@ public class ArticualtionToolScript : MonoBehaviour
 
     private void UpdateTransformPositiom(float value, Axis axis)
     {
+        if (EventSystem.current.IsPointerOverGameObject())
+        {
+            return;
+        }
         if (selectables.Count == 0)
         {
             Debug.LogWarning("UpdateTransformRotation: No objects selected");
@@ -616,11 +611,12 @@ public class ArticualtionToolScript : MonoBehaviour
             // Get current rotation as Quaternion
             if (selectable.ScaleLevels.Count == 0) return;
             //get closest scale in list
-          
+
+            
             ScaleLevel closest = selectable.ScaleLevels.OrderBy(item => Mathf.Abs(item.Size - value)).First();
             Debug.LogError(closest.Size);
             selectable.SetScaleLevel(closest, false);
-           
+            selectable.ScaleUpdated?.Invoke();
         }
     }
 }

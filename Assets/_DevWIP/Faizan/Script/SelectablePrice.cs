@@ -3,67 +3,169 @@ using UnityEngine;
 
 public class SelectablePrice : MonoBehaviour
 {
-
+    #region Vars
     public string pricingObjectName;
+    public string UIObjectName { get; set; }
+    [SerializeField]
     public PriceExcelData objectPricingData;
-    public Selectable[] selectable;
-
-    public event Action OnDestroyed;
-
-    /// <summary>
-    /// Get Price From Excel
-    /// </summary>69
-    public void GetPricingDataFromExcel(string excelFileName)
+    public Selectable selectable;
+    private Selectable _selectableObjectForSize;
+    public Selectable selectableObjectForSize
     {
-        ExcelReader excelReader = FindAnyObjectByType<ExcelReader>();
-
-        if (excelReader == null)
+        get => _selectableObjectForSize;
+        set
         {
-            Debug.LogError("ExcelReader not found in the scene");
-            return;
+            // Unsubscribe from the previous Selectable's ScaleUpdated event
+            if (_selectableObjectForSize != null)
+            {
+                _selectableObjectForSize.ScaleUpdated.RemoveListener(OnScaleUpdated);
+            }
+
+            // Assign the new Selectable and subscribe to its ScaleUpdated event
+            _selectableObjectForSize = value;
+            if (_selectableObjectForSize != null)
+            {
+                Debug.Log("Selectable Object For Size " + _selectableObjectForSize.name, _selectableObjectForSize.gameObject);
+                _selectableObjectForSize.ScaleUpdated.AddListener(OnScaleUpdated);
+            }
+        }
+    }
+    public event Action OnDestroyed;
+    private string sheetName;
+    private PricingRowDataFill uiReferenceForSelectablePrice;
+    public bool isBoomObject = false;
+    #endregion
+
+    public void GetPricingDataFromExcel(string sheetName)
+    {
+        ExcelReader excelReader = FindExcelReader();
+        if (excelReader == null) return;
+
+        this.sheetName = sheetName;
+        string size = string.Empty;
+        if (isBoomObject)//Currently Only Boom Object Required Size Checking. Boom Excel has size options.
+        {
+            size = FindSelectableWithSize();
         }
 
-        excelReader.SetExceFileName(excelFileName);
-        objectPricingData = excelReader.FindPrice(pricingObjectName);
+        if (string.IsNullOrEmpty(size))
+        {
+            //if the size is not available then we will use the no size in matching critera
+            objectPricingData = excelReader.FetchPricingDataFromExcel(sheetName, pricingObjectName);
+        }
+        else
+        {
+            Debug.Log($"Object Name {pricingObjectName} and size {size} ");
+
+            // Check if the object is a Boom Base Model or not! Boom Base Model is not required size at the moment! The boom based model name already contain the size like XL etc
+            bool isBoomBaseModel = UINameToExcelKey.IsBoomBaseModelFromExcel(pricingObjectName);
+
+            if (isBoomBaseModel)//boom base model not required size at the moment
+            {
+                Debug.Log($"{pricingObjectName } isBoomBaseModel.");
+                objectPricingData = excelReader.FetchPricingDataFromExcel(sheetName, pricingObjectName);
+                objectPricingData.ObjectSize = size;
+            }
+            else
+            {
+                Debug.Log($"Object: {pricingObjectName}  is Not Boom Base Model. Size is {size}");
+                objectPricingData = excelReader.FetchPricingDataFromExcel(sheetName, pricingObjectName, size);
+                if (objectPricingData == null)
+                {
+                    Debug.LogError($"Object Pricing Data is null for {pricingObjectName} and size {size}. Please make sure size and name availble in the excel ");
+                    Destroy(this.GetComponent<SelectablePrice>());//Destroy the object if the pricing data is not found!
+                }
+                else
+                {
+                    objectPricingData.ObjectSize = size;
+                }
+            }
+        }
+
+        if (objectPricingData == null)
+        {
+            string message = $"Excel File or Object Name not found in the excel. Object: {pricingObjectName}!";
+            Debug.LogError(message);
+            Destroy(this.GetComponent<SelectablePrice>());
+        }
+        else
+        {
+            Debug.Log($"Price found for {pricingObjectName} for {objectPricingData.ListPrice} ");
+            objectPricingData.isSimFlexArmAvailable = HasSimFlexArmInTheHirarchey();
+            PopulateUIWithPricingItems pricingItems = FindObjectOfType<PopulateUIWithPricingItems>(true);
+            if (pricingItems != null)
+            {
+                uiReferenceForSelectablePrice = pricingItems.GenerateUIRow(this);
+            }
+            else
+            {
+                Debug.LogError("PopulateUIWithPricingItems not found in the scene");
+            }
+
+        }
+    }
+
+    private void GetPricingDataFromExcelUpdate(string updateSize)
+    {
+        ExcelReader excelReader = FindExcelReader();
+        if (excelReader == null) return;
+
+        string size = updateSize;
+
+        if (string.IsNullOrEmpty(size))
+        {
+            objectPricingData = excelReader.FetchPricingDataFromExcel(sheetName, pricingObjectName);
+        }
+        else
+        {
+            objectPricingData = excelReader.FetchPricingDataFromExcel(sheetName, pricingObjectName, size);
+        }
 
         Debug.LogWarning("pricingObjectName " + pricingObjectName);
         if (objectPricingData == null)
         {
             string message = "Excel File or Object Name not found in the excel!";
             Debug.LogError(message);
-            //UI_DialogPrompt.Open(message);
-
             Debug.LogError("File or Object not Found");
         }
         else
         {
             Debug.Log($"Price found for {pricingObjectName} for {objectPricingData.ListPrice} ");
-            objectPricingData.isSimFlexArmAvailable = GetSimFlexArmObjectRefrenceInHierarchy();
+            objectPricingData.isSimFlexArmAvailable = HasSimFlexArmInTheHirarchey();
             PopulateUIWithPricingItems pricingItems = FindObjectOfType<PopulateUIWithPricingItems>(true);
-            if(pricingItems != null)
+            if (uiReferenceForSelectablePrice != null)
             {
-                pricingItems.GenerateUIRow(this);
+                uiReferenceForSelectablePrice.FillData(this);
             }
             else
             {
-                Debug.LogError("PopulateUIWithPricingItems not found in the scene");
+                Debug.LogError("uiReferenceForSelectablePrice is null! Debug Please");
             }
-            
         }
+    }
+
+    private void OnScaleUpdated()
+    {
+        var size = selectableObjectForSize.CurrentPreviewScaleLevel.Size;
+        var scaleString = $"{size * 1000f}mm";
+        Debug.Log($"Scale {scaleString} Updated for", selectableObjectForSize.gameObject);
+        objectPricingData.ObjectSize = scaleString;
+        GetPricingDataFromExcelUpdate(scaleString);
     }
 
     /// <summary>
     /// Get SimFlexArm Object Reference in Hierarchy if it exists
     /// </summary>
     /// <returns>SimFlex exists?</returns>
-    bool GetSimFlexArmObjectRefrenceInHierarchy()
+    private bool HasSimFlexArmInTheHirarchey()
     {
         Selectable[] selectable = transform.root.GetComponentsInChildren<Selectable>();//go to the parent and pick all the selectable objects
         for (int i = 0; i < selectable.Length; i++)
         {
-            Debug.Log("Selectable Name " + selectable[i].name , selectable[i].gameObject);
+            //Debug.Log("Selectable Name " + selectable[i].name , selectable[i].gameObject);
             //actuall object name SimFLEXArm
-            if (selectable[i].name.ToLower().Contains("simflexarm")){
+            if (selectable[i].name.ToLower().Contains("simflexarm"))
+            {
                 Debug.Log("Yes SimFlexArm Found");
                 return true;
             }
@@ -71,8 +173,74 @@ public class SelectablePrice : MonoBehaviour
         return false;
     }
 
+    /// <summary>
+    /// Get the Selectable who has size available. In one object there are multiple selectable scripts attached. So we need to identify that which script has
+    /// size. This function will return the size of the object. This function is only required first time when the object is instantiated. After that we dont need to use it instead
+    /// we have alternate method which is given in OnScaleUpdated
+    /// </summary>
+    /// <returns></returns>
+    string FindSelectableWithSize()
+    {
+        // Check if the current object has a valid size
+        float size = selectable.CurrentPreviewScaleLevel?.Size ?? 0f;
+
+        //Selectable childSelectableForSize = null;
+        // If the size is zero, check the children:
+        // It turns out each object (Selectable) you instantiate has multiple Selectable components. And the one component you have 
+        //is not have the size value, it in the other component. So we need to check the current object and if it is not found then check the children of the object.
+        if (size == 0f)
+        {
+            foreach (Transform child in selectable.gameObject.GetComponentsInChildren<Transform>())
+            {
+                Selectable childSelectable = child.GetComponent<Selectable>();
+
+                //if (childSelectable != null && childSelectable.CurrentPreviewScaleLevel?.Size > 0f)
+                if (childSelectable != null && childSelectable.ScaleLevels.Count > 0)
+                {
+                    for (int i = 0; i < childSelectable.ScaleLevels.Count; i++)
+                    {
+                        if (childSelectable.ScaleLevels[i].Selected)
+                        {
+                            Debug.Log("Child Selectable Found who has size: Name: " + childSelectable.name, childSelectable.gameObject);
+                            size = childSelectable.ScaleLevels[i].Size;
+                            selectableObjectForSize = childSelectable;
+                            var scaleString = $"{size * 1000f}mm";
+                            Debug.Log($"Object Object: {pricingObjectName} scale is  {scaleString} ");
+                            return scaleString; // Return the size as a string
+                        }
+                    }
+                }
+                else
+                {
+                    //Debug.Log("Child Name: " + child.name, child.gameObject);
+                }
+            }
+            return null;
+        }
+        Debug.Log($"Object Object: {pricingObjectName} scale is  {size} found from same selectable", selectable.gameObject);
+        return size.ToString();
+    }
+
+    private ExcelReader FindExcelReader()
+    {
+        ExcelReader excelReader = FindAnyObjectByType<ExcelReader>();
+        if (excelReader == null)
+        {
+            Debug.LogError("ExcelReader not found in the scene");
+        }
+        return excelReader;
+    }
+
     private void OnDestroy()
     {
-        OnDestroyed?.Invoke();
+        // Unsubscribe from the ScaleUpdated event to avoid memory leaks
+        if (_selectableObjectForSize != null)
+        {
+            _selectableObjectForSize.ScaleUpdated.RemoveListener(OnScaleUpdated);
+        }
+
+        OnDestroyed?.Invoke();//Triggering event on destory so that relvant Objects e.g., UI should be destroy as well.
     }
+
+   
 }

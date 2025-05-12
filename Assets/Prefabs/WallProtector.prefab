@@ -240,6 +240,11 @@ MonoBehaviour:
       _canBeDisplayed: 1
       _isExpanded: 1
       _transformableLayers: -1
+  _scaleGizmo:
+    _settings:
+      _canBeDisplayed: 1
+      _isExpanded: 1
+      _transformableLayers: -1
   _canUseAnyTranslation: 0
   _canUseTranslateX: 0
   _canUseTranslateY: 0

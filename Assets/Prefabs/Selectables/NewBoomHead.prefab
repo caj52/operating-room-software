@@ -1411,7 +1411,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: -6565122453228016778, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: rmsCount
-      value: 48
+      value: 19
       objectReference: {fileID: 0}
     - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: canBeDuplicated
@@ -2508,6 +2508,26 @@ MeshRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 0
   m_AdditionalVertexStreams: {fileID: 0}
+--- !u!114 &-7647460426563777710
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8013771317938095565}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f2081d293ee97fb4a8a1af2cf45ed9f1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  <Id>k__BackingField: 
+  _boomType: 0
+  _ceilingTubeLength: 100
+  _topArmLength: 0
+  _bottomArmLength: 0
+  _lightCeilingTubeLength: 350
+  _hasTandemLight: 0
+  _hasMultipleArmsOnLight: 0
 --- !u!114 &1796884134751228916
 MonoBehaviour:
   m_ObjectHideFlags: 0

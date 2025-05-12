@@ -5,9 +5,7 @@ public class PopulateUIWithPricingItems : MonoBehaviour
 {
     public PricingRowDataFill rowPrefab;
 
-
-
-    public void GenerateUIRow(SelectablePrice selectablePrice)
+    public PricingRowDataFill GenerateUIRow(SelectablePrice selectablePrice)
     {
         PricingRowDataFill pricingRowDataFill = Instantiate(rowPrefab, transform);
         pricingRowDataFill.FillData(selectablePrice);
@@ -21,5 +19,6 @@ public class PopulateUIWithPricingItems : MonoBehaviour
         // Unsubscribe from the event when the UI row is destroyed
         pricingRowDataFill.OnDestroyEvent += () => selectablePrice.OnDestroyed -= onDestroyedAction;
 
+        return pricingRowDataFill;
     }
 }

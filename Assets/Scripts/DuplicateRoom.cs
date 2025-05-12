@@ -61,7 +61,7 @@ public class DuplicateRoom : MonoBehaviour
         if (currentRoomIndex != -1 && roomObjectsMapping.TryGetValue(currentRoomIndex, out RoomData room))
         {
             room.ObjectsInRoom.Add(obj);
-            Debug.Log($"Added object {obj.name} to Room {currentRoomIndex}");
+          //  Debug.Log($"Added object {obj.name} to Room {currentRoomIndex}");
         }
         else
         {

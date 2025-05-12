@@ -8,8 +8,10 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using SimpleJSON;
 using System.IO;
+
 using System.Diagnostics;
 using Debug = UnityEngine.Debug;
+using static PdfExporterLocal;
 
 public class PdfExporter : MonoBehaviour
 {
@@ -222,7 +224,7 @@ public class PdfExporter : MonoBehaviour
 
         node.Add("assemblies", assemblies);
 
-        string id = Guid.NewGuid().ToString();
+       /* string id = Guid.NewGuid().ToString();
 
         //Dictionary<string, string> formFields = new()
         //{
@@ -307,9 +309,33 @@ public class PdfExporter : MonoBehaviour
             Path.Combine(path, $"{id}.pdf"), 
             FileMode.CreateNew);
 
-        BinaryWriter writer = new(stream);
+        BinaryWriter writer = new(stream);*/
 
-        writer.Write(data, 0, data.Length);
+        var metadata = new ProjectMetaData
+        {
+            AccountName = UI_ClientMetaData.AccountName,
+            AccountAddressLine1 = UI_ClientMetaData.AccountAddressLine1,
+            AccountAddressLine2 = UI_ClientMetaData.AccountAddressLine2,
+            ProjectName = UI_ClientMetaData.ProjectName,
+            ProjectNumber = UI_ClientMetaData.ProjectNumber,
+            OrderReferenceNumber = UI_ClientMetaData.OrderReferenceNumber
+        };
+
+        var assemblies1 = ConvertToAssemblyJsonFull(assemblyDatas, UI_PdfExportOptions.GetAdditionalData());
+        var convertedImages = imageData
+    .Select(img => new PdfExporterLocal.PdfImageData
+    {
+        Path = img.Path,
+        Height = img.Height,
+        Width = img.Width
+    })
+    .ToList();
+        PdfExporterLocal.ExportElevationPdfLocal(convertedImages, title, subtitle, assemblies1, metadata);
+
+
+
+
+/*        writer.Write(data, 0, data.Length);
         writer.Close();
 
         UI_DialogPrompt.Open(
@@ -330,7 +356,7 @@ public class PdfExporter : MonoBehaviour
 
         Application.OpenURL("file:///" + path);
 
-        token.Done();
+        token.Done();*/
     }
 }
 

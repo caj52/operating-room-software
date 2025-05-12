@@ -162,6 +162,10 @@ PrefabInstance:
       value: 5
       objectReference: {fileID: 0}
     - target: {fileID: 4014627101839371476, guid: 56ebd06235e253d47955aa0adeca06f9, type: 3}
+      propertyPath: <AttachmentPointDatas>k__BackingField.Array.size
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 4014627101839371476, guid: 56ebd06235e253d47955aa0adeca06f9, type: 3}
       propertyPath: <RelatedSelectables>k__BackingField.Array.data[0]
       value: 
       objectReference: {fileID: 2954072631648425232}
@@ -188,6 +192,22 @@ PrefabInstance:
     - target: {fileID: 4014627101839371476, guid: 56ebd06235e253d47955aa0adeca06f9, type: 3}
       propertyPath: <RelatedSelectables>k__BackingField.Array.data[6]
       value: 
+      objectReference: {fileID: 0}
+    - target: {fileID: 4014627101839371476, guid: 56ebd06235e253d47955aa0adeca06f9, type: 3}
+      propertyPath: <AttachmentPointDatas>k__BackingField.Array.data[0].<Guid>k__BackingField
+      value: 0c9d363b-25d9-457f-a539-4d8ad0833aff
+      objectReference: {fileID: 0}
+    - target: {fileID: 4014627101839371476, guid: 56ebd06235e253d47955aa0adeca06f9, type: 3}
+      propertyPath: <MetaData>k__BackingField.<AttachmentPointGuidMetaData>k__BackingField.Array.size
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 4014627101839371476, guid: 56ebd06235e253d47955aa0adeca06f9, type: 3}
+      propertyPath: <MetaData>k__BackingField.<AttachmentPointGuidMetaData>k__BackingField.Array.data[0].<Guid>k__BackingField
+      value: 0c9d363b-25d9-457f-a539-4d8ad0833aff
+      objectReference: {fileID: 0}
+    - target: {fileID: 4014627101839371476, guid: 56ebd06235e253d47955aa0adeca06f9, type: 3}
+      propertyPath: <MetaData>k__BackingField.<AttachmentPointGuidMetaData>k__BackingField.Array.data[0].<MetaData>k__BackingField.<Guid>k__BackingField
+      value: 0c9d363b-25d9-457f-a539-4d8ad0833aff
       objectReference: {fileID: 0}
     - target: {fileID: 6917772863880111987, guid: 56ebd06235e253d47955aa0adeca06f9, type: 3}
       propertyPath: m_Name
@@ -310,6 +330,10 @@ PrefabInstance:
     - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: <Measurables>k__BackingField.Array.size
       value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
+      propertyPath: <SpecialTypes>k__BackingField.Array.size
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: <Measurables>k__BackingField.Array.data[0]
@@ -555,6 +579,10 @@ PrefabInstance:
       value: 5
       objectReference: {fileID: 0}
     - target: {fileID: 4014627101839371476, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
+      propertyPath: <AttachmentPointDatas>k__BackingField.Array.size
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 4014627101839371476, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
       propertyPath: <RelatedSelectables>k__BackingField.Array.data[0]
       value: 
       objectReference: {fileID: 2954072631648425232}
@@ -581,6 +609,22 @@ PrefabInstance:
     - target: {fileID: 4014627101839371476, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
       propertyPath: <RelatedSelectables>k__BackingField.Array.data[6]
       value: 
+      objectReference: {fileID: 0}
+    - target: {fileID: 4014627101839371476, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
+      propertyPath: <AttachmentPointDatas>k__BackingField.Array.data[0].<Guid>k__BackingField
+      value: 0c9d363b-25d9-457f-a539-4d8ad0833aff
+      objectReference: {fileID: 0}
+    - target: {fileID: 4014627101839371476, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
+      propertyPath: <MetaData>k__BackingField.<AttachmentPointGuidMetaData>k__BackingField.Array.size
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 4014627101839371476, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
+      propertyPath: <MetaData>k__BackingField.<AttachmentPointGuidMetaData>k__BackingField.Array.data[0].<Guid>k__BackingField
+      value: 0c9d363b-25d9-457f-a539-4d8ad0833aff
+      objectReference: {fileID: 0}
+    - target: {fileID: 4014627101839371476, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
+      propertyPath: <MetaData>k__BackingField.<AttachmentPointGuidMetaData>k__BackingField.Array.data[0].<MetaData>k__BackingField.<Guid>k__BackingField
+      value: 0c9d363b-25d9-457f-a539-4d8ad0833aff
       objectReference: {fileID: 0}
     - target: {fileID: 4297370789474308351, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
       propertyPath: m_LocalScale.x
@@ -749,6 +793,10 @@ PrefabInstance:
       value: 5
       objectReference: {fileID: 0}
     - target: {fileID: 4014627101839371476, guid: 56ebd06235e253d47955aa0adeca06f9, type: 3}
+      propertyPath: <AttachmentPointDatas>k__BackingField.Array.size
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 4014627101839371476, guid: 56ebd06235e253d47955aa0adeca06f9, type: 3}
       propertyPath: <RelatedSelectables>k__BackingField.Array.data[0]
       value: 
       objectReference: {fileID: 2954072631648425232}
@@ -775,6 +823,22 @@ PrefabInstance:
     - target: {fileID: 4014627101839371476, guid: 56ebd06235e253d47955aa0adeca06f9, type: 3}
       propertyPath: <RelatedSelectables>k__BackingField.Array.data[6]
       value: 
+      objectReference: {fileID: 0}
+    - target: {fileID: 4014627101839371476, guid: 56ebd06235e253d47955aa0adeca06f9, type: 3}
+      propertyPath: <AttachmentPointDatas>k__BackingField.Array.data[0].<Guid>k__BackingField
+      value: 0c9d363b-25d9-457f-a539-4d8ad0833aff
+      objectReference: {fileID: 0}
+    - target: {fileID: 4014627101839371476, guid: 56ebd06235e253d47955aa0adeca06f9, type: 3}
+      propertyPath: <MetaData>k__BackingField.<AttachmentPointGuidMetaData>k__BackingField.Array.size
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 4014627101839371476, guid: 56ebd06235e253d47955aa0adeca06f9, type: 3}
+      propertyPath: <MetaData>k__BackingField.<AttachmentPointGuidMetaData>k__BackingField.Array.data[0].<Guid>k__BackingField
+      value: 0c9d363b-25d9-457f-a539-4d8ad0833aff
+      objectReference: {fileID: 0}
+    - target: {fileID: 4014627101839371476, guid: 56ebd06235e253d47955aa0adeca06f9, type: 3}
+      propertyPath: <MetaData>k__BackingField.<AttachmentPointGuidMetaData>k__BackingField.Array.data[0].<MetaData>k__BackingField.<Guid>k__BackingField
+      value: 0c9d363b-25d9-457f-a539-4d8ad0833aff
       objectReference: {fileID: 0}
     - target: {fileID: 6917772863880111987, guid: 56ebd06235e253d47955aa0adeca06f9, type: 3}
       propertyPath: m_Name
@@ -1047,14 +1111,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   <Id>k__BackingField: 
-  selectables: []
-  zScale: {fileID: 0}
-  zScales: []
-  parent: {fileID: 0}
-  lightCount: 0
-  flatPanel: 0
-  isLightTop: 0
-  isPanelTop: 0
 --- !u!114 &1085032996762512355
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1342,6 +1398,11 @@ MonoBehaviour:
       _isExpanded: 1
       _transformableLayers: -1
   <_rotateGizmo>k__BackingField:
+    _settings:
+      _canBeDisplayed: 1
+      _isExpanded: 1
+      _transformableLayers: -1
+  _scaleGizmo:
     _settings:
       _canBeDisplayed: 1
       _isExpanded: 1

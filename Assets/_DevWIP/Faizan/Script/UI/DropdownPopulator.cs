@@ -13,13 +13,13 @@ public class DropdownPopulator : MonoBehaviour
     [SerializeField] private int priceColumnNumber = 3;
     [SerializeField] private int minRowNumber;
     [SerializeField] private int maxRowNumber;
-    [SerializeField] private bool isBoomExcelFileDropDown;
+    [SerializeField] public bool isBoomExcelFileDropDown;
 
     private Dictionary<int, PriceExcelData> optionDataMap = new Dictionary<int, PriceExcelData>();
 
     public static List<DropdownPopulator> Instances { get; private set; } = new List<DropdownPopulator>();
 
-    void Start()
+    void Awake()
     {
         if (dropdown == null)
             dropdown = GetComponent<TMP_Dropdown>();
@@ -40,17 +40,19 @@ public class DropdownPopulator : MonoBehaviour
             Debug.LogError("Dropdown or ExcelReader is not assigned.");
             return;
         }
-        string excelFileName;
+        //Debug.LogError("Dropdown populated from excel.");
+        string sheetName;
+
         if (isBoomExcelFileDropDown)
         {
-         excelFileName = DataFilePaths.ExcelFileBoomPricingSheet;
+         sheetName = DataFilePaths.sheetNameBoomCombined;
         }
         else
         {
-            excelFileName = DataFilePaths.ExcelFilePricingSheetForLight;
+            sheetName = DataFilePaths.sheetNameLight;
         }
-        excelReader.SetExceFileName(excelFileName);
-        PriceExcelData[] columnData = excelReader.GetColumnData(priceColumnNumber, minRowNumber, maxRowNumber);
+       // excelReader.SetExceFileName(sheetName);
+        PriceExcelData[] columnData = excelReader.GetColumnData(priceColumnNumber, minRowNumber, maxRowNumber, sheetName);
 
         if (columnData == null || columnData.Length == 0)
         {

@@ -156,8 +156,10 @@ public class UI_DbPassword : MonoBehaviour
     {
         ToggleStates(false);
 
-       // Debug.LogError(InputField_Password.text);
-        var task = Database.ValidatePassword(InputField_Password.text);
+        Debug.LogError(InputField_Password.text);
+      var task = Database.ValidatePassword(InputField_Password.text); // Anwar
+     //   var task = Database.ValidatePassword("Mudabbir6900");
+
         await task;
 
         if (!Application.isPlaying)

@@ -266,6 +266,10 @@ PrefabInstance:
       propertyPath: <AllowedSelectableTypes>k__BackingField.Array.data[1]
       value: 4
       objectReference: {fileID: 0}
+    - target: {fileID: 4575778834203773398, guid: 88e0c686581f7184d9d10350c342bcc3, type: 3}
+      propertyPath: <MetaData>k__BackingField.<AllowedSelectableCategories>k__BackingField.Array.size
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 4686421761804208745, guid: 88e0c686581f7184d9d10350c342bcc3, type: 3}
       propertyPath: m_Name
       value: AttachPoint

@@ -42,31 +42,35 @@ public class FullRoomSave : MonoBehaviour
 
         b_Confirm.onClick.AddListener(() =>
         {
-           
+
             if (!string.IsNullOrEmpty(fileName.text))
             {
-               
+
                 RoomName = Path.Combine(Application.persistentDataPath, fileName.text);
                 if (Directory.Exists(RoomName))
                 {
-                    header.text = "Room Already Exists Try Different Name";
-                    header.color = Color.red;
-                    fileName.text = "";
-                    FreeLookCam.Instance.isLocked = true;
+                    UI_DialogPrompt.Open(
+                                            "Room Already Exists You want to overwrite it ?",
+                                              new ButtonAction("Yes", () => {
+                                                  UI_DialogPrompt.Close();
+                                                  SaveRoom();
+            }),
+            new ButtonAction("Cancel", () => {
+                UI_DialogPrompt.Close();
+                header.text = "Please Enter Room Name";
+                header.color = Color.red;
+                fileName.text = "";
+                FreeLookCam.Instance.isLocked = true;
+
+            }));
+
                 }
                 else
                 {
-                    Directory.CreateDirectory(RoomName);
-                    UI_ObjExportOptions.Open();
-                    FreeLookCam.Instance.isLocked = true;
-                    
-                    fileName.text = "";
-                    header.color = Color.black;
-                    FreeLookCam.Instance.isLocked = false;
-                    savePanel.SetActive(false);
+                    SaveRoom();
                 }
             }
-          
+
 
 
         });
@@ -77,6 +81,18 @@ public class FullRoomSave : MonoBehaviour
             FreeLookCam.Instance.isLocked = false;
         });
 
+        savePanel.SetActive(false);
+    }
+
+    public void SaveRoom()
+    {
+        Directory.CreateDirectory(RoomName);
+        UI_ObjExportOptions.Open();
+        FreeLookCam.Instance.isLocked = true;
+
+        fileName.text = "";
+        header.color = Color.black;
+        FreeLookCam.Instance.isLocked = false;
         savePanel.SetActive(false);
     }
 

@@ -20,7 +20,7 @@ public class GizmoHandler : MonoBehaviour
     [field: SerializeField, HideInInspector] 
     public ObjectTransformGizmo _rotateGizmo { get; private set; }
 
-    private ObjectTransformGizmo _scaleGizmo;
+    public ObjectTransformGizmo _scaleGizmo;
     private ObjectTransformGizmo _universalGizmo;
     private bool _gizmosInitialized;
     public static bool GizmoBeingUsed { get; private set; }

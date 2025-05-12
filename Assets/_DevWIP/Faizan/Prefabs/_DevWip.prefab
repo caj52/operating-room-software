@@ -126,3 +126,12 @@ MonoBehaviour:
   configName: Tandem Equipment Boom with Light
   salesRepName: Sales Rep Name
   salesRepEmail: SalesRepEmail@igoimagine.com
+  accountName: 
+  accountAddress: 
+  projectNumber: Project Name
+  referenceNumber: 
+  note1: 35% deposit. Progress billing to completion. Sales tax to be added to invoices
+    in applicable
+  note2: Quote is valid for 90 days from creation date.
+  note3: Customer Acceptance and Configuration Acknowledgement.
+  discountPercentage: 0
