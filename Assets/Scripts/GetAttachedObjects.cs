@@ -1,7 +1,8 @@
-using System.Collections;
+﻿using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using static Selectable;
 
 /// <summary>
 /// Manages object configuration and scale filtering based on attached components.
@@ -20,6 +21,7 @@ public class GetAttachedObjects : MonoBehaviour
     private List<Selectable> _selectables;
     private EnforceZScale _primaryZScale;
     private EnforceZScale[] _allZScales;
+    private Selectable[] _allZSelectables;
     private SelectablePrice[] _prices;
 
     // Cached counts
@@ -136,7 +138,7 @@ public class GetAttachedObjects : MonoBehaviour
 
         // Get all zScales
         _allZScales = ArmSegmentParent.GetComponentsInChildren<EnforceZScale>();
-
+        _allZSelectables =_allZScales.Select(x => x.gameObject.GetComponent<Selectable>()).Where(s => s != null).ToArray();
         // Get all price components
         _prices = ArmSegmentParent.GetComponentsInChildren<SelectablePrice>();
 
@@ -209,12 +211,6 @@ public class GetAttachedObjects : MonoBehaviour
                 var scaleConfigs = _configurationScales[configKey];
                 ApplyConfigurationScales(scaleConfigs);
             }
-            else
-            {
-                Debug.LogWarning($"No predefined scale configuration found for key {configKey}", this);
-                // Apply default/fallback scales if needed
-                ApplyDefaultScales();
-            }
         }
         catch (System.Exception e)
         {
@@ -279,16 +275,16 @@ public class GetAttachedObjects : MonoBehaviour
             var allowedScales = scaleConfigs[i];
 
             
-            ApplyScaleFilter(allowedScales, selectable);
+            ApplyScaleFilter(allowedScales, selectable,_allZSelectables.ToList());
 
-            Debug.Log($"Applied scales {string.Join(", ", allowedScales)} to component at position {i}", this);
+            Debug.Log($"Applied scales {string.Join(", ", allowedScales)} to component at position {i} ", this);
         }
     }
 
     private List<(EnforceZScale zScale, float position)> SortZScalesByPosition()
     {
         var scalePairs = new List<(EnforceZScale zScale, float position)>();
-
+   
         foreach (var zScale in _allZScales)
         {
             if (zScale == null) continue;
@@ -302,21 +298,6 @@ public class GetAttachedObjects : MonoBehaviour
         return scalePairs.OrderByDescending(pair => pair.position).ToList();
     }
 
-    private void ApplyDefaultScales()
-    {
-        Debug.Log("Applying default scales to all components", this);
-
-        foreach (var zScale in _allZScales)
-        {
-            if (zScale == null) continue;
-
-            var selectable = zScale.GetComponent<Selectable>();
-            if (selectable == null) continue;
-
-            // Apply a default set of scales
-            ApplyScaleFilter(new List<float> { 0.8f, 0.925f }, selectable);
-        }
-    }
 
     // Helper method to detect which component is at the top position
     private void DetectComponentPositions()
@@ -365,7 +346,10 @@ public class GetAttachedObjects : MonoBehaviour
         }
     }
 
-    private void ApplyScaleFilter(List<float> allowedScales, Selectable selectable)
+    private float globalReferenceSize = 1.0f; // Fallback if no defaults found
+    private bool referenceSizeCalculated = false;
+
+    private void ApplyScaleFilter(List<float> allowedScales, Selectable selectable, List<Selectable> allSelectables)
     {
         try
         {
@@ -375,43 +359,88 @@ public class GetAttachedObjects : MonoBehaviour
                 return;
             }
 
-            if (selectable.ScaleLevels == null)
+            if (selectable.ScaleLevels == null || selectable.ScaleLevels.Count == 0)
             {
-                Debug.LogWarning($"ScaleLevels is null on {selectable.name}", this);
+                Debug.LogWarning($"ScaleLevels missing or empty on {selectable.name}", this);
                 return;
             }
 
-            if (selectable.ScaleLevels.Count == 0)
+            // ✅ Compute global reference size once
+            if (!referenceSizeCalculated && allSelectables != null && allSelectables.Count > 0)
             {
-                Debug.LogWarning($"ScaleLevels is empty on {selectable.name}", this);
-                return;
+                globalReferenceSize = GetMostCommonModelDefaultSize(allSelectables);
+                referenceSizeCalculated = true;
+                Debug.Log($"[ScaleFilter] Using global reference size: {globalReferenceSize}", this);
             }
 
-            // Log before filtering
-            Debug.Log($"Before filtering: {selectable.name} has {selectable.ScaleLevels.Count} scale levels: {string.Join(", ", selectable.ScaleLevels.Select(l => l.Size))}", this);
+            Debug.Log($"Before filtering: {selectable.name} has {selectable.ScaleLevels.Count} levels: {string.Join(", ", selectable.ScaleLevels.Select(l => l.Size))}", this);
 
-            // Create a new filtered list to avoid modifying during enumeration
-            var filteredScales = selectable.ScaleLevels
-                .Where(level => level != null && allowedScales.Contains(level.Size))
-                .ToList();
+            // 🧹 Remove unwanted sizes
+            selectable.ScaleLevels.RemoveAll(level => level == null || !allowedScales.Contains(level.Size));
 
-            // Assign the filtered list
-            selectable.ScaleLevels = filteredScales;
+            // ➕ Add missing allowed sizes
+            var existingSizes = selectable.ScaleLevels.Select(l => l.Size).ToHashSet();
+            foreach (var size in allowedScales)
+            {
+                if (!existingSizes.Contains(size))
+                {
+                    selectable.ScaleLevels.Add(new ScaleLevel
+                    {
+                        Size = size,
+                        ScaleZ = 0f,
+                        ModelDefault = false
+                    });
+                }
+            }
 
-            // Log after filtering
-            Debug.Log($"After filtering: {selectable.name} has {selectable.ScaleLevels.Count} scale levels: {string.Join(", ", selectable.ScaleLevels.Select(l => l.Size))}", this);
-            Debug.Log($"Applied scale filter to {selectable.name} - Allowed scales: {string.Join(", ", allowedScales)}", this);
+            // 🔁 Recalculate ScaleZ using global reference
+            foreach (var level in selectable.ScaleLevels)
+            {
+                level.ScaleZ = (globalReferenceSize == 0f) ? 1f : level.Size / globalReferenceSize;
+            }
+
+            // ✅ Set closest size as ModelDefault
+            var closest = selectable.ScaleLevels
+                .OrderBy(level => Mathf.Abs(level.Size - selectable.CurrentScaleLevel.Size))
+                .FirstOrDefault();
+
+            if (closest != null)
+            {
+                foreach (var level in selectable.ScaleLevels)
+                    level.ModelDefault = false;
+
+                closest.ModelDefault = true;
+            }
+
+            // 🔤 Sort by Size
+            selectable.ScaleLevels = selectable.ScaleLevels.OrderBy(level => level.Size).ToList();
+
+            Debug.Log($"After filtering: {selectable.name} has {selectable.ScaleLevels.Count} levels: {string.Join(", ", selectable.ScaleLevels.Select(l => l.Size))}", this);
+            Debug.Log($"Applied scale filter to {selectable.name} - Allowed: {string.Join(", ", allowedScales)}", this);
 
             if (selectable.ScaleLevels.Count == 0)
             {
-                Debug.LogWarning($"WARNING: Filtering resulted in zero scale levels for {selectable.name}!", this);
+                Debug.LogWarning($"Filtering resulted in 0 scale levels for {selectable.name}", this);
             }
         }
         catch (System.Exception e)
         {
             Debug.LogException(e, this);
-            Debug.LogError($"Error applying scale filter to {selectable?.name}: {e.Message}", this);
+            Debug.LogError($"Error filtering scales for {selectable?.name}: {e.Message}", this);
         }
+    }
+
+    // Helper to get most common model default size across all selectables
+    private float GetMostCommonModelDefaultSize(List<Selectable> allSelectables)
+    {
+        var defaultSizes = allSelectables
+            .SelectMany(s => s.ScaleLevels)
+            .Where(l => l.ModelDefault)
+            .GroupBy(l => l.Size)
+            .OrderByDescending(g => g.Count())
+            .FirstOrDefault();
+
+        return defaultSizes?.Key ?? 1.0f;
     }
 
     private void LogConfigurationDetails()
@@ -430,4 +459,6 @@ public class GetAttachedObjects : MonoBehaviour
         // Log whether this configuration is supported
         Debug.Log($"- Has Predefined Configuration: {_configurationScales.ContainsKey(configKey)}", this);
     }
+
+   
 }

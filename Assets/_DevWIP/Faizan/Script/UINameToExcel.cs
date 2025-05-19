@@ -52,6 +52,7 @@ public class UINameToExcelKey
             { "Service Head Shelf (500mm with Controls)", "Shelf (500mm)" },
             { "Service Head Shelf (500mm)", "Shelf (500mm)" },
             { "Nitrogen Regulator", "Nitrogen Regulator" },
+            { " Blank Plate", "Blank Preparation" },
         };
 
         // Add both original and processed keys to the dictionary

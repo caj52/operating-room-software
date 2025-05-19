@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -12,6 +12,8 @@ using static Selectable;
 public class ArticualtionToolScript : MonoBehaviour
 {
     public static ArticualtionToolScript instance;
+
+    public static event Action uiChanged;
     public GameObject SelectedObject;
     public Transform ARPanel;
     public TextMeshProUGUI headingText;
@@ -242,6 +244,7 @@ public class ArticualtionToolScript : MonoBehaviour
                 case Axis.Z: slider.value = rotation.z; break;
             }
         }
+        uiChanged?.Invoke();
     }
 
     void SetSliderRangesForAllObjectsForTranslation(Axis axis, Slider slider)
@@ -334,7 +337,7 @@ public class ArticualtionToolScript : MonoBehaviour
 
         slider.minValue = minValue;
         slider.maxValue = maxValue;
-
+        uiChanged?.Invoke();
     }
 
     void SetSliderRangesForAllObjectsForScale(Axis axis, Slider slider)
@@ -395,16 +398,14 @@ public class ArticualtionToolScript : MonoBehaviour
         {
             if (SelectedObject != null)
             {
-                Vector3 scale = SelectedObject.transform.localScale;
-                slider.value = axis switch
-                {
-                    Axis.X => scale.x,
-                    Axis.Y => scale.y,
-                    Axis.Z => firstValidSelectable.CurrentScaleLevel.Size,
-                    _ => minValue,
-                };
+               
+                slider.value = firstValidSelectable.ScaleLevels.FirstOrDefault(a => a.Selected)?.Size ?? 1f;
             }
         }
+
+
+
+        uiChanged?.Invoke();
     }
 
     void DisableAllSliders()
@@ -449,6 +450,9 @@ public class ArticualtionToolScript : MonoBehaviour
         }
 
 
+        uiChanged?.Invoke();
+
+
     }
 
     private void OnYSliderValueChanged(float value)
@@ -465,6 +469,8 @@ public class ArticualtionToolScript : MonoBehaviour
         {
 
         }
+
+        uiChanged?.Invoke();
     }
 
     private void OnXSliderValueChanged(float value)
@@ -480,6 +486,7 @@ public class ArticualtionToolScript : MonoBehaviour
         else if (GizmoSelector.CurrentGizmoMode == GizmoMode.Scale)
         {
         }
+        uiChanged?.Invoke();
     }
 
     private void UpdateTransformPositiom(float value, Axis axis)
@@ -591,32 +598,36 @@ public class ArticualtionToolScript : MonoBehaviour
             Debug.LogWarning("UpdateTransformRotation: No objects selected");
             return;
         }
-
+       
         Debug.LogError("UpdateTransformScale"+value);
         foreach (var selectable in selectables)
         {
             GameObject obj = selectable.gameObject;
             GizmoHandler handler = obj.GetComponent<GizmoHandler>();
 
-            bool canScale = false;
-            switch (axis)
+            if (handler == null) continue;
+
+            bool canScale = axis switch
             {
-                case Axis.X: canScale = handler != null && handler.CanUseScaleX; break;
-                case Axis.Y: canScale = handler != null && handler.CanUseScaleY; break;
-                case Axis.Z: canScale = handler != null && handler.CanUseScaleZ; break;
-            }
+                Axis.X => handler.CanUseScaleX,
+                Axis.Y => handler.CanUseScaleY,
+                Axis.Z => handler.CanUseScaleZ,
+                _ => false
+            };
 
             if (!canScale) continue;
+            if (selectable.ScaleLevels.Count == 0) continue;
 
-            // Get current rotation as Quaternion
-            if (selectable.ScaleLevels.Count == 0) return;
-            //get closest scale in list
-
-            
+            Debug.LogError("+++++++++++: "+value);
             ScaleLevel closest = selectable.ScaleLevels.OrderBy(item => Mathf.Abs(item.Size - value)).First();
-            Debug.LogError(closest.Size);
-            selectable.SetScaleLevel(closest, false);
+            selectable.SetScaleLevel(closest, true);
             selectable.ScaleUpdated?.Invoke();
+
+
+            uiChanged?.Invoke();
+
         }
+       
     }
+
 }

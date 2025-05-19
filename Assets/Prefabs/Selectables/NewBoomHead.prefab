@@ -548,7 +548,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Name
-      value: BoomHeadPanel_3
+      value: BoomHeadPanel_3_front
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Layer
@@ -747,7 +747,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Name
-      value: BoomHeadPanel_7
+      value: BoomHeadPanel_7_back
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Layer
@@ -848,7 +848,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Name
-      value: BoomHeadPanel_12
+      value: BoomHeadPanel_12_back
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Layer
@@ -949,7 +949,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Name
-      value: BoomHeadPanel_19
+      value: BoomHeadPanel_19_back
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Layer
@@ -1050,7 +1050,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Name
-      value: BoomHeadPanel_11
+      value: BoomHeadPanel_11_back
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Layer
@@ -1151,7 +1151,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Name
-      value: BoomHeadPanel_15
+      value: BoomHeadPanel_15_front
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Layer
@@ -1322,7 +1322,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Name
-      value: BoomHeadPanel_10
+      value: BoomHeadPanel_10_back
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Layer
@@ -1411,7 +1411,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: -6565122453228016778, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: rmsCount
-      value: 19
+      value: 48
       objectReference: {fileID: 0}
     - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: canBeDuplicated
@@ -2603,6 +2603,18 @@ MonoBehaviour:
   - {fileID: 4539042027409586454}
   - {fileID: 7525540154191038023}
   - {fileID: 9151810072748614700}
+--- !u!114 &3825425863553593497
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8013771317938095565}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9b57c75aceaff5d4089bdd94359454c1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!114 &4411223521005290547
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2661,7 +2673,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Name
-      value: BoomHeadPanel_20
+      value: BoomHeadPanel_20_back
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Layer
@@ -2758,7 +2770,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Name
-      value: BoomHeadPanel_2
+      value: BoomHeadPanel_2_front
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Layer
@@ -2932,7 +2944,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Name
-      value: BoomHeadPanel_8
+      value: BoomHeadPanel_8_back
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Layer
@@ -3033,7 +3045,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Name
-      value: BoomHeadPanel_14
+      value: BoomHeadPanel_14_back
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Layer
@@ -3134,7 +3146,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Name
-      value: BoomHeadPanel_16
+      value: BoomHeadPanel_16_front
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Layer
@@ -3235,7 +3247,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Name
-      value: BoomHeadPanel_9
+      value: BoomHeadPanel_9_back
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Layer
@@ -3336,7 +3348,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Name
-      value: BoomHeadPanel_4
+      value: BoomHeadPanel_4_front
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Layer
@@ -3635,7 +3647,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Name
-      value: BoomHeadPanel_13
+      value: BoomHeadPanel_13_back
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Layer
@@ -3736,7 +3748,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Name
-      value: BoomHeadPanel_17
+      value: BoomHeadPanel_17_front
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Layer
@@ -3829,7 +3841,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Name
-      value: BoomHeadPanel_1
+      value: BoomHeadPanel_1_front
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Layer
@@ -3931,7 +3943,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Name
-      value: BoomHeadPanel_6
+      value: BoomHeadPanel_6_front
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Layer
@@ -4032,7 +4044,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Name
-      value: BoomHeadPanel_18
+      value: BoomHeadPanel_18_front
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Layer
@@ -4133,7 +4145,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Name
-      value: BoomHeadPanel_5
+      value: BoomHeadPanel_5_front
       objectReference: {fileID: 0}
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Layer

@@ -4,7 +4,7 @@ using UnityEngine;
 public class DuplexWatcher : MonoBehaviour
 {
     public string UIObjectName;
-
+    public int redDuplextCount;
     private void OnEnable()
     {
         UI_ButtonDeleteObject.OnButtonAction += UpdateActiveState;
@@ -12,21 +12,22 @@ public class DuplexWatcher : MonoBehaviour
 
     IEnumerator UpdateSelectablePrice()
     {
+
         yield return null;
 
         Selectable[] selectables = this.GetComponentsInChildren<Selectable>();
         SelectablePrice selectablePrice = this.GetComponentInChildren<SelectablePrice>();
 
         string boomObjectExcelName = "";
-        int redDuplextCount = 0;
+        redDuplextCount = 0;
 
         for (int i = 0; i < selectables.Length; i++)
         {
             if (selectables[i].MetaData.Name == "HV Power Outlet")
             {
-                Debug.Log(selectables[i].gameObject.name, selectables[i].gameObject);
 
                 redDuplextCount++;
+                Debug.Log("Duplex Count: "+selectables[i].gameObject.name +" "+redDuplextCount, selectables[i].gameObject);
             }
         }
 

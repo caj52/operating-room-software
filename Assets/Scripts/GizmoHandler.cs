@@ -111,7 +111,29 @@ public class GizmoHandler : MonoBehaviour
         CameraManager.CameraChanged.RemoveListener(EnableGizmo);
     }
 
-    private IEnumerator Start()
+     
+    private void OnEnable()
+    {
+        ArticualtionToolScript.uiChanged += OnExternalUIChange;
+    }
+
+    private void OnDisable()
+    {
+        ArticualtionToolScript.uiChanged -= OnExternalUIChange;
+    }
+
+
+    // 3) Called whenever the UI moves the object
+    private void OnExternalUIChange()
+    {
+        // only if we’re actually showing a gizmo for this object
+        if (!_selectable.IsSelected) return;
+        // reuse our existing logic (plus the new scale line)
+        UpdatePositionAndRotation();
+    }
+
+
+private IEnumerator Start()
     {
         yield return new WaitUntil(() => _selectable.Started);
 
@@ -370,7 +392,7 @@ public class GizmoHandler : MonoBehaviour
         GizmoBeingUsed = false;
         IsBeingUsed = false;
         GizmoDragEnded?.Invoke();
-
+        ArticualtionToolScript.gizmoChanged?.Invoke();
         await Task.Yield();
         if (!Application.isPlaying)
             throw new AppQuitInTaskException();
@@ -472,6 +494,8 @@ public class GizmoHandler : MonoBehaviour
         }
 
         GizmoDragPostUpdate?.Invoke();
+
+        ArticualtionToolScript.gizmoChanged?.Invoke();
     }
 
     private void HandleTranslationGizmo(Gizmo gizmo, Vector3 totalExcess)

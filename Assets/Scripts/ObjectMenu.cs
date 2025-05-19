@@ -14,7 +14,6 @@ using FuzzySharp;
 using static ObjectMenu;
 using SplenSoft.UnityUtilities;
 using static pulse.cdm.bind.DataRequestData.Types;
-using UnityEditor.Experimental.GraphView;
 
 /// <summary>
 /// Singleton object that displays a menu to instantiate selectables.
@@ -450,15 +449,52 @@ public class ObjectMenu : MonoBehaviour
 
                 string uiBtnName = newMenuItem.GetComponentInChildren<TextMeshProUGUI>().text;////extract the Name of the object from UI for matching with excel name and retrive price
                 Debug.Log($"Object Instantaited :: Menu Name: {uiBtnName} and GameObject Name: {newSelectableGameObject.name} ", newSelectableGameObject.transform);
+                if (newSelectableGameObject.name.Contains("CeilingMount_Double(Clone)") || 
+                    newSelectableGameObject.name.Contains("BoomDropTube(Clone)")     ||
+                    newSelectableGameObject.name.Contains("ArmDropTube(Clone)") ||
+                    newSelectableGameObject.name.Contains("SimFlexTube(Clone)"))
+                {
+                    GameObject parent = newSelectableGameObject.GetComponentInParent<TandomRestrictions>().gameObject;
+                    newSelectableGameObject.GetComponentInParent<TandomRestrictions>().CheckTandemRestrictions(parent);
+                }
+                if (newSelectableGameObject.name.Equals("Outlet_HV_Power(Clone)")
+                    || newSelectableGameObject.name.Equals("BlankOutlet(Clone)")
+                    || newSelectableGameObject.name.Contains("GasOutlet_Variant_CarbonDioxide(Clone)") 
+                    || newSelectableGameObject.name.Equals("EthernetOutlet")
+                    || newSelectableGameObject.name.Equals("GasOutlet_Variant_He-O2(Clone)")
+                    || newSelectableGameObject.name.Equals("GasOutlet_Variant_CarbonDioxide(Clone)")
+                    || newSelectableGameObject.name.Equals("GasOutlet_Variant_MedicalAir(Clone)")
+                    || newSelectableGameObject.name.Equals("GasOutlet_Variant_InstrumentAir(Clone)")
+                    || newSelectableGameObject.name.Equals("GasOutlet_Variant_NitrousOxide(Clone)")
+                    || newSelectableGameObject.name.Equals("GasOutlet_Variant_Nitrogen(Clone)")
+                    || newSelectableGameObject.name.Equals("GasOutlet_Variant_Oxygen(Clone)")
+                    || newSelectableGameObject.name.Equals("GasOutlet_Variant_VacuumSuction(Clone)")
+                    || newSelectableGameObject.name.Equals("GasOutlet_Variant_WagdEvac(Clone)")
 
-                string boomObjectExcelName = UINameToExcelKey.GetExcelName(objectName);//Check if the Object is Boom Object
+                    )
+
+
+                    {
+
+                        GameObject outletParent = newSelectableGameObject.transform.parent.parent.gameObject;
+                        GameObject outletParentsParent = outletParent.transform.parent.parent.gameObject;
+                        Selectable[] selectables = outletParent.GetComponentsInChildren<Selectable>();
+                        newSelectableGameObject.GetComponentInParent<BoomOutletValidator>().ValidateBoomConfiguration(outletParentsParent);
+
+
+                    }
+                
+             
+                 string boomObjectExcelName = UINameToExcelKey.GetExcelName(objectName);//Check if the Object is Boom Object
                 Debug.Log("Exce name " + boomObjectExcelName);
                 if (string.IsNullOrEmpty(boomObjectExcelName) == false)
                 {
                     //Red Duplex and GameObject Name: Outlet_HV_Power(Clone) 
                     if (newSelectableGameObject.name.Equals("Outlet_HV_Power(Clone)"))
                     {
+
                         GameObject outletParent = newSelectableGameObject.transform.parent.parent.gameObject;
+                        GameObject outletParentsParent = outletParent.transform.parent.parent.gameObject;
                         Selectable[] selectables = outletParent.GetComponentsInChildren<Selectable>();
                         int redDuplextCount = 0;
                         for (int i = 0; i < selectables.Length; i++)
@@ -486,7 +522,6 @@ public class ObjectMenu : MonoBehaviour
                             boomObjectExcelName = "";
                         }
 
-
                         if (string.IsNullOrEmpty(boomObjectExcelName) == false)
                         {
                             string excelFileName = DataFilePaths.sheetNameBoomIndividual;
@@ -502,6 +537,7 @@ public class ObjectMenu : MonoBehaviour
                             {
                                 Debug.Log("Duplex watcher already attached");
                             }
+                            
 
                         }
                     }
