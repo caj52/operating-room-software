@@ -7,7 +7,7 @@ using UnityEngine;
 /// </summary>
 public class UnityEventSender : MonoBehaviour
 {
-    [field: SerializeField] private GameObject Target { get; set; }
+    [field: SerializeField] public GameObject Target { get; set; }
 
     //private void OnMouseDown()
     //{
