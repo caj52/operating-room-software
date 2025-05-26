@@ -855,9 +855,6 @@ MonoBehaviour:
   <Type>k__BackingField: 1
   epsilon: 0.00001
   renderMaterialColor: {fileID: 0}
-  value: 0
-  min: 0
-  max: 0
 --- !u!114 &4987726505069501211
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -878,9 +875,6 @@ MonoBehaviour:
   <Type>k__BackingField: 1
   epsilon: 0.00001
   renderMaterialColor: {fileID: 0}
-  value: 0
-  min: 0
-  max: 0
 --- !u!114 &7763535837333969492
 MonoBehaviour:
   m_ObjectHideFlags: 0

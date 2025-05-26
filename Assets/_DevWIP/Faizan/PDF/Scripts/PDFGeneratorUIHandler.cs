@@ -35,6 +35,15 @@ public class PDFGeneratorUIHandler : MonoBehaviour
         inputNote3.text = pdfGenerator.note3;
     }
 
+    private void OnEnable()
+    {
+        inputProjectName.text = UI_ClientMetaData.ProjectName;
+        inputProjectNumber.text = UI_ClientMetaData.ProjectNumber;
+        inputAccountName.text = UI_ClientMetaData.AccountName;
+        inputAccountAddress.text = UI_ClientMetaData.AccountAddressLine1 + UI_ClientMetaData.AccountAddressLine2;
+        inputReferenceNumber.text = UI_ClientMetaData.OrderReferenceNumber;
+    }
+
     private void OnGeneratePdfButtonClicked()
     {
         // Set the input values to the ProposalPDFGenerator instance

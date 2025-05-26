@@ -745,9 +745,6 @@ MonoBehaviour:
   <Type>k__BackingField: 1
   epsilon: 0.00001
   renderMaterialColor: {fileID: 0}
-  value: 0
-  min: 0
-  max: 0
 --- !u!114 &4075377053347000930
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -768,9 +765,6 @@ MonoBehaviour:
   <Type>k__BackingField: 1
   epsilon: 0.00001
   renderMaterialColor: {fileID: 0}
-  value: 0
-  min: 0
-  max: 0
 --- !u!4 &6027947500981273730 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 3702329968397827254, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}

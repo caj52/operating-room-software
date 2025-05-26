@@ -8,8 +8,10 @@ using iTextSharp.text;
 using iTextSharp.text.html;
 using iTextSharp.text.pdf;
 using iTextSharp.text.pdf.draw;
+using Unity.Burst.Intrinsics;
 using Unity.VisualScripting;
 using UnityEngine;
+using static iTextSharp.awt.geom.Point2D;
 using static Measurable;
 using Font = iTextSharp.text.Font;
 
@@ -52,210 +54,268 @@ public class PdfExporterLocal
         List<AssemblyJson> assemblies,
         ProjectMetaData metaData)
     {
-
         UI_GeneralLoadingScreen.instance.ShowLoadingScreen();
-        // Create output directory if it doesn't exist
+
         string outputPath = Path.Combine(FullRoomSave.GetRoomPath(), "pdf");
         if (!Directory.Exists(outputPath)) Directory.CreateDirectory(outputPath);
 
-        // Generate unique filename with timestamp
         string fileName = Path.Combine(outputPath, $"Export_{DateTime.Now:yyyyMMdd_HHmmss}.pdf");
 
-        // Create PDF document
         using (FileStream fs = new FileStream(fileName, FileMode.Create, FileAccess.Write, FileShare.None))
-        using (Document doc = new Document(new Rectangle(1224f,1224f), 19.08f, 19.08f, 10, 10))
+        using (Document doc = new Document(new Rectangle(1400, 1200,90), 19.08f, 19.08f, 10, 10))
         {
             PdfWriter writer = PdfWriter.GetInstance(doc, fs);
             doc.Open();
 
             AddTitle(doc, title, subtitle);
 
-            doc.Add(new Paragraph("\n\n")); // Add spacing at top
-
-            // Create main layout table (assemblies on left, image on right)
-            PdfPTable mainTable = new PdfPTable(2);
-            mainTable.HorizontalAlignment = Element.ALIGN_LEFT;
-            mainTable.WidthPercentage = 100;
+            // Main layout table (assemblies on left, image on right)
+            PdfPTable mainTable = new PdfPTable(2)
+            {
+                HorizontalAlignment = Element.ALIGN_LEFT,
+                WidthPercentage = 100
+            };
             mainTable.SetWidths(new float[] { 40, 60 });
 
-         
-
-            // Left cell for assembly data
             PdfPCell assembliesCell = CreateAssembliesCell(assemblies);
-            assembliesCell.Padding = 0;
-            // Right cell for image
-            PdfPCell imageCell = CreateImageCell(imageData,doc,writer, GetCeilingHeight());
-            // Add cells to main table
+            assembliesCell.PaddingRight = 0;
+
+            PdfPCell imageCell = CreateImageCell(imageData, doc, writer, GetCeilingHeight());
+            imageCell.PaddingRight = 50;
             mainTable.AddCell(assembliesCell);
             mainTable.AddCell(imageCell);
-            
-           // AddSeparatorLine(doc);
             doc.Add(mainTable);
 
-            // Add separator line
-            
-
-            // Add logo
             AddCompanyLogo(doc);
-
-            // Add customer acceptance section
             AddCustomerAcceptanceSection(doc, metaData);
-
             doc.Close();
         }
 
-       // Debug.Log("PDF Exported to: " + fileName);
         UI_GeneralLoadingScreen.instance.HideLoadingScreen();
-        // Show success dialog
         UI_DialogPrompt.Open(
             $"Success! PDF saved to {fileName}",
             new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = fileName),
             new ButtonAction("Done"));
-
-        // Open the PDF file
         OpenPdfFile(fileName);
     }
-    private static float GetCeilingHeight()
-    {
-        // You can replace this logic depending on how your room data is structured
-        return RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling).Height;
-    }
-    private static void AddTitle(Document doc,string title,string subtitle)
-    {
-        // Fonts
-        var titleFont = FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 18, BaseColor.WHITE);
-        var subtitleFont = FontFactory.GetFont(FontFactory.HELVETICA, 14, BaseColor.WHITE);
 
-        // Create a table with 1 column
-        PdfPTable titleBlock = new PdfPTable(1);
-        titleBlock.WidthPercentage = 100;
+    private static void AddTitle(Document doc, string title, string subtitle)
+    {
+        BaseFont tekoLight = BaseFont.CreateFont(
+            @"Assets/_DevWIP/Faizan/Fonts/Teko/Teko-Light.ttf",
+            BaseFont.IDENTITY_H,
+            BaseFont.EMBEDDED);
+        Font prefixFont = new Font(tekoLight, 36, Font.NORMAL, BaseColor.WHITE);
+        Font subtitleFont = FontFactory.GetFont("Arial", 15, BaseColor.WHITE);
 
-        // Combine title and subtitle in a single Phrase
+
         Phrase titlePhrase = new Phrase();
-        titlePhrase.Add(new Chunk(title + "\n", titleFont));
+        titlePhrase.Add(new Chunk(title + "\n", prefixFont));
+        titlePhrase.Add(new Chunk("\n"));
         titlePhrase.Add(new Chunk(subtitle, subtitleFont));
 
-        // Create the cell with background color
-        PdfPCell titleCell = new PdfPCell(titlePhrase);
-        titleCell.BackgroundColor = WebColors.GetRGBColor("#001236"); // Hex #001236
-        titleCell.Border = Rectangle.NO_BORDER;
-        titleCell.PaddingTop = 76.32f;     // Only top
+        PdfPCell titleCell = new PdfPCell(titlePhrase)
+        {
+            BackgroundColor = WebColors.GetRGBColor("#001236"),
+            Border = Rectangle.NO_BORDER,
+            Padding = 10,
+        };
 
-        titleBlock.AddCell(titleCell);
-        doc.Add(titleBlock);
+        PdfPTable tbl = new PdfPTable(1) { WidthPercentage = 100 };
+        
+        tbl.AddCell(titleCell);
+        tbl.SpacingAfter = 20;
+        doc.Add(tbl);
     }
+
     private static PdfPCell CreateAssembliesCell(List<AssemblyJson> assemblies)
     {
-        PdfPCell assembliesCell = new PdfPCell();
-        assembliesCell.Border = Rectangle.NO_BORDER;
-        assembliesCell.Padding = 0;
-        assembliesCell.HorizontalAlignment = Element.ALIGN_LEFT;
-
-        // Add each assembly table
-        foreach (var assembly in assemblies)
+        PdfPCell container = new PdfPCell
         {
-            // Create header
-            Font whiteFont = FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 16, BaseColor.WHITE);
-            Paragraph headerParagraph = new Paragraph(assembly.TableName, whiteFont);
-            headerParagraph.Alignment = Element.ALIGN_LEFT;
+            Border = Rectangle.NO_BORDER,
+            PaddingRight = 20f
+        };
 
-            PdfPCell headerCell = new PdfPCell(headerParagraph);
-            headerCell.BackgroundColor = HexToBaseColor("#001236");
-            headerCell.Border = Rectangle.NO_BORDER;
-            headerCell.Padding = 6;
-            headerCell.HorizontalAlignment = Element.ALIGN_LEFT;
+        Font headerFont = FontFactory.GetFont("Arial", 12, Font.BOLD, BaseColor.WHITE);
+        Font serviceheaderFont = FontFactory.GetFont("Arial", 12, Font.BOLD, BaseColor.WHITE);
+        Font itemFont = FontFactory.GetFont("Arial", 10, Font.NORMAL, BaseColor.BLACK);
+        Font valueFont = FontFactory.GetFont("Arial", 10, Font.NORMAL, BaseColor.BLACK);
 
-            PdfPTable headerTable = new PdfPTable(1);
-            headerTable.TotalWidth = 303;
-            headerTable.HorizontalAlignment = Element.ALIGN_LEFT;
-            headerTable.LockedWidth = true;
-            headerTable.AddCell(headerCell);
-            assembliesCell.AddElement(headerTable);
+        float rowH = 21.6f;
+        BaseColor gray = HexToBaseColor("#E5E7EB");
+        BaseColor white = BaseColor.WHITE;
 
-            // Create fields table
-            PdfPTable fieldTable = new PdfPTable(2);
-            fieldTable.TotalWidth = 303;
-            fieldTable.LockedWidth = true;
-            fieldTable.HorizontalAlignment = Element.ALIGN_LEFT;
-            fieldTable.SetWidths(new float[] { 40, 60 });
-
-            float rowHeight = 21.6f;
-            BaseColor grayColor1 = HexToBaseColor("#E5E7EB");
-            BaseColor whiteColor1 = BaseColor.WHITE;
-            bool useGray1 = true;
-
-            // Add each field row with alternating colors
-            foreach (var field in assembly.Fields)
+        foreach (var asm in assemblies)
+        {
+            // — Header —
+            var hdrPara = new Paragraph(asm.TableName, headerFont) { Alignment = Element.ALIGN_LEFT };
+            PdfPCell hdrCell = new PdfPCell(hdrPara)
             {
-                PdfPCell itemCell = new PdfPCell(new Phrase(field.Item));
-                PdfPCell valueCell = new PdfPCell(new Phrase(field.Value));
+                BackgroundColor = HexToBaseColor("#001236"),
+                Border = Rectangle.NO_BORDER,
+                Padding = 6,
+                HorizontalAlignment = Element.ALIGN_LEFT,
+            };
+            var hdrTable = new PdfPTable(1) { WidthPercentage = 60,
+                HorizontalAlignment = Element.ALIGN_LEFT,
+            };
+            hdrTable.AddCell(hdrCell);
+            container.AddElement(hdrTable);
 
-                itemCell.FixedHeight = rowHeight;
-                valueCell.FixedHeight = rowHeight;
+            // — Special branch for Boom Service Head —
+            if (asm.TableName == "Boom Service Head")
+            {
+                // 1) Default fields *including* Payload Capacity
+                var defaultFields = asm.Fields
+                    .Where(f => f.Item != "Service Head Attachment")
+                    .ToList();
 
-                BaseColor currentColor = useGray1 ? grayColor1 : whiteColor1;
-                itemCell.BackgroundColor = currentColor;
-                valueCell.BackgroundColor = currentColor;
+                var defTbl = new PdfPTable(2)
+                {
+                    WidthPercentage = 60f,
+                    SpacingBefore = 0,
+                    SpacingAfter = 8,
+                    HorizontalAlignment = Element.ALIGN_LEFT,
+                };
+                defTbl.SetWidths(new float[] {60, 40 });
 
-                itemCell.HorizontalAlignment = Element.ALIGN_LEFT;
-                valueCell.HorizontalAlignment = Element.ALIGN_LEFT;
+                bool useGray = true;
+                foreach (var f in defaultFields)
+                {
+                    var bg = useGray ? gray : white;
+                    defTbl.AddCell(new PdfPCell(new Phrase(f.Item, itemFont))
+                    {
+                        BackgroundColor = bg,
+                        FixedHeight = rowH,
+                        Border = Rectangle.BOX,
+                        Padding = 4
+                    });
+                    defTbl.AddCell(new PdfPCell(new Phrase(f.Value, valueFont))
+                    {
+                        BackgroundColor = bg,
+                        FixedHeight = rowH,
+                        Border = Rectangle.BOX,
+                        Padding = 4
+                    });
+                    useGray = !useGray;
+                }
 
-                fieldTable.AddCell(itemCell);
-                fieldTable.AddCell(valueCell);
-                useGray1 = !useGray1;
+                container.AddElement(defTbl);
+
+                // 2) Service Head Attachments table
+                var attachTbl = new PdfPTable(2)
+                {
+                    WidthPercentage = 60,
+                    SpacingBefore = 8f,
+                    HorizontalAlignment = Element.ALIGN_LEFT,
+                    SpacingAfter = 8f
+                };
+                attachTbl.SetWidths(new float[] { 50, 50 });
+
+                // optional sub‐header row
+                var subHdr = new PdfPCell(new Phrase("Service Head Details", serviceheaderFont))
+                {
+                    Colspan = 2,
+                    BackgroundColor = WebColors.GetRGBColor("#001236"),
+                    Border = Rectangle.NO_BORDER,
+                    Padding = 4,
+                    HorizontalAlignment = Element.ALIGN_LEFT,
+
+
+                };
+                attachTbl.AddCell(subHdr);
+
+                useGray = true;
+                foreach (var f in asm.Fields.Where(f => f.Item == "Service Head Attachment"))
+                {
+                    var bg = useGray ? gray : white;
+                    attachTbl.AddCell(new PdfPCell(new Phrase(f.Item, itemFont))
+                    {
+                        BackgroundColor = bg,
+                        FixedHeight = rowH,
+                        Border = Rectangle.BOX,
+                        HorizontalAlignment = Element.ALIGN_LEFT,
+                        Padding = 4
+                    });
+                    attachTbl.AddCell(new PdfPCell(new Phrase(f.Value, valueFont))
+                    {
+                        BackgroundColor = bg,
+                        FixedHeight = rowH,
+                        Border = Rectangle.BOX,
+                        HorizontalAlignment = Element.ALIGN_LEFT,
+                        Padding = 4
+                    });
+                    useGray = !useGray;
+                }
+
+                container.AddElement(attachTbl);
+
+                // done with Service Head branch
+                container.AddElement(new Paragraph(" "));
+                continue;
             }
 
-            // Add additional fields for Flat Panel Arm
-            if (assembly.TableName == "Flat Panel Arm")
+            // — Default path for all other assemblies — unchanged —
+            var fldTbl = new PdfPTable(2)
             {
-                // Add "Circuits Required" row
-                AddAdditionalRow(fieldTable, "Circuits Required", "", rowHeight, useGray1 ? grayColor1 : whiteColor1);
-                useGray1 = !useGray1;
+                WidthPercentage = 60f,
+                SpacingBefore = 0f,
+                SpacingAfter = 8f,
+                HorizontalAlignment = Element.ALIGN_LEFT,
+            };
+            fldTbl.SetWidths(new float[] { 60, 40 });
 
-                // Add "Overall Weight" row
-                AddAdditionalRow(fieldTable, "Overall Weight", "", rowHeight, useGray1 ? grayColor1 : whiteColor1);
-                useGray1 = !useGray1;
-
-                // Add "Torque Moment" row
-                AddAdditionalRow(fieldTable, "Torque Moment", "", rowHeight, useGray1 ? grayColor1 : whiteColor1);
-                useGray1 = !useGray1;
-
-                // Add "Vertical Force Nm" row
-                AddAdditionalRow(fieldTable, "Vertical Force Nm", "", rowHeight, useGray1 ? grayColor1 : whiteColor1);
+            bool stripe = true;
+            foreach (var f in asm.Fields)
+            {
+                var bg = stripe ? gray : white;
+                fldTbl.AddCell(new PdfPCell(new Phrase(f.Item, itemFont))
+                {
+                    BackgroundColor = bg,
+                    FixedHeight = rowH,
+                    Border = Rectangle.BOX,
+                    HorizontalAlignment = Element.ALIGN_LEFT,
+                    Padding = 4
+                });
+                fldTbl.AddCell(new PdfPCell(new Phrase(f.Value, valueFont))
+                {
+                    BackgroundColor = bg,
+                    FixedHeight = rowH,
+                    Border = Rectangle.BOX,
+                    HorizontalAlignment = Element.ALIGN_LEFT,
+                    Padding = 4
+                });
+                stripe = !stripe;
             }
 
-            if (assembly.TableName == "Boom Service Head")
+            // your existing AddAdditionalRow logic for other assemblies...
+            if (asm.TableName == "Flat Panel Arm" || asm.TableName== "U | ONE (Standard)" || asm.TableName== "Spring Arm (Low Ceiling)")
             {
-                // Add "Circuits Required" row
-                AddAdditionalRow(fieldTable, "Med-Gas Connection Type", "", rowHeight, useGray1 ? grayColor1 : whiteColor1);
-                useGray1 = !useGray1;
-
-                // Add "Overall Weight" row
-                AddAdditionalRow(fieldTable, "Overall Weight", "", rowHeight, useGray1 ? grayColor1 : whiteColor1);
-                useGray1 = !useGray1;
-
-                AddAdditionalRow(fieldTable, "Vertical Force", "", rowHeight, useGray1 ? grayColor1 : whiteColor1);
-                // Add "Torque Moment" row
-                useGray1 = !useGray1;
-
-                // Add "Vertical Force Nm" row
-                
-                AddAdditionalRow(fieldTable, "Payload Capacity", "", rowHeight, useGray1 ? grayColor1 : whiteColor1);
-
+                AddAdditionalRow(fldTbl, "Circuits Required", "", rowH, stripe ? gray : white,itemFont); stripe = !stripe;
+                AddAdditionalRow(fldTbl, "Overall Weight", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
+                AddAdditionalRow(fldTbl, "Torque Moment", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
+                AddAdditionalRow(fldTbl, "Vertical Force Nm", "", rowH, stripe ? gray : white, itemFont);
             }
 
+            if (asm.TableName == "Boom Service Head")
+            {
+                AddAdditionalRow(fldTbl, "Med-Gas Connection Type", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
+                AddAdditionalRow(fldTbl, "Overall Weight", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
+                AddAdditionalRow(fldTbl, "Vertical Force", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
+                AddAdditionalRow(fldTbl, "Payload Capacity", "", rowH, stripe ? gray : white, itemFont);
+            }
 
-            assembliesCell.AddElement(fieldTable);
-            assembliesCell.AddElement(new Paragraph(" ")); // Add spacing
+            container.AddElement(fldTbl);
+            container.AddElement(new Paragraph(" "));
         }
-        return assembliesCell;
+
+        return container;
     }
 
-    // Helper method to add additional rows
-    private static void AddAdditionalRow(PdfPTable table, string itemText, string valueText, float rowHeight, BaseColor backgroundColor)
+    private static void AddAdditionalRow(PdfPTable table, string itemText, string valueText, float rowHeight, BaseColor backgroundColor,Font itemfomt)
     {
-        PdfPCell itemCell = new PdfPCell(new Phrase(itemText));
-        PdfPCell valueCell = new PdfPCell(new Phrase(valueText));
+        PdfPCell itemCell = new PdfPCell(new Phrase(itemText,itemfomt));
+        PdfPCell valueCell = new PdfPCell(new Phrase(valueText,itemfomt));
 
         itemCell.FixedHeight = rowHeight;
         valueCell.FixedHeight = rowHeight;
@@ -270,99 +330,143 @@ public class PdfExporterLocal
         table.AddCell(valueCell);
     }
 
-
     public static string Distance { get; private set; } = string.Empty;
-    private static PdfPCell CreateImageCell(List<PdfImageData> imageData, Document doc, PdfWriter writer, float roomHeight = 300f)
+
+    private static PdfPCell CreateImageCell(
+        List<PdfImageData> imageData,
+        Document doc,
+        PdfWriter writer,
+        float roomHeight = 300f)
     {
+        // 1) compute all our metrics
         float pageWidth = doc.PageSize.Width;
         float usablePageWidth = pageWidth - (doc.LeftMargin + doc.RightMargin);
         float imageColumnWidth = usablePageWidth * 0.6f;
         float paddingBetweenImages = 10f;
         float availableImageWidth = (imageColumnWidth - paddingBetweenImages) / 2f;
-        float maxTargetHeight = 240f;
-        float scale1 = 80f; // Points per meter (240/3 = 80)
-        float visualHeight = roomHeight * scale1;
-        // Main cell to return
+        float maxTargetHeight = 300f;
+        float scale1 = 100f;  // pts per meter
+        float visualHeight = GetCeilingHeight() * scale1;
+
+        // 2) prepare container cell
         PdfPCell imageCell = new PdfPCell
         {
             Border = Rectangle.NO_BORDER,
             VerticalAlignment = Element.ALIGN_BOTTOM,
             HorizontalAlignment = Element.ALIGN_CENTER,
-            PaddingLeft = 20
+            PaddingLeft = 20f
         };
 
-        // Outer table to stack images + beam + height indicator
-        PdfPTable outerTable = new PdfPTable(1)
+        // 3) build sub-elements
+        var cb = writer.DirectContent;
+        Image heightImg = BuildHeightImage(cb, visualHeight, maxTargetHeight);
+        PdfPTable content = BuildContentTable(heightImg, imageData, availableImageWidth, maxTargetHeight);
+        Image beamImg = BuildBeamImage(cb, usablePageWidth, 10);
+
+        // 4) assemble outer table
+        PdfPTable outer = new PdfPTable(1) { WidthPercentage = 100f };
+        outer.DefaultCell.Border = Rectangle.NO_BORDER;
+        outer.DefaultCell.Padding = 0f;
+
+        outer.AddCell(new PdfPCell(content)
         {
-            WidthPercentage = 100
-        };
-        outerTable.DefaultCell.Border = Rectangle.NO_BORDER;
-        outerTable.DefaultCell.Padding = 0f;
+            Border = Rectangle.NO_BORDER,
+            Padding = 0f
+        });
 
-        // Create a cell for the ceiling line (top of room)
-        PdfContentByte cb = writer.DirectContent;
-       
-        // Add height measurement line on the left side
-        PdfTemplate heightTemplate = cb.CreateTemplate(50, visualHeight);
-        heightTemplate.SetLineWidth(1.5f);
+        outer.AddCell(new PdfPCell(beamImg)
+        {
+            Border = Rectangle.NO_BORDER,
+            Padding = 0f,
+            HorizontalAlignment = Element.ALIGN_LEFT,
+            VerticalAlignment = Element.ALIGN_TOP
+        });
 
-        // Draw vertical line
-        heightTemplate.MoveTo(10, 0);
-        heightTemplate.LineTo(10, visualHeight);
-        heightTemplate.Stroke();
+        imageCell.AddElement(outer);
+        return imageCell;
+    }
 
-        // Draw small horizontal lines at top and bottom
-        heightTemplate.MoveTo(5, 0);
-        heightTemplate.LineTo(15, 0);
-        heightTemplate.Stroke();
+    private static Image BuildHeightImage(
+        PdfContentByte cb,
+        float visualHeight,
+        float maxTargetHeight)
+    {
+        // draw the vertical line + ticks
+        PdfTemplate tpl = cb.CreateTemplate(50, visualHeight);
+        tpl.SetLineWidth(1.5f);
 
-        heightTemplate.MoveTo(5, visualHeight);
-        heightTemplate.LineTo(15, visualHeight);
-        heightTemplate.Stroke();
+        // main line
+        tpl.MoveTo(10, 0);
+        tpl.LineTo(10, visualHeight);
+        tpl.Stroke();
 
+        // bottom tick
+        tpl.MoveTo(5, 0);
+        tpl.LineTo(15, 0);
+        tpl.Stroke();
 
-        float distanceMeters = GetCeilingHeight();
-        float distanceFeet = Mathf.Floor(distanceMeters.ToFeet());
-        float distanceInches = Mathf.Round((distanceMeters.ToFeet() - distanceFeet) * 12f * 10f) / 10f;
-        Distance = $"{distanceFeet}' {distanceInches}\"";
-        // Add height text
-        heightTemplate.BeginText();
-        BaseFont baseFont = BaseFont.CreateFont(BaseFont.HELVETICA, BaseFont.CP1252, BaseFont.NOT_EMBEDDED);
-        heightTemplate.SetFontAndSize(baseFont, 10);
-        heightTemplate.ShowTextAligned(Element.ALIGN_LEFT, Distance, 20, maxTargetHeight / 2, 90);
-        heightTemplate.EndText();
+        // top tick
+        tpl.MoveTo(5, visualHeight);
+        tpl.LineTo(15, visualHeight);
+        tpl.Stroke();
 
-        Image heightImg = Image.GetInstance(heightTemplate);
+        // calculate distance string
+        float meters = GetCeilingHeight();
+        float ft = Mathf.Floor(meters.ToFeet());
+        float inch = Mathf.Round((meters.ToFeet() - ft) * 12f * 10f) / 10f;
+        Distance = $"{ft}' {inch}\"";
 
-        // Side-by-side table for height indicator and images
-        PdfPTable contentTable = new PdfPTable(2);
-        float[] columnWidths = new float[] { 10f, 90f };
-        contentTable.SetWidths(columnWidths);
-        contentTable.WidthPercentage = 100;
+        // draw the text
+        BaseFont teko = BaseFont.CreateFont(
+            @"Assets/_DevWIP/Faizan/Fonts/Teko/Teko-Light.ttf",
+            BaseFont.IDENTITY_H,
+            BaseFont.EMBEDDED);
 
-        // Height indicator cell
-        PdfPCell heightCell = new PdfPCell(heightImg)
+        tpl.BeginText();
+        tpl.SetFontAndSize(teko, 36);
+        tpl.ShowTextAligned(
+            Element.ALIGN_LEFT,
+            Distance,
+            40,                   // X pos of text (same as line)
+            maxTargetHeight / 2,  // vertically centered
+            90);
+        tpl.EndText();
+
+        return Image.GetInstance(tpl);
+    }
+
+    private static PdfPTable BuildContentTable(
+        Image heightImg,
+        List<PdfImageData> imageData,
+        float availableImageWidth,
+        float maxTargetHeight)
+    {
+        // 2-col table: [ height-marker | image table ]
+        PdfPTable table = new PdfPTable(2) { WidthPercentage = 100f };
+        table.SetWidths(new float[] { 10f, 90f });
+
+        // height cell
+        PdfPCell hCell = new PdfPCell(heightImg)
         {
             Border = Rectangle.NO_BORDER,
             Padding = 0f,
             VerticalAlignment = Element.ALIGN_MIDDLE
         };
-        contentTable.AddCell(heightCell);
+        table.AddCell(hCell);
 
-        // Table for two images side by side
-        PdfPTable imageTable = new PdfPTable(2)
-        {
-            WidthPercentage = 100
-        };
+        // nested 2-col table for front/back images
+        PdfPTable imgs = new PdfPTable(2) { WidthPercentage = 100f };
+        float maxH = maxTargetHeight;
+        Font captionFont = FontFactory.GetFont("Arial", 10, BaseColor.BLACK);
 
         for (int i = 0; i < 2; i++)
         {
-            PdfPCell imgCell = new PdfPCell
+            PdfPCell cell = new PdfPCell
             {
                 Border = Rectangle.NO_BORDER,
                 HorizontalAlignment = Element.ALIGN_CENTER,
                 VerticalAlignment = Element.ALIGN_BOTTOM,
-                Padding = 0f,
+                Padding = 0f
             };
 
             if (imageData.Count > i && File.Exists(imageData[i].Path))
@@ -370,133 +474,74 @@ public class PdfExporterLocal
                 Image img = Image.GetInstance(imageData[i].Path);
                 img.Alignment = Element.ALIGN_BOTTOM;
 
-                float scale = Math.Min(availableImageWidth / img.Width, maxTargetHeight / img.Height);
+                // scale to fit
+                float scale = Math.Min(
+                    availableImageWidth / img.Width,
+                    maxH / img.Height);
                 img.ScaleAbsolute(img.Width * scale, img.Height * scale);
-                imgCell.AddElement(img);
+
+                cell.AddElement(img);
             }
-            imageTable.AddCell(imgCell);
+
+            imgs.AddCell(cell);
         }
 
-        // Add the image table to the content table
-        PdfPCell imageTableCell = new PdfPCell(imageTable)
+        // wrap the image-grid
+        PdfPCell wrap = new PdfPCell(imgs)
         {
             Border = Rectangle.NO_BORDER,
             Padding = 0f
         };
-        contentTable.AddCell(imageTableCell);
+        table.AddCell(wrap);
 
-        // Add the content table to outer table
-        PdfPCell contentCell = new PdfPCell(contentTable)
-        {
-            Border = Rectangle.NO_BORDER,
-            Padding = 0f
-        };
-        outerTable.AddCell(contentCell);
+        return table;
+    }
 
-        // --- DRAW THE BEAM ---
-        PdfTemplate template = cb.CreateTemplate(usablePageWidth, 100);
+    // 1) Updated helper signature to accept leftMargin
+    private static Image BuildBeamImage(
+        PdfContentByte cb,
+        float usablePageWidth,
+        float leftMargin)
+    {
+        // total template width = margin + usable drawing width
+        float totalWidth = leftMargin + usablePageWidth;
+        PdfTemplate beam = cb.CreateTemplate(totalWidth, 100f);
+
         float beamY = 100f;
-        float supportHeight = 20f;
+        float supportH = 20f;
         float spacing = usablePageWidth / 14f;
-        template.SetLineWidth(3);
-        template.MoveTo(0, beamY);
-        template.LineTo(usablePageWidth, beamY);
-        template.Stroke();
 
+        beam.SetLineWidth(3f);
+
+        // main beam line, shifted right by leftMargin
+        beam.MoveTo(leftMargin, beamY);
+        beam.LineTo(leftMargin + usablePageWidth, beamY);
+        beam.Stroke();
+
+        // supports, likewise offset
         for (int i = 0; i <= 14; i++)
         {
-            float x = i * spacing;
-            template.MoveTo(x, beamY);
-            template.LineTo(x - supportHeight, beamY - supportHeight);
-            template.Stroke();
+            float x = leftMargin + (i * spacing);
+            beam.MoveTo(x, beamY);
+            beam.LineTo(x - supportH, beamY - supportH);
+            beam.Stroke();
         }
 
-        Image beamImg = Image.GetInstance(template);
-        beamImg.ScaleToFit(usablePageWidth, 100);
-        PdfPCell beamCell = new PdfPCell(beamImg)
-        {
-            Border = Rectangle.NO_BORDER,
-            Padding = 0f,
-            HorizontalAlignment = Element.ALIGN_CENTER,
-            VerticalAlignment = Element.ALIGN_TOP
-        };
-        outerTable.AddCell(beamCell);
-
-        // Add the complete outerTable to the main imageCell
-        imageCell.AddElement(outerTable);
-        return imageCell;
+        // turn into an Image and scale
+        Image img = Image.GetInstance(beam);
+        img.ScaleToFit(totalWidth, 100f);
+        return img;
     }
 
-
-  public static  string NormalizeFeetInches(string input)
-    {
-        
-        // Expected format: "32'6\""
-        int footIndex = input.IndexOf('\'');
-        int inchIndex = input.IndexOf('\"');
-
-        if (footIndex == -1 || inchIndex == -1)
-            return input; // format not as expected
-
-        // Extract numbers
-        string feetStr = input.Substring(0, footIndex);
-        string inchesStr = input.Substring(footIndex + 1, inchIndex - footIndex - 1);
-
-        if (!int.TryParse(feetStr, out int feet) || !int.TryParse(inchesStr, out int inches))
-            return input;
-
-        // Normalize inches
-        feet += inches / 12;
-        inches = inches % 12;
-
-        return $"{feet}'{inches}\"";
-    }
-    private static void AddSeparatorLine(Document doc)
-    {
-        LineSeparator line = new LineSeparator
-        {
-            LineWidth = 5f,
-            Percentage = 100,
-            Offset = 10
-        };
-
-        PdfPTable lineTable = new PdfPTable(1);
-        lineTable.TotalWidth = 800f;
-        lineTable.LockedWidth = true;
-
-        PdfPCell lineCell = new PdfPCell(new Phrase(new Chunk(line)));
-        lineCell.Border = Rectangle.NO_BORDER;
-        lineCell.PaddingTop = 0f;
-        lineCell.PaddingBottom = 0f;
-
-        lineTable.AddCell(lineCell);
-        doc.Add(lineTable);
-    }
-    private static IElement CreateSimpleSeparatorLine()
-    {
-        return new LineSeparator
-        {
-            LineWidth = 5f,
-            Percentage = 100,
-            Offset = 10
-        };
-    }
+    private static float GetCeilingHeight() => RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling).Height;
 
     private static void AddCompanyLogo(Document doc)
     {
-        PdfPTable logoTable = new PdfPTable(1);
-        logoTable.TotalWidth = 300;
-        logoTable.HorizontalAlignment = Element.ALIGN_RIGHT;
-        logoTable.LockedWidth = true;
-       
-        PdfPCell logoCell = new PdfPCell();
-        logoCell.Border = Rectangle.NO_BORDER;
-        logoCell.HorizontalAlignment = Element.ALIGN_LEFT;
-        logoCell.PaddingBottom= 10f;
+        PdfPTable logoTable = new PdfPTable(1) { TotalWidth = 300, HorizontalAlignment = Element.ALIGN_RIGHT, LockedWidth = true };
+        PdfPCell logoCell = new PdfPCell { Border = Rectangle.NO_BORDER, HorizontalAlignment = Element.ALIGN_LEFT, PaddingBottom = 10f };
         Image logo = Image.GetInstance(Application.streamingAssetsPath + "/Data/quotes/UImagineUnlimited-logo.png");
-        logo.ScaleToFit(300,300);
+        logo.ScaleToFit(300, 300);
         logoCell.AddElement(logo);
-
         logoTable.AddCell(logoCell);
         doc.Add(logoTable);
     }
@@ -531,14 +576,14 @@ public class PdfExporterLocal
         signatureCell.FixedHeight = 30f;
         signatureCell.VerticalAlignment = Element.ALIGN_BOTTOM;
         signatureCell.Border = Rectangle.TOP_BORDER;
-       
-       // signatureCell.BorderWidthBottom = 1f;
+
+        // signatureCell.BorderWidthBottom = 1f;
 
         PdfPCell dateCell = new PdfPCell(new Phrase("Date", normalFont));
         dateCell.FixedHeight = 30f;
         dateCell.VerticalAlignment = Element.ALIGN_BOTTOM;
         dateCell.Border = Rectangle.TOP_BORDER;
-      //  dateCell.BorderWidthBottom = 1f;
+        //  dateCell.BorderWidthBottom = 1f;
 
         signatureTable.AddCell(signatureCell);
         signatureTable.AddCell(dateCell);
@@ -573,76 +618,32 @@ public class PdfExporterLocal
         acceptanceTable.AddCell(rightCell);
         doc.Add(acceptanceTable);
     }
-    /// <summary>
-    /// Converts a hexadecimal color string to a BaseColor object
-    /// </summary>
-    /// <param name="hex">Hex color code (with or without #)</param>
-    /// <param name="alpha">Optional alpha value (0-255, default 255)</param>
-    /// <returns>BaseColor object representing the color</returns>
+
     public static BaseColor HexToBaseColor(string hex, int alpha = 255)
     {
-        // Validate input
-        if (string.IsNullOrEmpty(hex))
-            throw new ArgumentNullException(nameof(hex), "Hex color code cannot be null or empty");
+        if (string.IsNullOrEmpty(hex)) return BaseColor.WHITE;
+        hex = hex.Replace("#", "");
+        int r = int.Parse(hex.Substring(0, 2), System.Globalization.NumberStyles.HexNumber);
+        int g = int.Parse(hex.Substring(2, 2), System.Globalization.NumberStyles.HexNumber);
+        int b = int.Parse(hex.Substring(4, 2), System.Globalization.NumberStyles.HexNumber);
+        return new BaseColor(r, g, b, alpha);
+    }
 
-        // Remove # if present
-        hex = hex.Replace("#", "").Trim();
-
-        // Handle different hex formats (3 digits or 6 digits)
-        if (hex.Length == 3) // Convert short format (#RGB) to long format (#RRGGBB)
-        {
-            hex = string.Format("{0}{0}{1}{1}{2}{2}", hex[0], hex[1], hex[2]);
-        }
-
-        if (hex.Length != 6)
-            throw new ArgumentException("Hex color code must be 3 or 6 characters in length", nameof(hex));
-
+    private static void OpenPdfFile(string fileName)
+    {
         try
         {
-            // Parse RGB values
-            byte r = byte.Parse(hex.Substring(0, 2), System.Globalization.NumberStyles.HexNumber);
-            byte g = byte.Parse(hex.Substring(2, 2), System.Globalization.NumberStyles.HexNumber);
-            byte b = byte.Parse(hex.Substring(4, 2), System.Globalization.NumberStyles.HexNumber);
-
-            // Ensure alpha is in valid range
-            alpha = Math.Max(0, Math.Min(255, alpha));
-
-            // Check if the library supports alpha channel
-            try
-            {
-                // Try to create BaseColor with RGBA (for newer versions)
-                return new BaseColor(r, g, b, alpha);
-            }
-            catch
-            {
-                // Fall back to RGB for older versions
-                return new BaseColor(r, g, b);
-            }
+            Process.Start(new ProcessStartInfo(fileName) { UseShellExecute = true });
         }
         catch (Exception ex)
         {
-            throw new FormatException($"Failed to parse hex color: {hex}", ex);
+            UnityEngine.Debug.LogError($"Failed to open PDF: {ex.Message}");
         }
-    }
-    private static void OpenPdfFile(string fileName)
-    {
-#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
-            // Hack fix for macOS not liking Application.OpenURL
-            string location = fileName;
-            ProcessStartInfo startInfo = new ProcessStartInfo("/System/Library/CoreServices/Finder.app")
-            {
-                WindowStyle = ProcessWindowStyle.Normal,
-                FileName = location.Trim()
-            };
-            Process.Start(startInfo);
-#else
-        Application.OpenURL("file:///" + fileName);
-#endif
     }
 
     public static List<AssemblyJson> ConvertToAssemblyJsonFull(
-     List<AssemblyData> assemblyDatas,
-     List<AdditionalPdfData> additionalData)
+      List<AssemblyData> assemblyDatas,
+      List<AdditionalPdfData> additionalData)
     {
         List<AssemblyJson> allTables = new List<AssemblyJson>();
         int assId = 1;
@@ -665,7 +666,8 @@ public class PdfExporterLocal
                 string itemName = metaData.Name;
 
                 if (metaData.Categories.Contains("High Voltage Services") ||
-                    metaData.Categories.Contains("Low Voltage Services"))
+                    metaData.Categories.Contains("Low Voltage Services") || metaData.Categories.Contains("Service Head Rails")||metaData.Categories.Contains("Service Head Shelf (500mm)")
+                    || metaData.Name.Contains("Service Head Shelf (500mm)"))
                 {
                     var existing = serviceHeadItems.FirstOrDefault(x => x.StartsWith(itemName));
                     if (existing != null)
@@ -694,13 +696,14 @@ public class PdfExporterLocal
                 if (!string.IsNullOrWhiteSpace(item.MetaData.SubPartName))
                     itemName += " " + item.MetaData.SubPartName;
 
-                if (metaData.Categories.Contains("Service Head Services") ||
-                    metaData.Name.Contains("Blank Plate") ||
-                    metaData.Name.Contains("Service Head Rails"))
+                if (/*metaData.Categories.Contains("Service Head Services") ||*/
+                    metaData.Name.Contains("Blank Plate") 
+                   /* metaData.Name.Contains("Service Head Rails")*/)
                     continue;
 
                 if (metaData.Categories.Contains("High Voltage Services") ||
-                    metaData.Categories.Contains("Low Voltage Services"))
+                    metaData.Categories.Contains("Low Voltage Services") || metaData.Name.Contains("SHP_Rails")||metaData.Categories.Contains("Service Head Rails")
+                    ||metaData.Name.Contains("Service Head Shelf (500mm)"))
                 {
                     if (!usedServiceHeadItems.Contains(itemName))
                     {
@@ -798,5 +801,4 @@ public class PdfExporterLocal
 
         return allTables;
     }
-
 }

@@ -1,4 +1,4 @@
-using HighlightPlus;
+﻿using HighlightPlus;
 using SplenSoft.AssetBundles;
 using System;
 using System.Collections;
@@ -12,6 +12,8 @@ using UnityEngine.SceneManagement;
 using Unity.VisualScripting;
 using UnityEngine.UI;
 using SplenSoft.UnityUtilities;
+using System.IO;
+
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -951,6 +953,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     public List<PdfExporter.PdfImageData> GetAssemblyPDFImageData(Camera camera)
     {
         var imageDatas = new List<PdfExporter.PdfImageData>();
+
         for (int i = 0; i < 2; i++)
         {
             void FaceAllTowardGround()
@@ -958,12 +961,10 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 _assemblySelectables
                     .Where(x => x.ZAlwaysFacesGround || x.ZAlwaysFacesGroundElevationOnly)
                     .ToList()
-                    .ForEach(item =>
-                    {
-                        item.FaceZTowardGround();
-                    });
+                    .ForEach(item => item.FaceZTowardGround());
             }
 
+            // your existing rotation/ceiling‐avoidance loop
             foreach (Selectable selectable in _assemblySelectables.Where(x => x.ChangeHeightForElevationPhoto))
             {
                 var newAngles = selectable.transform.localEulerAngles;
@@ -971,21 +972,21 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
                 if (i == 0)
                 {
-                    newAngles.y = gizmoSetting.Invert ?
-                        gizmoSetting.GetMaxValue() : gizmoSetting.GetMinValue();
+                    newAngles.y = gizmoSetting.Invert
+                        ? gizmoSetting.GetMaxValue()
+                        : gizmoSetting.GetMinValue();
                 }
                 else
                 {
-                    newAngles.y = gizmoSetting.Invert ?
-                        gizmoSetting.GetMinValue() : gizmoSetting.GetMaxValue();
+                    newAngles.y = gizmoSetting.Invert
+                        ? gizmoSetting.GetMinValue()
+                        : gizmoSetting.GetMaxValue();
                 }
 
                 selectable.transform.localEulerAngles = newAngles;
                 var childList = selectable.GetComponentsInChildren<Selectable>().ToList();
-                //RoomBoundary ceiling = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling);
-                //ceiling.gameObject.SetActive(true);
-                FaceAllTowardGround();
 
+                FaceAllTowardGround();
                 while (childList.Any(x => x.IsHittingCeiling()))
                 {
                     float abs = Mathf.Abs(newAngles.y) - 0.1f;
@@ -994,19 +995,25 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                     selectable.transform.localEulerAngles = newAngles;
                     FaceAllTowardGround();
                 }
-                //ceiling.gameObject.SetActive(false);
-
                 selectable.transform.localEulerAngles = newAngles;
             }
 
             FaceAllTowardGround();
-
             var bounds = GetAssemblyBounds();
 
-            //take the photo
-            imageDatas.Add(new PdfExporter.PdfImageData()
+            // **only change**: pass invertDirection = (i == 1)
+            string path = GetElevationPhoto(
+                camera,
+                bounds,
+                out var imageWidth,
+                out var imageHeight,
+                fileIndex: i,
+                invertDirection: (i == 1)
+            );
+
+            imageDatas.Add(new PdfExporter.PdfImageData
             {
-                Path = GetElevationPhoto(camera, bounds, out var imageWidth, out var imageHeight, i),
+                Path = path,
                 Width = imageWidth,
                 Height = imageHeight
             });
@@ -1014,6 +1021,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         return imageDatas;
     }
+
 
     public void ExportElevationPdf(string title, string subtitle, List<AssemblyData> assemblyDatas)
     {
@@ -1108,113 +1116,139 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
     }
 
-    private string GetElevationPhoto(Camera camera, Bounds bounds, out int imageWidth, out int imageHeight, int fileIndex)
+    private struct CameraState
     {
+        public Vector3 Position;
+        public bool Orthographic;
+        public float OrthographicSize;
+        public bool Enabled;
+        public RenderTexture TargetTexture;
+    }
+
+    /// <summary>
+    /// Captures an elevation photo of the assembly from either the “front” or “back”
+    /// depending on the invertDirection flag. All of your existing measurement‐,
+    /// fitting‐ and rendering‐logic remains exactly as before.
+    /// </summary>
+    private string GetElevationPhoto(
+        Camera camera,
+        Bounds bounds,
+        out int imageWidth,
+        out int imageHeight,
+        int fileIndex,
+        bool invertDirection = false)
+    {
+        // enable & switch to ortho
         camera.enabled = true;
         camera.orthographic = true;
+
+        // save original transform
         Vector3 cameraOriginalPos = camera.transform.position;
+
+        // compute direction – invert if requested
         Vector3 outwardDirection = cameraOriginalPos - transform.position;
+        if (invertDirection)
+            outwardDirection = -outwardDirection;
+
+        // position & aim
         camera.transform.position = bounds.center + (outwardDirection.normalized * bounds.extents.magnitude);
         camera.transform.LookAt(bounds.center, Vector3.up);
         camera.orthographicSize = bounds.extents.y;
 
+        // run your existing “show only those measurables” logic
         float addedHeight = 0.1f;
         _assemblySelectables.ForEach(item =>
         {
-            if (item.Measurables.Count > 0)
+            if (item.Measurables.Count == 0) return;
+            item.Measurables.ForEach(measurable =>
             {
-                item.Measurables.ForEach(measurable =>
-                {
-                    if (measurable.Disabled)
-                        return;
+                if (measurable.Disabled) return;
 
-                    var validMeasurements = measurable.Measurements
-                        .Where(measurement => measurement.Measurable.ShowInElevationPhoto)
-                        .ToList();
-                    if (validMeasurements.Count > 0)
-                    {
-                        measurable.SetActive(true);
-                        measurable.UpdateMeasurements(ref addedHeight, camera);
-                        validMeasurements.ForEach(measurement =>
-                        {
-                            measurement.Measurer.MeasurementText.UpdateVisibilityAndPosition(camera, force: true);
-                            measurement.Measurer.UpdateTransform(camera);
-                            bounds.Encapsulate(measurement.Measurer.Renderer.bounds);
-                            var textBounds = new Bounds(measurement.Measurer.TextPosition, Vector3.one * 1f);
-                            bounds.Encapsulate(textBounds);
-                        });
-                    }
-                    else
-                    {
-                        // If there are no valid measurements, ensure the measurable is inactive
-                        measurable.SetActive(false);
-                    }
+                var valid = measurable.Measurements
+                    .Where(m => m.Measurable.ShowInElevationPhoto)
+                    .ToList();
+                if (valid.Count == 0)
+                {
+                    measurable.SetActive(false);
+                    return;
+                }
+
+                measurable.SetActive(true);
+                measurable.UpdateMeasurements(ref addedHeight, camera);
+
+                valid.ForEach(measurement =>
+                {
+                    measurement.Measurer.MeasurementText
+                        .UpdateVisibilityAndPosition(camera, force: true);
+                    measurement.Measurer.UpdateTransform(camera);
+
+                    bounds.Encapsulate(measurement.Measurer.Renderer.bounds);
+                    var textBounds = new Bounds(measurement.Measurer.TextPosition, Vector3.one * 1f);
+                    bounds.Encapsulate(textBounds);
                 });
-            }
+            });
         });
 
+        // reposition & re‐aim now that bounds may have grown
         camera.transform.position = bounds.center + (outwardDirection.normalized * bounds.extents.magnitude);
         camera.transform.LookAt(bounds.center, Vector3.up);
         camera.orthographicSize = bounds.extents.y;
 
+        // grow ortho size until min & max world points fit in RT
         int safetyCounter = 1000;
-        Vector2 screenPointMin = camera.WorldToScreenPoint(bounds.min);
-        Vector2 screenPointMax = camera.WorldToScreenPoint(bounds.max);
-        RenderTexture renderTexture = camera.targetTexture;
-
-        bool IsPointInShot(Vector2 screenPoint)
-        {
-            return screenPoint.x > 0 && screenPoint.y > 0
-                && screenPoint.x < renderTexture.width
-                && screenPoint.y < renderTexture.height;
-        }
+        Vector2 screenMin = camera.WorldToScreenPoint(bounds.min);
+        Vector2 screenMax = camera.WorldToScreenPoint(bounds.max);
+        RenderTexture rt = camera.targetTexture;
+        bool InShot(Vector2 p) =>
+            p.x > 0 && p.y > 0 &&
+            p.x < rt.width && p.y < rt.height;
 
         while (--safetyCounter > 0)
         {
             camera.orthographicSize += 1f;
-            screenPointMax = camera.WorldToScreenPoint(bounds.max);
-            screenPointMin = camera.WorldToScreenPoint(bounds.min);
-            if (IsPointInShot(screenPointMin) && IsPointInShot(screenPointMax))
-            {
-                break;
-            }
+            screenMin = camera.WorldToScreenPoint(bounds.min);
+            screenMax = camera.WorldToScreenPoint(bounds.max);
+            if (InShot(screenMin) && InShot(screenMax)) break;
         }
-
         if (safetyCounter == 0)
-        {
             throw new Exception("Could not get bounds of Arm Assembly for photo");
-        }
 
-        imageWidth = Mathf.CeilToInt(Mathf.Abs(screenPointMax.x - screenPointMin.x));
-        imageHeight = Mathf.CeilToInt(Mathf.Abs(screenPointMax.y - screenPointMin.y));
+        // compute pixel dims
+        imageWidth = Mathf.CeilToInt(Mathf.Abs(screenMax.x - screenMin.x));
+        imageHeight = Mathf.CeilToInt(Mathf.Abs(screenMax.y - screenMin.y));
 
+        // render
         Canvas.ForceUpdateCanvases();
-
         InGameLight.ToggleLights(false);
-        Light cameraLight = camera.GetComponentInChildren<Light>(true);
-        cameraLight.gameObject.SetActive(true);
+        var camLight = camera.GetComponentInChildren<Light>(true);
+        camLight.gameObject.SetActive(true);
+
         camera.Render();
         camera.enabled = false;
-        camera.transform.position = cameraOriginalPos;
-        cameraLight.gameObject.SetActive(false);
+
+        camLight.gameObject.SetActive(false);
         InGameLight.ToggleLights(true);
 
-        RenderTexture.active = renderTexture;
-
+        // read back
+        RenderTexture.active = rt;
         Texture2D tex = new Texture2D(imageWidth, imageHeight, TextureFormat.RGB24, false);
-
-        float screenMinX = Mathf.Min(screenPointMin.x, screenPointMax.x);
-        float screenMinY = Mathf.Min(screenPointMin.y, screenPointMax.y);
-
-        tex.ReadPixels(new Rect(screenMinX, screenMinY, imageWidth, imageHeight), 0, 0);
+        float minX = Mathf.Min(screenMin.x, screenMax.x);
+        float minY = Mathf.Min(screenMin.y, screenMax.y);
+        tex.ReadPixels(new Rect(minX, minY, imageWidth, imageHeight), 0, 0);
         RenderTexture.active = null;
 
+        // save PNG
         byte[] pngData = tex.EncodeToPNG();
+        string filenameImage = Path.Combine(
+            Application.persistentDataPath,
+            $"ExportedArmAssemblyElevationShot{fileIndex}{(invertDirection ? "_back" : "_front")}.png");
+    File.WriteAllBytes(filenameImage, pngData);
 
-        string filenameImage1 = Application.persistentDataPath + $"/ExportedArmAssemblyElevationShot{fileIndex}.png";
-        System.IO.File.WriteAllBytes(filenameImage1, pngData);
-        return filenameImage1;
-    }
+    // restore original camera position
+    camera.transform.position = cameraOriginalPos;
+
+    return filenameImage;
+}
 
     public void RestoreArmAssemblyRotations()
     {

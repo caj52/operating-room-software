@@ -81,7 +81,8 @@ public class PdfExporter : MonoBehaviour
                 string itemName = metaData.Name;
 
                 if (metaData.Categories.Contains("High Voltage Services") ||
-                metaData.Categories.Contains("Low Voltage Services"))
+                metaData.Categories.Contains("Low Voltage Services") ||  metaData.Name.Contains("Service Head Rails") || metaData.Name.Contains("SHP_Rails") || metaData.Categories.Contains("Service Head Services") 
+               || metaData.Name.Contains("Rear_Rail") || metaData.Name.Contains("Standard_Rail_v1"))
                 {
                     var existing = serviceHeadItems.FirstOrDefault(x => x.StartsWith(itemName));
 
@@ -115,14 +116,14 @@ public class PdfExporter : MonoBehaviour
                     itemName += " " + item.MetaData.SubPartName;
                 }
 
-                if (metaData.Categories.Contains("Service Head Services") ||
-                metaData.Name.Contains("Blank Plate") ||
-                metaData.Name.Contains("Service Head Rails"))
+                if (/*metaData.Categories.Contains("Service Head Services") ||*/
+                metaData.Name.Contains("Blank Plate"))//||
+                //metaData.Name.Contains("Service Head Rails"))
                 {
                     return;
                 }
-                else if (metaData.Categories.Contains("High Voltage Services") ||
-                metaData.Categories.Contains("Low Voltage Services"))
+                else if (metaData.Categories.Contains("Service Head Services") || metaData.Categories.Contains("High Voltage Services") ||
+                metaData.Categories.Contains("Low Voltage Services")||metaData.Name.Contains("SHP_Rails")||metaData.Categories.Contains("Service Head Rails"))
                 {
                     bool exists = usedServiceHeadItems.Any(x => x.StartsWith(itemName));
 

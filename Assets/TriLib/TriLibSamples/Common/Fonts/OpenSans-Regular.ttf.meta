@@ -8,7 +8,6 @@ TrueTypeFontImporter:
   characterSpacing: 0
   characterPadding: 1
   includeFontData: 1
-  fontName: Open Sans
   fontNames:
   - Open Sans
   fallbackFontReferences:
@@ -22,5 +21,5 @@ TrueTypeFontImporter:
   useLegacyBoundsCalculation: 0
   shouldRoundAdvanceValue: 1
   userData: 
-  assetBundleName: 
+  assetBundleName: font_b6a98ca66c26fc34c8d4053a9aeaa4fa
   assetBundleVariant: 

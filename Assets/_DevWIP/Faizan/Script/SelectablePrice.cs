@@ -10,6 +10,8 @@ public class SelectablePrice : MonoBehaviour
     public PriceExcelData objectPricingData;
     public Selectable selectable;
     private Selectable _selectableObjectForSize;
+
+    public PricingRowDataFill PricingRowDataFill;
     public Selectable selectableObjectForSize
     {
         get => _selectableObjectForSize;
@@ -31,7 +33,7 @@ public class SelectablePrice : MonoBehaviour
         }
     }
     public event Action OnDestroyed;
-    private string sheetName;
+    public string sheetName;
     private PricingRowDataFill uiReferenceForSelectablePrice;
     public bool isBoomObject = false;
     #endregion
@@ -96,6 +98,7 @@ public class SelectablePrice : MonoBehaviour
             if (pricingItems != null)
             {
                 uiReferenceForSelectablePrice = pricingItems.GenerateUIRow(this);
+                PricingRowDataFill = uiReferenceForSelectablePrice;
             }
             else
             {

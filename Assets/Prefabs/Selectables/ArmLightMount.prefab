@@ -1397,9 +1397,6 @@ MonoBehaviour:
   <Type>k__BackingField: 0
   epsilon: 0.00001
   renderMaterialColor: {fileID: 0}
-  value: 0
-  min: 0
-  max: 0
 --- !u!1001 &4975883660567855753
 PrefabInstance:
   m_ObjectHideFlags: 0

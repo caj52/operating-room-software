@@ -641,6 +641,7 @@ public class ObjectMenu : MonoBehaviour
         selectablePrice.GetPricingDataFromExcel(excelFileName);
     }
 
+
     private void AddSavedRoomConfigs()
     {
         if (Directory.Exists(Application.persistentDataPath + "/Saved/Configs/"))

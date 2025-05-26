@@ -196,9 +196,6 @@ MonoBehaviour:
   <Type>k__BackingField: 0
   epsilon: 0.00001
   renderMaterialColor: {fileID: 0}
-  value: 0
-  min: 0
-  max: 0
 --- !u!1 &2173824520737490535 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 919132149155446097, guid: e5ef99855970f95419f7181e49634ae7, type: 3}

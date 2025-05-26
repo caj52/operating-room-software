@@ -122,7 +122,8 @@ public class LineToMeshConverter : MonoBehaviour
             sphereCollider.center = mesh.bounds.center;
             sphereCollider.radius = Mathf.Max(mesh.bounds.extents.x, mesh.bounds.extents.y, mesh.bounds.extents.z);
         }
-        Destroy(GetComponent<MeshFilter>());
+        DestroyImmediate(GetComponent<MeshFilter>());
+        DestroyImmediate(GetComponent<MeshRenderer>());
     }
 
     private void OnTriggerEnter(Collider other)
@@ -140,14 +141,24 @@ public class LineToMeshConverter : MonoBehaviour
                      ButtonText = "Ok",
                      Action = () =>
                      {
-
-
                          UI_DialogPrompt.Close();
-
                      },
-                 }
-);
+                 });
             }
+        }
+        if (other.gameObject.layer == LayerMask.NameToLayer("Wall") && !other.gameObject.name.Contains("Ceil") && !other.gameObject.name.Contains("Floor"))
+        {
+            Debug.Log("Anas => Touching the Wall!");
+            SetRendererColor(this, new Color(1f, 0f, 0f, 0.5f));
+            UI_DialogPrompt.Open($"{this.gameObject.name} is touching the wall!",
+            new ButtonAction
+            {
+                ButtonText = "Ok",
+                Action = () =>
+                {
+                    UI_DialogPrompt.Close();
+                },
+            });
         }
     }
     private void OnTriggerStay(Collider other)
@@ -170,6 +181,11 @@ public class LineToMeshConverter : MonoBehaviour
             SetRendererColor(this, new Color(0, 1, 0, 0.5f)); // Green
             SetRendererColor(other.GetComponent<LineToMeshConverter>(), new Color(0, 1, 0, 0.5f));
         }
+        if (other.gameObject.layer == LayerMask.NameToLayer("Wall") && !other.gameObject.name.Contains("Ceil") && !other.gameObject.name.Contains("Floor"))
+        {
+            Debug.Log("Anas => Exited from wall contact");
+            SetRendererColor(this, new Color(0, 1, 0, 0.5f));
+        }
     }
 
     private void SetRendererColor(LineToMeshConverter renderer, Color color)
@@ -179,4 +195,5 @@ public class LineToMeshConverter : MonoBehaviour
             renderer.GetComponent<LineRenderer>().materials[0].color = color;
         }
     }
+
 }

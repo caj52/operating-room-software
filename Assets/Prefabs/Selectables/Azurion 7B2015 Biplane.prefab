@@ -403,12 +403,9 @@ MonoBehaviour:
   <DoorHinge>k__BackingField: {fileID: 0}
   <DoorStrike>k__BackingField: {fileID: 0}
   <DoorSwingAngle>k__BackingField: 90
-  <Type>k__BackingField: 0
+  <Type>k__BackingField: 2
   epsilon: 0.00001
   renderMaterialColor: {fileID: 0}
-  value: 0
-  min: 0
-  max: 0
 --- !u!1001 &7411249822702440702
 PrefabInstance:
   m_ObjectHideFlags: 0

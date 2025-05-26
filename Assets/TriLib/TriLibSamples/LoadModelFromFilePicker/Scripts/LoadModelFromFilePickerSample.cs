@@ -5,6 +5,9 @@ using TriLibCore.Extensions;
 using UnityEngine.UI;
 using Unity.VisualScripting;
 using RTG;
+using static RTG.Object2ObjectSnap;
+using UnityEditor;
+using UnityEngine.SceneManagement;
 
 namespace TriLibCore.Samples
 {
@@ -13,132 +16,122 @@ namespace TriLibCore.Samples
     /// </summary>
     public class LoadModelFromFilePickerSample : MonoBehaviour
     {
-        /// <summary>
-        /// The last loaded GameObject.
-        /// </summary>
         private GameObject _loadedGameObject;
 
-        public GameObject preParedObject;
-
-
+        public GameObject preparedObject;
         public GameObject AttachPoint;
-        /// <summary>
-        /// The load Model Button.
-        /// </summary>
+
         [SerializeField]
         private Button _loadModelButton;
 
-        /// <summary>
-        /// The progress indicator Text;
-        /// </summary>
-        [SerializeField]
-     //   private Text _progressText;
-
-        /// <summary>
-        /// Creates the AssetLoaderOptions instance and displays the Model file-picker.
-        /// </summary>
-        /// <remarks>
-        /// You can create the AssetLoaderOptions by right clicking on the Assets Explorer and selecting "TriLib->Create->AssetLoaderOptions->Pre-Built AssetLoaderOptions".
-        /// </remarks>
         public void LoadModel()
         {
             UI_GeneralLoadingScreen.instance.ShowLoadingScreen();
-            //   var assetLoaderOptions = AssetLoader.CreateDefaultLoaderOptions();
+
             var assetLoaderOptions = AssetLoader.CreateDefaultLoaderOptions();
             var assetLoaderFilePicker = AssetLoaderFilePicker.Create();
-            assetLoaderFilePicker.LoadModelFromFilePickerAsync("Select a Model file", OnLoad, OnMaterialsLoad, OnProgress, OnBeginLoad, OnError, null, assetLoaderOptions);
+            assetLoaderFilePicker.LoadModelFromFilePickerAsync(
+                "Select a Model file",
+                OnLoad,
+                OnMaterialsLoad,
+                OnProgress,
+                OnBeginLoad,
+                OnError,
+                null,
+                assetLoaderOptions);
         }
 
-        /// <summary>
-        /// Called when the the Model begins to load.
-        /// </summary>
-        /// <param name="filesSelected">Indicates if any file has been selected.</param>
         private void OnBeginLoad(bool filesSelected)
         {
             _loadModelButton.interactable = !filesSelected;
-        //    _progressText.enabled = filesSelected;
         }
 
-        /// <summary>
-        /// Called when any error occurs.
-        /// </summary>
-        /// <param name="obj">The contextualized error, containing the original exception and the context passed to the method where the error was thrown.</param>
-        private void OnError(IContextualizedError obj)
+        private void OnError(IContextualizedError error)
         {
-            Debug.LogError($"An error occurred while loading your Model: {obj.GetInnerException()}");
+            Debug.LogError($"An error occurred while loading your Model: {error.GetInnerException()}");
+            UI_GeneralLoadingScreen.instance.HideLoadingScreen();
         }
 
-        /// <summary>
-        /// Called when the Model loading progress changes.
-        /// </summary>
-        /// <param name="assetLoaderContext">The context used to load the Model.</param>
-        /// <param name="progress">The loading progress.</param>
-        private void OnProgress(AssetLoaderContext assetLoaderContext, float progress)
+        private void OnProgress(AssetLoaderContext context, float progress)
         {
-            //_progressText.text = $"Progress: {progress:P}";
             UI_GeneralLoadingScreen.instance.SetProgress(progress);
         }
 
-        /// <summary>
-        /// Called when the Model (including Textures and Materials) has been fully loaded.
-        /// </summary>
-        /// <remarks>The loaded GameObject is available on the assetLoaderContext.RootGameObject field.</remarks>
-        /// <param name="assetLoaderContext">The context used to load the Model.</param>
-        private void OnMaterialsLoad(AssetLoaderContext assetLoaderContext)
+        private void OnMaterialsLoad(AssetLoaderContext context)
         {
-            if (assetLoaderContext.RootGameObject != null)
+            if (context.RootGameObject != null)
             {
                 Debug.Log("Model fully loaded.");
-              
-
             }
             else
             {
-                Debug.Log("Model could not be loaded.");
+                Debug.LogWarning("Model could not be loaded.");
             }
+
             _loadModelButton.interactable = true;
             UI_GeneralLoadingScreen.instance.HideLoadingScreen();
-            // _progressText.enabled = false;
         }
 
-        /// <summary>
-        /// Called when the Model Meshes and hierarchy are loaded.
-        /// </summary>
-        /// <remarks>The loaded GameObject is available on the assetLoaderContext.RootGameObject field.</remarks>
-        /// <param name="assetLoaderContext">The context used to load the Model.</param>
-        private void OnLoad(AssetLoaderContext assetLoaderContext)
+        private void OnLoad(AssetLoaderContext context)
         {
-            int targetLayer = LayerMask.NameToLayer("Selectable"); // Replace with your layer name
-          
             if (_loadedGameObject != null)
             {
                 Destroy(_loadedGameObject);
             }
-             GameObject preparedObejct =  Instantiate(preParedObject);
 
-            _loadedGameObject = assetLoaderContext.RootGameObject;
-            
-            foreach (var child in _loadedGameObject.GetAllChildren())
+            GameObject newObject = Instantiate(preparedObject);
+            SetupSelectableObject(newObject);
+
+            _loadedGameObject = context.RootGameObject;
+            if (_loadedGameObject == null)
+            {
+                Debug.LogWarning("No root GameObject found in loaded model.");
+                return;
+            }
+            _loadedGameObject.transform.position = Vector3.one;
+            _loadedGameObject.transform.SetParent(newObject.transform, false);
+            SetupModelChildren(_loadedGameObject,newObject);
+        }
+
+        private void SetupSelectableObject(GameObject obj)
+        {
+            var selectable = obj.GetComponent<Selectable>();
+            if (selectable != null)
+            {
+                selectable.StartRaycastPlacementMode();
+
+                var recordHierarchy = obj.AddComponent<RecordHirarcheySelectables>();
+                recordHierarchy.AddAttachedSelectables(selectable, preparedObject.name);
+            }
+            else
+            {
+                Debug.LogWarning("Selectable component is missing on the prepared object.");
+            }
+        }
+
+        private void SetupModelChildren(GameObject modelRoot,GameObject newObject)
+        {
+            int targetLayer = LayerMask.NameToLayer("Selectable");
+
+            foreach (var child in modelRoot.GetAllChildren())
             {
                 child.gameObject.SetLayerRecursively(targetLayer);
-                
-                if (child.GetMesh()!=null)
+
+                if (child.GetMesh() != null)
                 {
                     child.AddComponent<MeshCollider>();
-                    UnityEventSender eventSender = child.AddComponent<UnityEventSender>();
-                    eventSender.Target = preparedObejct;
+                    var eventSender = child.AddComponent<UnityEventSender>();
+                    eventSender.Target = newObject;
                 }
+
                 if (child.name.StartsWith("AttachPoint"))
                 {
-                   GameObject attachoint =  Instantiate(AttachPoint);
-                    attachoint.transform.SetParent(child.transform);
-
+                    child.transform.localScale = Vector3.one;
+                    GameObject attachPointInstance = Instantiate(AttachPoint);
+                    
+                    attachPointInstance.transform.SetParent(child.transform, false);
                 }
             }
-            _loadedGameObject.transform.SetParent(preparedObejct.transform);
-            
-          
-
         }
     }
 }

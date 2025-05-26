@@ -1,4 +1,5 @@
-using HighlightPlus;
+﻿using HighlightPlus;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -64,37 +65,91 @@ public class UI_Button_DuplicateObject : MonoBehaviour
         }
 
         PrepareObjectToDuplicate(obj);
-        // Get original position, rotation, and scale
+
         Vector3 objPos = obj.transform.position;
         Quaternion objRot = obj.transform.rotation;
         Vector3 objScale = obj.transform.localScale;
 
-        // Instantiate the duplicate
         GameObject newObj = Instantiate(obj, objPos + Vector3.right, objRot);
-        newObj.transform.localScale = objScale; // Ensure same scale
+        newObj.transform.localScale = objScale;
 
-        // Ensure `DuplicateRoom` exists before proceeding
         DuplicateRoom room = FindObjectOfType<DuplicateRoom>();
         if (room != null)
         {
             room.onObjectPlaced?.Invoke(newObj);
         }
-        else
-        {
-            Debug.LogWarning("DuplicateRoom not found. Object duplication will proceed without assigning a room.");
-        }
 
-        // Disable highlighting on the new object if applicable
         HighlightEffect highlight = newObj.GetComponent<HighlightEffect>();
         if (highlight != null)
         {
             highlight.highlighted = false;
         }
 
-        // Start coroutine to apply correct child scales
-     //   StartCoroutine(ApplyChildScalesDelayed(obj.transform, newObj.transform));
+        // ✅ Process ALL SelectablePrice components in hierarchy
+        SelectablePrice[] oldPrices = obj.GetComponentsInChildren<SelectablePrice>(true);
+        foreach (var oldPrice in oldPrices)
+        {
+            // Find corresponding new object in the duplicated hierarchy
+            Transform relativePath = oldPrice.transform;
+            string path = GetHierarchyPath(obj.transform, relativePath);
+            Transform newTransform = newObj.transform.Find(path);
 
-        Debug.Log($"Duplicated {obj.name} -> Scale: {newObj.transform.localScale}");
+            if (newTransform == null)
+            {
+                Debug.LogWarning($"DuplicateObject: Could not find duplicated path: {path}");
+                continue;
+            }
+
+            GameObject target = newTransform.gameObject;
+
+            // Clean any copied component
+            SelectablePrice copiedPrice = target.GetComponent<SelectablePrice>();
+            if (copiedPrice != null) DestroyImmediate(copiedPrice);
+
+            Selectable newSelectable = target.GetComponent<Selectable>();
+            if (newSelectable == null)
+            {
+                Debug.LogWarning($"DuplicateObject: No Selectable found on {target.name}");
+                continue;
+            }
+
+            SelectablePrice newPrice = target.AddComponent<SelectablePrice>();
+            newPrice.isBoomObject = oldPrice.isBoomObject;
+            newPrice.pricingObjectName = oldPrice.pricingObjectName;
+            newPrice.UIObjectName = oldPrice.UIObjectName;
+            newPrice.selectable = newSelectable;
+            newPrice.objectPricingData = oldPrice.objectPricingData;
+            newPrice.selectableObjectForSize = oldPrice.selectableObjectForSize;
+            newPrice.sheetName = oldPrice.sheetName;
+
+            // UI duplication
+            PopulateUIWithPricingItems pricingUI = FindObjectOfType<PopulateUIWithPricingItems>(true);
+            if (pricingUI != null)
+            {
+                PricingRowDataFill oldUIRow = oldPrice.PricingRowDataFill;
+                if (oldUIRow != null)
+                {
+                    PricingRowDataFill newUIRow = Instantiate(oldUIRow, pricingUI.transform);
+                    newPrice.PricingRowDataFill = newUIRow;
+
+                    Action onDestroyedAction = newUIRow.DestroyRow;
+                    newPrice.OnDestroyed += onDestroyedAction;
+                    newUIRow.OnDestroyEvent += () => newPrice.OnDestroyed -= onDestroyedAction;
+                }
+            }
+        }
+
+        Debug.Log($"Duplicated {obj.name} with all selectable prices -> Scale: {newObj.transform.localScale}");
+    }
+    private string GetHierarchyPath(Transform root, Transform target)
+    {
+        string path = "";
+        while (target != root && target != null)
+        {
+            path = target.name + (string.IsNullOrEmpty(path) ? "" : "/" + path);
+            target = target.parent;
+        }
+        return path;
     }
 
     private void PrepareObjectToDuplicate(GameObject obj)
