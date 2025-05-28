@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Collections.Generic;
 using UnityEngine;
 using Newtonsoft.Json;
@@ -9,6 +9,8 @@ using SplenSoft.UnityUtilities;
 using UnityEngine.Events;
 using RTG;
 using SplenSoft.AssetBundles;
+using UnityEditor;
+using TMPro;
 
 public class ConfigurationManager : MonoBehaviour
 {
@@ -627,8 +629,70 @@ public class ConfigurationManager : MonoBehaviour
             go.name = trackedObject.instance_guid;
 
         go.GetComponent<Selectable>().guid = trackedObject.instance_guid;
+        go.GetComponent<Selectable>().UIButtonName= trackedObject.UIButtonname;
         LogData(go.GetComponent<Selectable>(), trackedObject);
+        HandleOutletAndPricing(go, trackedObject.UIButtonname);
         return go;
+    }
+
+    public void HandleOutletAndPricing(GameObject obj, string uiBtnName)
+    {
+        string name = uiBtnName;
+        bool isHVOutlet = name.Equals("Outlet_HV_Power(Clone)");
+        bool isKnownGasOutlet = name.Contains("GasOutlet") || name.Equals("EthernetOutlet") || name.Equals("BlankOutlet(Clone)");
+
+        if (isHVOutlet || isKnownGasOutlet)
+        {
+            var outletParent = obj.transform.parent?.parent?.gameObject;
+            var grandParent = outletParent?.transform.parent?.parent?.gameObject;
+            if (grandParent != null)
+                obj.GetComponentInParent<BoomOutletValidator>()?.ValidateBoomConfiguration(grandParent);
+        }
+
+        string excelName = UINameToExcelKey.GetExcelName(uiBtnName);
+        if (!string.IsNullOrEmpty(excelName))
+        {
+            if (isHVOutlet)
+            {
+                var outletParent = obj.transform.parent?.parent?.gameObject;
+                int duplexCount = outletParent?.GetComponentsInChildren<Selectable>().Count(s => s.MetaData.Name == "HV Power Outlet") ?? 0;
+
+                if (duplexCount == 2)
+                    excelName = "Electrical (2 Duplex)";
+                else if (duplexCount == 3)
+                {
+                    excelName = "Electrical (3 Duplex)";
+                    var priceComp = outletParent?.GetComponentInChildren<SelectablePrice>();
+                    if (priceComp != null) GameObject.Destroy(priceComp);
+                }
+                else
+                    excelName = "";
+
+                if (!string.IsNullOrEmpty(excelName))
+                {
+                   ObjectMenu.Instance.AddSelectablePrice(obj, true, excelName, uiBtnName, DataFilePaths.sheetNameBoomIndividual);
+                    if (outletParent?.GetComponent<DuplexWatcher>() == null)
+                    {
+                        var watcher = outletParent?.AddComponent<DuplexWatcher>();
+                        if (watcher != null) watcher.UIObjectName = uiBtnName;
+                    }
+                }
+            }
+            else
+            {
+                ObjectMenu.Instance.AddSelectablePrice(obj, true, excelName, uiBtnName, DataFilePaths.sheetNameBoomIndividual);
+            }
+        }
+        else
+        {
+            bool hasAttachments = obj.GetComponentsInChildren<AttachmentPoint>().Any();
+            if (!hasAttachments)
+            {
+                string excelFileName = DataFilePaths.sheetNameLight;
+                string label =uiBtnName;
+                ObjectMenu.Instance.AddSelectablePrice(obj, false, label, label, excelFileName);
+            }
+        }
     }
 
     /// <summary>
@@ -729,6 +793,7 @@ public class ConfigurationManager : MonoBehaviour
         {
             //Debug.Log(obj.gameObject.name);
             ResetScaleLevels(obj);
+
         }
 
         // Allow time for scaling values to be applied in Selectable

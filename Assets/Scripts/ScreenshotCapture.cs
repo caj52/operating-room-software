@@ -346,7 +346,7 @@ public class ScreenshotCapture : MonoBehaviour
     // Modified CaptureCeilingOnly method
     public IEnumerator CaptureCeilingOnly(Vector3 position, Quaternion? rotation, Action<string> onComplete)
     {
-        UI_GeneralLoadingScreen.instance.ShowLoadingScreen();
+    
         if (uiCanvas != null)
             ToggleUI(false);
         captureCamera.enabled = true;
@@ -373,7 +373,7 @@ public class ScreenshotCapture : MonoBehaviour
         originalState.Restore(captureCamera, urpCameraData);
         if (uiCanvas != null)
             ToggleUI(true);
-        UI_GeneralLoadingScreen.instance.HideLoadingScreen();
+ 
         Debug.Log("Custom ceiling shot captured.");
         onComplete?.Invoke(filePath);
     }

@@ -160,7 +160,7 @@ public class SelectablePrice : MonoBehaviour
     /// Get SimFlexArm Object Reference in Hierarchy if it exists
     /// </summary>
     /// <returns>SimFlex exists?</returns>
-    private bool HasSimFlexArmInTheHirarchey()
+    public bool HasSimFlexArmInTheHirarchey()
     {
         Selectable[] selectable = transform.root.GetComponentsInChildren<Selectable>();//go to the parent and pick all the selectable objects
         for (int i = 0; i < selectable.Length; i++)

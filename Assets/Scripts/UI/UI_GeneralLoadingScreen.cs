@@ -1,12 +1,14 @@
 using UnityEngine;
 using UnityEngine.UI;
 using System.Collections;
+using TMPro;
 
 public class UI_GeneralLoadingScreen : MonoBehaviour
 {
     public static UI_GeneralLoadingScreen instance;
     public Image loadingImage;
     public float loadingSpeed = 1f;
+    public TextMeshProUGUI statusText;
 
     private bool isLoading = false;
     private float targetFillAmount = 0f;
@@ -64,5 +66,13 @@ public class UI_GeneralLoadingScreen : MonoBehaviour
         }
 
         isLoading = false;
+    }
+
+    public void SetStatus(string message)
+    {
+        if (statusText != null)
+        {
+            statusText.text = "Please wait .." +message;
+        }
     }
 }

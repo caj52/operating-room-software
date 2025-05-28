@@ -92,13 +92,48 @@ public class PdfExporterLocal
         }
 
         UI_GeneralLoadingScreen.instance.HideLoadingScreen();
+   
         UI_DialogPrompt.Open(
-            $"Success! PDF saved to {fileName}",
-            new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = fileName),
-            new ButtonAction("Done"));
-        OpenPdfFile(fileName);
-    }
+     $"Success! PDF saved to {fileName}",
+     new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = fileName),
+     new ButtonAction("Done"));
+#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
+        // Hack fix for macOS not liking Application.OpenURL
+        string location = path;
+        ProcessStartInfo startInfo = new ProcessStartInfo("/System/Library/CoreServices/Finder.app")
+        {
+            WindowStyle = ProcessWindowStyle.Normal,
+            FileName = location.Trim()
+        };
+        Process.Start(startInfo);
+#endif
 
+        Application.OpenURL("file:///" + fileName);
+    }
+    public static void RenderSingleConfigPage(
+   Document doc,
+   PdfWriter writer,
+   List<PdfImageData> images,
+   string title,
+   string subtitle,
+   List<AssemblyJson> assemblies,
+   ProjectMetaData metadata)
+    {
+        AddTitle(doc, title, subtitle);
+
+        PdfPTable mainTable = new PdfPTable(2) { WidthPercentage = 100 };
+        mainTable.SetWidths(new float[] { 40f, 60f });
+
+        PdfPCell assembliesCell = CreateAssembliesCell(assemblies);
+        PdfPCell imageCell = CreateImageCell(images, doc, writer);
+
+        mainTable.AddCell(assembliesCell);
+        mainTable.AddCell(imageCell);
+        doc.Add(mainTable);
+
+        AddCompanyLogo(doc);
+        AddCustomerAcceptanceSection(doc, metadata);
+    }
     private static void AddTitle(Document doc, string title, string subtitle)
     {
         BaseFont tekoLight = BaseFont.CreateFont(
@@ -110,7 +145,7 @@ public class PdfExporterLocal
 
 
         Phrase titlePhrase = new Phrase();
-        titlePhrase.Add(new Chunk(title + "\n", prefixFont));
+        titlePhrase.Add(new Chunk(title, prefixFont));
         titlePhrase.Add(new Chunk("\n"));
         titlePhrase.Add(new Chunk(subtitle, subtitleFont));
 
@@ -127,6 +162,7 @@ public class PdfExporterLocal
         tbl.SpacingAfter = 20;
         doc.Add(tbl);
     }
+
 
     private static PdfPCell CreateAssembliesCell(List<AssemblyJson> assemblies)
     {
@@ -147,7 +183,6 @@ public class PdfExporterLocal
 
         foreach (var asm in assemblies)
         {
-            // — Header —
             var hdrPara = new Paragraph(asm.TableName, headerFont) { Alignment = Element.ALIGN_LEFT };
             PdfPCell hdrCell = new PdfPCell(hdrPara)
             {
@@ -156,53 +191,65 @@ public class PdfExporterLocal
                 Padding = 6,
                 HorizontalAlignment = Element.ALIGN_LEFT,
             };
-            var hdrTable = new PdfPTable(1) { WidthPercentage = 60,
-                HorizontalAlignment = Element.ALIGN_LEFT,
-            };
+            var hdrTable = new PdfPTable(1) { WidthPercentage = 60, HorizontalAlignment = Element.ALIGN_LEFT };
             hdrTable.AddCell(hdrCell);
             container.AddElement(hdrTable);
 
-            // — Special branch for Boom Service Head —
+            var fldTbl = new PdfPTable(2)
+            {
+                WidthPercentage = 60f,
+                SpacingBefore = 0f,
+                SpacingAfter = 8f,
+                HorizontalAlignment = Element.ALIGN_LEFT,
+            };
+            fldTbl.SetWidths(new float[] { 60, 40 });
+
+            var serviceAttachments = asm.Fields.Where(f => f.Item == "Service Head Attachment").ToList();
+            var normalFields = asm.Fields.Where(f => f.Item != "Service Head Attachment").ToList();
+
+            bool stripe = true;
+            foreach (var f in normalFields)
+            {
+                var bg = stripe ? gray : white;
+                fldTbl.AddCell(new PdfPCell(new Phrase(f.Item, itemFont))
+                {
+                    BackgroundColor = bg,
+                    FixedHeight = rowH,
+                    Border = Rectangle.BOX,
+                    HorizontalAlignment = Element.ALIGN_LEFT,
+                    Padding = 4
+                });
+                fldTbl.AddCell(new PdfPCell(new Phrase(f.Value, valueFont))
+                {
+                    BackgroundColor = bg,
+                    FixedHeight = rowH,
+                    Border = Rectangle.BOX,
+                    HorizontalAlignment = Element.ALIGN_LEFT,
+                    Padding = 4
+                });
+                stripe = !stripe;
+            }
+
+            if (asm.TableName == "Flat Panel Arm" || asm.TableName == "U | ONE (Standard)" || asm.TableName == "Spring Arm (Low Ceiling)")
+            {
+                AddAdditionalRow(fldTbl, "Circuits Required", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
+                AddAdditionalRow(fldTbl, "Overall Weight", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
+                AddAdditionalRow(fldTbl, "Torque Moment", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
+                AddAdditionalRow(fldTbl, "Vertical Force Nm", "", rowH, stripe ? gray : white, itemFont);
+            }
+
             if (asm.TableName == "Boom Service Head")
             {
-                // 1) Default fields *including* Payload Capacity
-                var defaultFields = asm.Fields
-                    .Where(f => f.Item != "Service Head Attachment")
-                    .ToList();
+                AddAdditionalRow(fldTbl, "Med-Gas Connection Type", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
+                AddAdditionalRow(fldTbl, "Overall Weight", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
+                AddAdditionalRow(fldTbl, "Vertical Force", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
+                AddAdditionalRow(fldTbl, "Payload Capacity", "", rowH, stripe ? gray : white, itemFont);
+            }
 
-                var defTbl = new PdfPTable(2)
-                {
-                    WidthPercentage = 60f,
-                    SpacingBefore = 0,
-                    SpacingAfter = 8,
-                    HorizontalAlignment = Element.ALIGN_LEFT,
-                };
-                defTbl.SetWidths(new float[] {60, 40 });
+            container.AddElement(fldTbl);
 
-                bool useGray = true;
-                foreach (var f in defaultFields)
-                {
-                    var bg = useGray ? gray : white;
-                    defTbl.AddCell(new PdfPCell(new Phrase(f.Item, itemFont))
-                    {
-                        BackgroundColor = bg,
-                        FixedHeight = rowH,
-                        Border = Rectangle.BOX,
-                        Padding = 4
-                    });
-                    defTbl.AddCell(new PdfPCell(new Phrase(f.Value, valueFont))
-                    {
-                        BackgroundColor = bg,
-                        FixedHeight = rowH,
-                        Border = Rectangle.BOX,
-                        Padding = 4
-                    });
-                    useGray = !useGray;
-                }
-
-                container.AddElement(defTbl);
-
-                // 2) Service Head Attachments table
+            if (serviceAttachments.Count > 0)
+            {
                 var attachTbl = new PdfPTable(2)
                 {
                     WidthPercentage = 60,
@@ -212,7 +259,6 @@ public class PdfExporterLocal
                 };
                 attachTbl.SetWidths(new float[] { 50, 50 });
 
-                // optional sub‐header row
                 var subHdr = new PdfPCell(new Phrase("Service Head Details", serviceheaderFont))
                 {
                     Colspan = 2,
@@ -220,13 +266,11 @@ public class PdfExporterLocal
                     Border = Rectangle.NO_BORDER,
                     Padding = 4,
                     HorizontalAlignment = Element.ALIGN_LEFT,
-
-
                 };
                 attachTbl.AddCell(subHdr);
 
-                useGray = true;
-                foreach (var f in asm.Fields.Where(f => f.Item == "Service Head Attachment"))
+                bool useGray = true;
+                foreach (var f in serviceAttachments)
                 {
                     var bg = useGray ? gray : white;
                     attachTbl.AddCell(new PdfPCell(new Phrase(f.Item, itemFont))
@@ -249,69 +293,13 @@ public class PdfExporterLocal
                 }
 
                 container.AddElement(attachTbl);
-
-                // done with Service Head branch
-                container.AddElement(new Paragraph(" "));
-                continue;
             }
 
-            // — Default path for all other assemblies — unchanged —
-            var fldTbl = new PdfPTable(2)
-            {
-                WidthPercentage = 60f,
-                SpacingBefore = 0f,
-                SpacingAfter = 8f,
-                HorizontalAlignment = Element.ALIGN_LEFT,
-            };
-            fldTbl.SetWidths(new float[] { 60, 40 });
-
-            bool stripe = true;
-            foreach (var f in asm.Fields)
-            {
-                var bg = stripe ? gray : white;
-                fldTbl.AddCell(new PdfPCell(new Phrase(f.Item, itemFont))
-                {
-                    BackgroundColor = bg,
-                    FixedHeight = rowH,
-                    Border = Rectangle.BOX,
-                    HorizontalAlignment = Element.ALIGN_LEFT,
-                    Padding = 4
-                });
-                fldTbl.AddCell(new PdfPCell(new Phrase(f.Value, valueFont))
-                {
-                    BackgroundColor = bg,
-                    FixedHeight = rowH,
-                    Border = Rectangle.BOX,
-                    HorizontalAlignment = Element.ALIGN_LEFT,
-                    Padding = 4
-                });
-                stripe = !stripe;
-            }
-
-            // your existing AddAdditionalRow logic for other assemblies...
-            if (asm.TableName == "Flat Panel Arm" || asm.TableName== "U | ONE (Standard)" || asm.TableName== "Spring Arm (Low Ceiling)")
-            {
-                AddAdditionalRow(fldTbl, "Circuits Required", "", rowH, stripe ? gray : white,itemFont); stripe = !stripe;
-                AddAdditionalRow(fldTbl, "Overall Weight", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
-                AddAdditionalRow(fldTbl, "Torque Moment", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
-                AddAdditionalRow(fldTbl, "Vertical Force Nm", "", rowH, stripe ? gray : white, itemFont);
-            }
-
-            if (asm.TableName == "Boom Service Head")
-            {
-                AddAdditionalRow(fldTbl, "Med-Gas Connection Type", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
-                AddAdditionalRow(fldTbl, "Overall Weight", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
-                AddAdditionalRow(fldTbl, "Vertical Force", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
-                AddAdditionalRow(fldTbl, "Payload Capacity", "", rowH, stripe ? gray : white, itemFont);
-            }
-
-            container.AddElement(fldTbl);
             container.AddElement(new Paragraph(" "));
         }
 
         return container;
     }
-
     private static void AddAdditionalRow(PdfPTable table, string itemText, string valueText, float rowHeight, BaseColor backgroundColor,Font itemfomt)
     {
         PdfPCell itemCell = new PdfPCell(new Phrase(itemText,itemfomt));
@@ -641,11 +629,13 @@ public class PdfExporterLocal
         }
     }
 
+    // Refactored ConvertToAssemblyJsonFull with fix for duplicated service head fields
+    // Refactored ConvertToAssemblyJsonFull with fix to include Service Head Rails in attachments only
     public static List<AssemblyJson> ConvertToAssemblyJsonFull(
       List<AssemblyData> assemblyDatas,
       List<AdditionalPdfData> additionalData)
     {
-        List<AssemblyJson> allTables = new List<AssemblyJson>();
+        List<AssemblyJson> allTables = new();
         int assId = 1;
 
         foreach (var assemblyData in assemblyDatas)
@@ -656,119 +646,108 @@ public class PdfExporterLocal
                 TableName = assemblyData.Title
             };
 
-            List<string> serviceHeadItems = new List<string>();
-            List<string> usedServiceHeadItems = new List<string>();
+            Dictionary<string, int> serviceHeadItemCounts = new();
+            List<string> usedServiceHeadItems = new();
 
-            // First pass: collect service head items
+            // First pass — count service head attachments
             foreach (var item in assemblyData.OrderedSelectables)
             {
-                var metaData = item.GetMetadata();
-                string itemName = metaData.Name;
+                var meta = item.GetMetadata();
+                string itemName = NormalizeItemName(meta);
 
-                if (metaData.Categories.Contains("High Voltage Services") ||
-                    metaData.Categories.Contains("Low Voltage Services") || metaData.Categories.Contains("Service Head Rails")||metaData.Categories.Contains("Service Head Shelf (500mm)")
-                    || metaData.Name.Contains("Service Head Shelf (500mm)"))
+                if (IsServiceHeadAttachment(meta))
                 {
-                    var existing = serviceHeadItems.FirstOrDefault(x => x.StartsWith(itemName));
-                    if (existing != null)
-                    {
-                        var count = 1;
-                        var match = Regex.Match(existing, @"\((\d+)\)");
-                        if (match.Success)
-                            count = int.Parse(match.Groups[1].Value);
-
-                        serviceHeadItems.Remove(existing);
-                        serviceHeadItems.Add(itemName + $" ({count + 1})");
-                    }
+                    if (serviceHeadItemCounts.ContainsKey(itemName))
+                        serviceHeadItemCounts[itemName]++;
                     else
-                    {
-                        serviceHeadItems.Add(itemName);
-                    }
+                        serviceHeadItemCounts[itemName] = 1;
                 }
             }
 
-            // Second pass: process all items
+            // Second pass — process all fields
             foreach (var item in assemblyData.OrderedSelectables)
             {
-                var metaData = item.GetMetadata();
-                string itemName = metaData.Name;
+                var meta = item.GetMetadata();
+                string itemName = NormalizeItemName(meta);
 
-                if (!string.IsNullOrWhiteSpace(item.MetaData.SubPartName))
-                    itemName += " " + item.MetaData.SubPartName;
+                if (meta.Name.Contains("Blank Plate")) continue;
 
-                if (/*metaData.Categories.Contains("Service Head Services") ||*/
-                    metaData.Name.Contains("Blank Plate") 
-                   /* metaData.Name.Contains("Service Head Rails")*/)
+                bool isServiceHead = IsServiceHeadAttachment(meta);
+
+                if (isServiceHead && !usedServiceHeadItems.Contains(itemName))
+                {
+                    string label = serviceHeadItemCounts[itemName] > 1 ? $"{itemName} ({serviceHeadItemCounts[itemName]})" : itemName;
+                    assembly.Fields.Add(new PdfField { Item = "Service Head Attachment", Value = label });
+                    usedServiceHeadItems.Add(itemName);
                     continue;
-
-                if (metaData.Categories.Contains("High Voltage Services") ||
-                    metaData.Categories.Contains("Low Voltage Services") || metaData.Name.Contains("SHP_Rails")||metaData.Categories.Contains("Service Head Rails")
-                    ||metaData.Name.Contains("Service Head Shelf (500mm)"))
-                {
-                    if (!usedServiceHeadItems.Contains(itemName))
-                    {
-                        assembly.Fields.Add(new PdfField
-                        {
-                            Item = "Service Head Attachment",
-                            Value = serviceHeadItems.First(x => x.StartsWith(itemName))
-                        });
-                        usedServiceHeadItems.Add(itemName);
-                    }
                 }
-                else if (item.RelatedSelectables[0] == item)
+
+                if (item.RelatedSelectables[0] == item)
                 {
-                    foreach (var pdfData in metaData.PdfData)
+                    foreach (var pdf in meta.PdfData)
                     {
-                        string value = pdfData.Value.Trim();
+                        string value = pdf.Value.Trim();
                         if (value.Equals("{NAME}", StringComparison.OrdinalIgnoreCase))
                             value = itemName;
 
-                        if (pdfData.Table.Trim().Equals("{ASSEMBLY}", StringComparison.OrdinalIgnoreCase))
+                        if (pdf.Table.Trim().Equals("{ASSEMBLY}", StringComparison.OrdinalIgnoreCase))
                         {
-                            assembly.Fields.Add(new PdfField
-                            {
-                                Item = pdfData.Key,
-                                Value = value
-                            });
+                            assembly.Fields.Add(new PdfField { Item = pdf.Key, Value = value });
                         }
                         else
                         {
-                            var existing = allTables.FirstOrDefault(x => x.TableName == pdfData.Table);
-                            if (existing == null)
+                            var external = allTables.FirstOrDefault(x => x.TableName == pdf.Table);
+                            if (external == null)
                             {
-                                existing = new AssemblyJson
-                                {
-                                    TableName = pdfData.Table
-                                };
-                                allTables.Add(existing);
+                                external = new AssemblyJson { TableName = pdf.Table };
+                                allTables.Add(external);
                             }
-                            existing.Fields.Add(new PdfField
-                            {
-                                Item = pdfData.Key,
-                                Value = value
-                            });
+                            external.Fields.Add(new PdfField { Item = pdf.Key, Value = value });
                         }
                     }
                 }
 
-                if (item.ScaleLevels.Count > 0)
+                bool requiresLengthManually =
+     itemName.Contains("Spring XL") ||
+     itemName.Contains("Spring") ||
+     itemName.Contains("Powered XL") ||
+     itemName.Contains("Powered") ||
+     itemName.Contains("Fixed");
+
+                bool lengthAlreadyAdded = assembly.Fields.Any(f => f.Item == itemName + " length");
+
+                // Add only if it's not already added
+                if (!lengthAlreadyAdded)
                 {
-                    assembly.Fields.Add(new PdfField
+                    float size = item.CurrentScaleLevel?.Size ?? 0f;
+
+                    // If size is still 0 and it's a special case, force it to 1m (1000mm)
+                    if (size == 0f && requiresLengthManually)
                     {
-                        Item = itemName + " length",
-                        Value = item.CurrentScaleLevel.Size * 1000f + "mm"
-                    });
+                        size = 1f; // default 1000mm
+                    }
+
+                    // Only add if size is meaningful
+                    if (size > 0f)
+                    {
+                        assembly.Fields.Add(new PdfField
+                        {
+                            Item = itemName + " length",
+                            Value = (size * 1000f).ToString("F0") + "mm"
+                        });
+                    }
                 }
+
             }
 
             allTables.Add(assembly);
         }
 
-        // Add additional data
+        // Add additional tables
         foreach (var addTable in additionalData)
         {
             AssemblyJson existing;
-            var match = Regex.Match(addTable.Table, @"{(\d)}");
+            var match = Regex.Match(addTable.Table, "\\{(\\d+)\\}");
 
             if (match.Success)
             {
@@ -782,23 +761,36 @@ public class PdfExporterLocal
 
             if (existing == null)
             {
-                existing = new AssemblyJson
-                {
-                    TableName = addTable.Table
-                };
+                existing = new AssemblyJson { TableName = addTable.Table };
                 allTables.Add(existing);
             }
 
             foreach (var kvp in addTable.Data)
             {
-                existing.Fields.Add(new PdfField
-                {
-                    Item = kvp.Key,
-                    Value = kvp.Value
-                });
+                existing.Fields.Add(new PdfField { Item = kvp.Key, Value = kvp.Value });
             }
         }
 
         return allTables;
     }
+
+
+
+    private static string NormalizeItemName(SelectableMetaData meta)
+    {
+        return string.IsNullOrWhiteSpace(meta.SubPartName)
+            ? meta.Name.Trim()
+            : $"{meta.Name.Trim()} {meta.SubPartName.Trim()}";
+    }
+
+    private static bool IsServiceHeadAttachment(SelectableMetaData meta)
+    {
+        return meta.Categories.Contains("High Voltage Services") ||
+               meta.Categories.Contains("Low Voltage Services") ||
+               meta.Categories.Contains("Service Head Rails") ||
+               meta.Categories.Contains("Service Head Shelf (500mm)") ||
+               meta.Name.Contains("Service Head Shelf (500mm)") ||
+               meta.Name.Contains("SHP_Rails");
+    }
+
 }

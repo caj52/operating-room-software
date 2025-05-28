@@ -181,6 +181,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     /// </summary>
     private bool IsAssemblyRoot => SpecialTypes.Contains(SpecialSelectableType.Mount);
 
+    public string UIButtonName;
     public bool IsArmAssembly => transform.root.TryGetComponent(out Selectable rootSelectable) &&
         rootSelectable.IsAssemblyRoot;
 
@@ -949,6 +950,56 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         return false;
     }
+    public IEnumerator CapturePdfDataForExport(
+    string title,
+    string subtitle,
+    List<AssemblyData> assemblyDatas,
+    Action<List<PdfExporterLocal.PdfImageData>, List<Selectable>> onComplete)
+    {
+        if (!TryGetArmAssemblyRoot(out GameObject rootObj)) yield break;
+
+        if (rootObj != gameObject)
+        {
+            var rootSelectable = rootObj.GetComponent<Selectable>();
+            yield return rootSelectable.CapturePdfDataForExport(title, subtitle, assemblyDatas, onComplete);
+            yield break;
+        }
+
+        IsInElevationPhotoMode = true;
+        var camera = GetComponentInChildren<Camera>();
+        ActiveCameraRenderTextureElevation = camera;
+
+        SetAssemblyToDefaultRotations();
+        _measurableActiveStates.Clear();
+        ToggleMeasurableActiveStates(true);
+
+        List<bool> visibilities = ActiveSelectables.ConvertAll(x => x.gameObject.activeSelf);
+
+        ActiveSelectables
+            .Where(x => !_assemblySelectables.Contains(x))
+            .ToList()
+            .ForEach(x => x.gameObject.SetActive(false));
+
+        List<PdfExporterLocal.PdfImageData> imageData = new();
+        string frontPath = null;
+        string backPath = null;
+        frontPath = GetAssemblyPDFImageData(camera)[0].Path;
+        backPath = GetAssemblyPDFImageData(camera)[1].Path;
+
+
+        imageData.Add(new PdfExporterLocal.PdfImageData { Path = frontPath, Width = 1000, Height = 1000 });
+        imageData.Add(new PdfExporterLocal.PdfImageData { Path = backPath, Width = 1000, Height = 1000 });
+
+        for (int i = 0; i < ActiveSelectables.Count; i++)
+            ActiveSelectables[i].gameObject.SetActive(visibilities[i]);
+
+        RestoreArmAssemblyRotations();
+        _assemblySelectables.ForEach(x => x.FaceZTowardGround());
+        IsInElevationPhotoMode = false;
+        ToggleMeasurableActiveStates(false);
+
+        onComplete?.Invoke(imageData, _assemblySelectables);
+    }
 
     public List<PdfExporter.PdfImageData> GetAssemblyPDFImageData(Camera camera)
     {
@@ -1665,6 +1716,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
 
         }
+
     }
 
     #endregion

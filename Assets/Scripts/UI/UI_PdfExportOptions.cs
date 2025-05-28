@@ -239,6 +239,94 @@ public class UI_PdfExportOptions : MonoBehaviour
         }
         Instance.gameObject.SetActive(true);
     }
+
+    public static List<AssemblyData> GenerateAssemblyDataWithTitles(Selectable selectable)
+    {
+        List<AssemblyData> result = new();
+
+        if (selectable.TryGetArmAssemblyRoot(out GameObject rootObj))
+        {
+            var selectables = rootObj.GetComponentsInChildren<Selectable>().ToList();
+            var orderedSelectables = selectables.OrderBy(x => x.transform.GetParentCount()).ToList();
+
+            var allAttachmentPoints = orderedSelectables[0]
+                .RelatedSelectables[0]
+                .GetComponentsInChildren<AttachmentPoint>();
+
+            allAttachmentPoints = allAttachmentPoints.Where(x =>
+            {
+                if (x.MoveUpOnAttach && x.transform.childCount > 1) return true;
+                return x == allAttachmentPoints[0] || x.transform.parent == allAttachmentPoints[0].transform.parent;
+            }).ToArray();
+
+            for (int i = 0; i < allAttachmentPoints.Length; i++)
+            {
+                var parentAttachmentPoint = allAttachmentPoints[i];
+                List<Selectable> children = orderedSelectables.Where(x =>
+                {
+                    var parent = x.transform;
+                    AttachmentPoint attach = null;
+
+                    while (attach != parentAttachmentPoint)
+                    {
+                        parent = parent.parent;
+                        if (parent == null) return false;
+                        attach = parent.GetComponent<AttachmentPoint>();
+
+                        if (attach != null &&
+                            attach != parentAttachmentPoint &&
+                            allAttachmentPoints.Contains(attach))
+                        {
+                            return false;
+                        }
+                    }
+
+                    return true;
+                }).ToList();
+
+                var reversed = new List<Selectable>(children);
+                reversed.Reverse();
+
+                string title = $"";
+
+                var titleObject = reversed.FirstOrDefault(x =>
+                {
+                    bool hasGizmo = x.IsGizmoSettingAllowed(GizmoType.Rotate, Axis.Z);
+                    var angle = Vector3.Angle(x.transform.forward, Vector3.down);
+                    return hasGizmo && angle < 5;
+                });
+
+                if (titleObject != null && titleObject.RelatedSelectables.Count > 0)
+                {
+                    var namedObject = titleObject.RelatedSelectables[0];
+                    string subTitle = namedObject.GetMetadata().Name;
+                    title += $"{subTitle}";
+                }
+
+                result.Add(new AssemblyData
+                {
+                    Title = title,
+                    OrderedSelectables = children
+                });
+            }
+        }
+
+        return result;
+    }
+
+    public static PdfExporterLocal.ProjectMetaData GetProjectMetaData()
+    {
+        return new PdfExporterLocal.ProjectMetaData
+        {
+            AccountName = UI_ClientMetaData.AccountName,
+            AccountAddressLine1 = UI_ClientMetaData.AccountAddressLine1,
+            AccountAddressLine2 = UI_ClientMetaData.AccountAddressLine2,
+            ProjectName = UI_ClientMetaData.ProjectName,
+            ProjectNumber = UI_ClientMetaData.ProjectNumber,
+            OrderReferenceNumber = UI_ClientMetaData.OrderReferenceNumber
+        };
+    }
+
 }
 
 public class AssemblyData

@@ -1,4 +1,6 @@
+using FuzzySharp;
 using Newtonsoft.Json;
+using SplenSoft.UnityUtilities;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -6,14 +8,11 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using TMPro;
+using UnityEditor;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
-using FuzzySharp;
-using static ObjectMenu;
-using SplenSoft.UnityUtilities;
-using static pulse.cdm.bind.DataRequestData.Types;
 
 /// <summary>
 /// Singleton object that displays a menu to instantiate selectables.
@@ -332,7 +331,7 @@ public class ObjectMenu : MonoBehaviour
         Instance.ObjectMenuItems.Clear();
         Instance.Initialize();
     }
-
+    #region Initialization
     private async void Initialize()
     {
         var loadingToken = Loading.GetLoadingToken();
@@ -343,265 +342,16 @@ public class ObjectMenu : MonoBehaviour
             if (!Application.isPlaying) return;
         }
 
-        int _activeTasks = 0;
+        int activeTasks = 0;
+        var dataList = SelectableAssetBundles.GetSelectableData().ToList();
 
-        SelectableAssetBundles.GetSelectableData()
-        .ToList().ForEach(async data =>
+        foreach (var data in dataList)
         {
-            _activeTasks++;
+            activeTasks++;
+            _ = SetupObjectMenuItem(data, () => activeTasks--);
+        }
 
-            // if we still need this, we can add it to SelectableData
-            //if (prefab.TryGetComponent(out ObjectMenuIgnore ignore))
-            //{
-            //    return;
-            //}
-
-            // todo: Get data from database
-            string objectName = data.PrefabName;
-
-            var task = Database.GetMetaData(data.AssetBundleName, data.MetaData);
-            await task;
-
-            if (!Application.isPlaying)
-                throw new AppQuitInTaskException();
-
-            SelectableMetaData metadata = data.MetaData;
-
-            if (task.Result.ResultType == Database.MetaDataOpertaionResultType.Success)
-            {
-                objectName = task.Result.MetaData.Name;
-                metadata = task.Result.MetaData;
-            }
-
-            ItemTemplateTextObjectName.text = objectName;
-            var newMenuItem = Instantiate(ItemTemplate, ItemTemplate.transform.parent);
-            newMenuItem.GetComponentInChildren<Button>().onClick.AddListener(async () =>
-            {
-                if (_selectCompatibleObjectsMode)
-                {
-                    UI_ObjectEditor.AddCompatibleObject(data.AssetBundleName);
-                    return;
-                }
-
-                gameObject.SetActive(false);
-
-                // Check if MetaData is not null before logging
-                if (data.MetaData != null)
-                {
-                    string metadataJson = JsonConvert.SerializeObject(data.MetaData, Formatting.Indented);
-                    Debug.Log($"Metadata properties of {newMenuItem.GetComponentInChildren<TextMeshProUGUI>().text}: {metadataJson}");
-                }
-                else
-                {
-                    Debug.LogWarning($"MetaData is null for {newMenuItem.GetComponentInChildren<TextMeshProUGUI>().text}");
-                }
-                var task = data.GetPrefab();
-                await task;
-
-                if (!Application.isPlaying) return;
-
-                GameObject prefab = task.Result;
-
-                var newSelectableGameObject = Instantiate(prefab);
-                //newSelectableGameObject.AddComponent<SelectablePrice>();
-                var selectable2 = newSelectableGameObject.GetComponent<Selectable>();
-                LastOpenedSelectable = selectable2;
-                LastOpenedSelectableData = data;
-                LastOpenedSelectableChanged?.Invoke();
-
-                if (SceneManager.GetActiveScene().name == "ObjectEditor")
-                {
-                    return;
-                }
-
-                if (_attachmentPoint != null)
-                {
-                    _attachmentPoint.SetAttachedSelectable(selectable2);
-                    selectable2.ParentAttachmentPoint = _attachmentPoint;
-
-                    newSelectableGameObject.transform
-                        .SetPositionAndRotation
-                        (_attachmentPoint.transform.position,
-                        _attachmentPoint.transform.rotation);
-
-                    newSelectableGameObject.transform.parent = _attachmentPoint.transform;
-
-
-                    RecordHirarcheySelectables recordHirarcheySelectables = newSelectableGameObject.transform.root.GetComponent<RecordHirarcheySelectables>();
-                    if (recordHirarcheySelectables != null)
-                    {
-                        Selectable currentSelectables = newSelectableGameObject.GetComponent<Selectable>();
-                        recordHirarcheySelectables.AddAttachedSelectables(currentSelectables, objectName);
-                    }
-                    else
-                    {
-                        Debug.Log("Strange!!! Script is not attached.");
-                    }
-                }
-                else
-                {
-                    Selectable currentSelectables = newSelectableGameObject.GetComponent<Selectable>();
-                    RecordHirarcheySelectables recordHirarcheySelectables = newSelectableGameObject.AddComponent<RecordHirarcheySelectables>();
-                    recordHirarcheySelectables.AddAttachedSelectables(currentSelectables, objectName);
-
-                    selectable2.StartRaycastPlacementMode();
-                }
-
-                string uiBtnName = newMenuItem.GetComponentInChildren<TextMeshProUGUI>().text;////extract the Name of the object from UI for matching with excel name and retrive price
-                Debug.Log($"Object Instantaited :: Menu Name: {uiBtnName} and GameObject Name: {newSelectableGameObject.name} ", newSelectableGameObject.transform);
-                if (newSelectableGameObject.name.Contains("CeilingMount_Double(Clone)") || 
-                    newSelectableGameObject.name.Contains("BoomDropTube(Clone)")     ||
-                    newSelectableGameObject.name.Contains("ArmDropTube(Clone)") ||
-                    newSelectableGameObject.name.Contains("SimFlexTube(Clone)"))
-                {
-                    GameObject parent = newSelectableGameObject.GetComponentInParent<TandomRestrictions>().gameObject;
-                    newSelectableGameObject.GetComponentInParent<TandomRestrictions>().CheckTandemRestrictions(parent);
-                }
-                if (newSelectableGameObject.name.Equals("Outlet_HV_Power(Clone)")
-                    || newSelectableGameObject.name.Equals("BlankOutlet(Clone)")
-                    || newSelectableGameObject.name.Contains("GasOutlet_Variant_CarbonDioxide(Clone)") 
-                    || newSelectableGameObject.name.Equals("EthernetOutlet")
-                    || newSelectableGameObject.name.Equals("GasOutlet_Variant_He-O2(Clone)")
-                    || newSelectableGameObject.name.Equals("GasOutlet_Variant_CarbonDioxide(Clone)")
-                    || newSelectableGameObject.name.Equals("GasOutlet_Variant_MedicalAir(Clone)")
-                    || newSelectableGameObject.name.Equals("GasOutlet_Variant_InstrumentAir(Clone)")
-                    || newSelectableGameObject.name.Equals("GasOutlet_Variant_NitrousOxide(Clone)")
-                    || newSelectableGameObject.name.Equals("GasOutlet_Variant_Nitrogen(Clone)")
-                    || newSelectableGameObject.name.Equals("GasOutlet_Variant_Oxygen(Clone)")
-                    || newSelectableGameObject.name.Equals("GasOutlet_Variant_VacuumSuction(Clone)")
-                    || newSelectableGameObject.name.Equals("GasOutlet_Variant_WagdEvac(Clone)")
-
-                    )
-
-
-                    {
-
-                        GameObject outletParent = newSelectableGameObject.transform.parent.parent.gameObject;
-                        GameObject outletParentsParent = outletParent.transform.parent.parent.gameObject;
-                        Selectable[] selectables = outletParent.GetComponentsInChildren<Selectable>();
-                        newSelectableGameObject.GetComponentInParent<BoomOutletValidator>().ValidateBoomConfiguration(outletParentsParent);
-
-
-                    }
-                
-             
-                 string boomObjectExcelName = UINameToExcelKey.GetExcelName(objectName);//Check if the Object is Boom Object
-                Debug.Log("Exce name " + boomObjectExcelName);
-                if (string.IsNullOrEmpty(boomObjectExcelName) == false)
-                {
-                    //Red Duplex and GameObject Name: Outlet_HV_Power(Clone) 
-                    if (newSelectableGameObject.name.Equals("Outlet_HV_Power(Clone)"))
-                    {
-
-                        GameObject outletParent = newSelectableGameObject.transform.parent.parent.gameObject;
-                        GameObject outletParentsParent = outletParent.transform.parent.parent.gameObject;
-                        Selectable[] selectables = outletParent.GetComponentsInChildren<Selectable>();
-                        int redDuplextCount = 0;
-                        for (int i = 0; i < selectables.Length; i++)
-                        {
-                            if (selectables[i].MetaData.Name == "HV Power Outlet")
-                            {
-                                redDuplextCount++;
-                            }
-
-                        }
-                        if (redDuplextCount == 2)
-                        {
-                            Debug.Log("Red Duplex found");
-                            boomObjectExcelName = "Electrical (2 Duplex)";
-                        }
-                        else if (redDuplextCount == 3)
-                        {
-                            Debug.Log("Red Duplex found");
-                            boomObjectExcelName = "Electrical (3 Duplex)";
-                            Destroy(outletParent.GetComponentInChildren<SelectablePrice>());
-                        }
-                        else
-                        {
-                            Debug.Log("Red Duplex not found");
-                            boomObjectExcelName = "";
-                        }
-
-                        if (string.IsNullOrEmpty(boomObjectExcelName) == false)
-                        {
-                            string excelFileName = DataFilePaths.sheetNameBoomIndividual;
-                            //selectablePrice.GetPricingDataFromExcel(excelFileName);
-                            AddSelectablePrice(newSelectableGameObject, true, boomObjectExcelName, uiBtnName, excelFileName);
-                            if (outletParent.GetComponent<DuplexWatcher>() == null)
-                            {
-                                DuplexWatcher duplexWatcher = outletParent.AddComponent<DuplexWatcher>();
-
-                                duplexWatcher.UIObjectName = uiBtnName;
-                            }
-                            else
-                            {
-                                Debug.Log("Duplex watcher already attached");
-                            }
-                            
-
-                        }
-                    }
-                    else if (string.IsNullOrEmpty(boomObjectExcelName) == false)
-                    {
-                        Debug.Log($"Excel name  found for {objectName}! It is boom object! Therefore it required special treatment!");
-                        //Selectable currentSelectables = newSelectableGameObject.GetComponent<Selectable>();
-                        //SelectablePrice selectablePrice = newSelectableGameObject.AddComponent<SelectablePrice>();
-                        //selectablePrice.isBoomObject = true;
-                        //selectablePrice.pricingObjectName = boomObjectExcelName;
-                        //selectablePrice.selectable = currentSelectables;
-                        //selectablePrice.UIObjectName = uiBtnName;
-                        string excelFileName = DataFilePaths.sheetNameBoomIndividual;
-                        //selectablePrice.GetPricingDataFromExcel(excelFileName);
-                        AddSelectablePrice(newSelectableGameObject, true, boomObjectExcelName, uiBtnName, excelFileName);
-                        //if (outletParent.GetComponent<DuplexWatcher>() == null)
-                        //{
-                        //    DuplexWatcher duplexWatcher = outletParent.AddComponent<DuplexWatcher>();
-
-                        //    duplexWatcher.UIObjectName = uiBtnName;
-                        //}
-                        //else
-                        //{
-                        //    Debug.Log("Duplex watcher already attached");
-                        //}
-                    }
-                    
-                }
-                else //if(isNewBoomServiceHead ==false && isLargeMnitorBoomHead == false)
-                {
-                    bool hasAttachmentPoints = newSelectableGameObject.GetComponentsInChildren<AttachmentPoint>().Length > 0;
-                    if (!hasAttachmentPoints)
-                    {
-                        Debug.Log("Light Object found");
-                        //var selectablePrice = newSelectableGameObject.AddComponent<SelectablePrice>();
-                        //selectablePrice.pricingObjectName = newMenuItem.GetComponentInChildren<TextMeshProUGUI>().text;//extract the Name of the object from UI for matching with excel name and retrive price
-                        string excelFileNameForLight = DataFilePaths.sheetNameLight;
-                        //selectablePrice.GetPricingDataFromExcel(excelFileNameForLight);
-                        string objName = newMenuItem.GetComponentInChildren<TextMeshProUGUI>().text;
-                        AddSelectablePrice(newSelectableGameObject, false, objName, objName, excelFileNameForLight);
-                    }
-                }
-                //bool isNewBoomServiceHead = newSelectableGameObject.name.StartsWith("NewBoomHead");
-                //bool isLargeMnitorBoomHead = newSelectableGameObject.name.StartsWith("LargeMonitorBoomHead");
-                //bool isBoomHeadSingleMount = newSelectableGameObject.name.StartsWith("CeilingMount_Single");
-                //Debug.Log(newSelectableGameObject.name, newSelectableGameObject);
-
-                //if (isNewBoomServiceHead || isLargeMnitorBoomHead || isBoomHeadSingleMount)
-                //{
-                //    Debug.Log("Boom Object Ending Found!");
-                //}
-            });
-
-            ObjectMenuItems.Add(new ObjectMenuItem
-            {
-                SelectableData = data,
-                GameObject = newMenuItem,
-                SelectableMetaData = metadata
-            });
-
-            _activeTasks--;
-        });
-
-        while (_activeTasks > 0)
+        while (activeTasks > 0)
         {
             await Task.Yield();
             if (!Application.isPlaying)
@@ -613,21 +363,190 @@ public class ObjectMenu : MonoBehaviour
             .ToList();
 
         for (int i = 0; i < ObjectMenuItems.Count; i++)
-        {
             ObjectMenuItems[i].GameObject.transform.SetSiblingIndex(i);
-        }
 
         AddSavedRoomConfigs();
-
         ItemTemplate.SetActive(false);
-
         GenerateCategories();
-
         _initialized = true;
-
         loadingToken.Done();
         Database.SetIsUpToDate();
     }
+
+    private async Task SetupObjectMenuItem(SelectableData data, Action onComplete)
+    {
+        try
+        {
+            string objectName = data.PrefabName;
+            var task = Database.GetMetaData(data.AssetBundleName, data.MetaData);
+            await task;
+
+            if (!Application.isPlaying)
+                throw new AppQuitInTaskException();
+
+            SelectableMetaData metadata = data.MetaData;
+            if (task.Result.ResultType == Database.MetaDataOpertaionResultType.Success)
+            {
+                objectName = task.Result.MetaData.Name;
+                metadata = task.Result.MetaData;
+            }
+
+            ItemTemplateTextObjectName.text = objectName;
+            var newMenuItem = Instantiate(ItemTemplate, ItemTemplate.transform.parent);
+
+            newMenuItem.GetComponentInChildren<Button>().onClick.AddListener(() => OnObjectMenuItemClicked(data, newMenuItem, objectName));
+
+            ObjectMenuItems.Add(new ObjectMenuItem
+            {
+                SelectableData = data,
+                GameObject = newMenuItem,
+                SelectableMetaData = metadata
+            });
+        }
+        finally
+        {
+            onComplete?.Invoke();
+        }
+    }
+
+    private async void OnObjectMenuItemClicked(SelectableData data, GameObject newMenuItem, string objectName)
+    {
+        if (_selectCompatibleObjectsMode)
+        {
+            UI_ObjectEditor.AddCompatibleObject(data.AssetBundleName);
+            return;
+        }
+
+        gameObject.SetActive(false);
+        DebugMetaData(data, newMenuItem);
+
+        var task = data.GetPrefab();
+        await task;
+        if (!Application.isPlaying) return;
+
+        GameObject prefab = task.Result;
+        GameObject newObj = Instantiate(prefab);
+        var selectable = newObj.GetComponent<Selectable>();
+        selectable.UIButtonName = newMenuItem.GetComponentInChildren<TextMeshProUGUI>().text;
+        LastOpenedSelectable = selectable;
+        LastOpenedSelectableData = data;
+        LastOpenedSelectableChanged?.Invoke();
+
+        if (SceneManager.GetActiveScene().name != "ObjectEditor")
+            PlaceAndInitializeSelectable(newObj, selectable, objectName, newMenuItem);
+    }
+
+    private void DebugMetaData(SelectableData data, GameObject newMenuItem)
+    {
+        if (data.MetaData != null)
+        {
+            string json = JsonConvert.SerializeObject(data.MetaData, Formatting.Indented);
+            Debug.Log($"Metadata properties of {newMenuItem.GetComponentInChildren<TextMeshProUGUI>().text}: {json}");
+        }
+        else
+        {
+            Debug.LogWarning($"MetaData is null for {newMenuItem.GetComponentInChildren<TextMeshProUGUI>().text}");
+        }
+    }
+
+    private void PlaceAndInitializeSelectable(GameObject obj, Selectable selectable, string objectName, GameObject newMenuItem)
+    {
+        if (_attachmentPoint != null)
+        {
+            _attachmentPoint.SetAttachedSelectable(selectable);
+            selectable.ParentAttachmentPoint = _attachmentPoint;
+            obj.transform.SetPositionAndRotation(_attachmentPoint.transform.position, _attachmentPoint.transform.rotation);
+            obj.transform.parent = _attachmentPoint.transform;
+
+            var recorder = obj.transform.root.GetComponent<RecordHirarcheySelectables>();
+            recorder?.AddAttachedSelectables(selectable, objectName);
+        }
+        else
+        {
+            var recorder = obj.AddComponent<RecordHirarcheySelectables>();
+            recorder.AddAttachedSelectables(selectable, objectName);
+            selectable.StartRaycastPlacementMode();
+        }
+
+        string uiBtnName = newMenuItem.GetComponentInChildren<TextMeshProUGUI>().text;
+        Debug.Log($"Object Instantiated :: Menu Name: {uiBtnName} and GameObject Name: {obj.name}", obj.transform);
+
+        HandleBoomRestrictions(obj);
+        HandleOutletAndPricing(obj, objectName, uiBtnName, newMenuItem);
+    }
+
+    private void HandleBoomRestrictions(GameObject obj)
+    {
+        if (obj.name.Contains("CeilingMount_Double") ||
+            obj.name.Contains("BoomDropTube") ||
+            obj.name.Contains("ArmDropTube") ||
+            obj.name.Contains("SimFlexTube"))
+        {
+            var restriction = obj.GetComponentInParent<TandomRestrictions>();
+            restriction?.CheckTandemRestrictions(restriction.gameObject);
+        }
+    }
+
+    public void HandleOutletAndPricing(GameObject obj, string objectName, string uiBtnName, GameObject? newMenuItem)
+    {
+        string name = obj.name;
+        bool isHVOutlet = name.Equals("Outlet_HV_Power(Clone)");
+        bool isKnownGasOutlet = name.Contains("GasOutlet") || name.Equals("EthernetOutlet") || name.Equals("BlankOutlet(Clone)");
+
+        if (isHVOutlet || isKnownGasOutlet)
+        {
+            var outletParent = obj.transform.parent?.parent?.gameObject;
+            var grandParent = outletParent?.transform.parent?.parent?.gameObject;
+            if (grandParent != null)
+                obj.GetComponentInParent<BoomOutletValidator>()?.ValidateBoomConfiguration(grandParent);
+        }
+
+        string excelName = UINameToExcelKey.GetExcelName(objectName);
+        if (!string.IsNullOrEmpty(excelName))
+        {
+            if (isHVOutlet)
+            {
+                var outletParent = obj.transform.parent?.parent?.gameObject;
+                int duplexCount = outletParent?.GetComponentsInChildren<Selectable>().Count(s => s.MetaData.Name == "HV Power Outlet") ?? 0;
+
+                if (duplexCount == 2)
+                    excelName = "Electrical (2 Duplex)";
+                else if (duplexCount == 3)
+                {
+                    excelName = "Electrical (3 Duplex)";
+                    var priceComp = outletParent?.GetComponentInChildren<SelectablePrice>();
+                    if (priceComp != null) GameObject.Destroy(priceComp);
+                }
+                else
+                    excelName = "";
+
+                if (!string.IsNullOrEmpty(excelName))
+                {
+                    AddSelectablePrice(obj, true, excelName, uiBtnName, DataFilePaths.sheetNameBoomIndividual);
+                    if (outletParent?.GetComponent<DuplexWatcher>() == null)
+                    {
+                        var watcher = outletParent?.AddComponent<DuplexWatcher>();
+                        if (watcher != null) watcher.UIObjectName = uiBtnName;
+                    }
+                }
+            }
+            else
+            {
+                AddSelectablePrice(obj, true, excelName, uiBtnName, DataFilePaths.sheetNameBoomIndividual);
+            }
+        }
+        else
+        {
+            bool hasAttachments = obj.GetComponentsInChildren<AttachmentPoint>().Any();
+            if (!hasAttachments)
+            {
+                string excelFileName = DataFilePaths.sheetNameLight;
+                string label = newMenuItem.GetComponentInChildren<TextMeshProUGUI>().text;
+                AddSelectablePrice(obj, false, label, label, excelFileName);
+            }
+        }
+    }
+    #endregion
 
     public void AddSelectablePrice(GameObject newSelectableGameObject, bool isBoomObject, string objectName, string uiBtnName, string excelName)
     {
@@ -670,11 +589,35 @@ public class ObjectMenu : MonoBehaviour
             if (newSelectable == null)
             {
                 Debug.LogError("Something went wrong with LoadConfig!!");
+                return;
+            }
+
+            var selectables = newSelectable.GetComponentsInChildren<Selectable>();
+            foreach (var sel in selectables)
+            {
+                string objectName = sel.UIButtonName;
+                string excelKey = UINameToExcelKey.GetExcelName(objectName);
+                string uiBtnName = objectName; // Or override if you have saved UI name
+
+                bool isBoom = !string.IsNullOrEmpty(excelKey);
+                bool hasAttachment = sel.GetComponentsInChildren<AttachmentPoint>().Length > 0;
+
+                if (isBoom)
+                {
+                    string excelSheet = DataFilePaths.sheetNameBoomIndividual;
+                    AddSelectablePrice(sel.gameObject, true, excelKey, uiBtnName, excelSheet);
+                }
+                else if (!hasAttachment)
+                {
+                    string excelSheet = DataFilePaths.sheetNameLight;
+                    AddSelectablePrice(sel.gameObject, false, objectName, objectName, excelSheet);
+                }
             }
 
             Selectable selectable = newSelectable.GetComponent<Selectable>();
             selectable.StartRaycastPlacementMode();
         });
+
 
         ObjectMenuItems.Add(new ObjectMenuItem { GameObject = newMenuItem, CustomFile = f });
         ItemTemplate.SetActive(false);

@@ -9,6 +9,7 @@ public class TrackedObject : MonoBehaviour
     public struct Data
     {
         public string objectName;
+        public string UIButtonname;
         public string instance_guid;
         public string global_guid;
         public Vector3 pos;
@@ -47,17 +48,20 @@ public class TrackedObject : MonoBehaviour
     public Data GetData()
     {
         data.objectName = gameObject.name;
+       
         GetGUIDs();
 
         data.pos = transform.position;
         data.rot = transform.rotation;
         data.scale = transform.localScale;
-
+       
         if (gameObject.TryGetComponent(out Selectable s))
         {
+            data.UIButtonname = s.UIButtonName;
             if (s.ScaleLevels.Count() == 0) data.scaleLevel = null;
             else
                 data.scaleLevel = s.CurrentScaleLevel;
+
         }
 
         if (gameObject.TryGetComponent(out MaterialPalette palette))
@@ -82,6 +86,7 @@ public class TrackedObject : MonoBehaviour
 
         return scales.First(x => x.Size == data.scaleLevel.Size);
     }
+
 
     public Vector3 GetPosition()
     {
