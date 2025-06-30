@@ -38,7 +38,7 @@ public class RecordHirarcheySelectables : MonoBehaviour
                 attachedSelectable.btName = objectName;
                 attachedSelectables.Add(attachedSelectable);
 
-                Debug.LogError("==" + objectName);
+                //Debug.LogError("==" + objectName);
 
                 // Define length options
                 List<float> standardTopArmLengths = new List<float> { 0.6f, 0.8f, 1f, 1.2f };
@@ -49,7 +49,10 @@ public class RecordHirarcheySelectables : MonoBehaviour
                 // Utility to apply scale
                 void ApplyToArm(string armKeyword, List<float> scales)
                 {
-                    var arm = attachedSelectables.Where(a => a.gameObject.name.Contains(armKeyword)).FirstOrDefault();
+                    var arm = attachedSelectables
+    .Where(a => a != null && a.gameObject != null)
+    .FirstOrDefault(a => a.gameObject.name.Contains(armKeyword));
+
                     if (arm == null) return;
 
                     var selectables = arm.gameObject.GetComponentsInChildren<Selectable>().Where(x => x.ScaleLevels.Count > 0);

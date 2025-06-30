@@ -10,7 +10,10 @@ TrueTypeFontImporter:
   includeFontData: 1
   fontNames:
   - Teko
-  fallbackFontReferences: []
+  fallbackFontReferences:
+  - {fileID: 12800000, guid: 94902783f7d208f49a8cd7372d13b36d, type: 3}
+  - {fileID: 12800000, guid: 4854daea312b9c04b91fe506db04a69b, type: 3}
+  - {fileID: 12800000, guid: 30250349ea4756c4f82cbf154e46c9c5, type: 3}
   customCharacters: 
   fontRenderingMode: 0
   ascentCalculationMode: 1

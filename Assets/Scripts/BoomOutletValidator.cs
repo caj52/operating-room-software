@@ -220,14 +220,19 @@ public class BoomOutletValidator : MonoBehaviour
     {
         frontCount = outletCounts.TryGetValue(front, out int fCount) ? fCount : 0;
         backCount = outletCounts.TryGetValue(back, out int bCount) ? bCount : 0;
-
-        // Validate that electrical configurations match between front and back
-        if (frontCount >= 2 && backCount >= 2 && frontCount != backCount)
+        int totalCount = front.GetComponentsInChildren<Selectable>().Length + back.GetComponentsInChildren<Selectable>().Length; 
+        //to check the total outlets count 7 because this will return the parent selectables as well so 2+3+3 = 8
+        if (totalCount>7)
         {
-            Debug.LogError($"❌ Mismatch! Front ({front.name}) has {frontCount}, Back ({back.name}) has {backCount} electrical outlets.");
-            ShowErrorDialog(MISMATCH_ELECTRICAL_MESSAGE);
-            return false;
+            // Validate that electrical configurations match between front and back
+            if (frontCount >= 2 && backCount >= 2 && frontCount != backCount)
+            {
+                Debug.LogError($"❌ Mismatch! Front ({front.name}) has {frontCount}, Back ({back.name}) has {backCount} electrical outlets.");
+                ShowErrorDialog(MISMATCH_ELECTRICAL_MESSAGE);
+                return false;
+            }
         }
+      
 
         Debug.Log($"✅ Match! Front has {frontCount} and back has {backCount} electrical outlets.");
         return true;

@@ -10722,7 +10722,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9ad12a1b10526fc4a86fafee898a1cfd, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  parentObject: {fileID: 0}
   rowPrefab: {fileID: 379922826236696471, guid: e0010c6c65a93c2408b46cd14d055409, type: 3}
+  boomObjects: []
+  lightObjects: []
+  otherObjects: []
 --- !u!114 &2134582126257678568
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -21994,7 +21998,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 9135050025410451963, guid: e0010c6c65a93c2408b46cd14d055409, type: 3}
       propertyPath: m_Name
-      value: Row_Item_Qty_Price
+      value: Heading
       objectReference: {fileID: 0}
     - target: {fileID: 9135050025410451964, guid: e0010c6c65a93c2408b46cd14d055409, type: 3}
       propertyPath: m_Pivot.x
@@ -22033,6 +22037,18 @@ PrefabInstance:
       value: 50
       objectReference: {fileID: 0}
     - target: {fileID: 9135050025410451964, guid: e0010c6c65a93c2408b46cd14d055409, type: 3}
+      propertyPath: m_LocalScale.x
+      value: 1.0000001
+      objectReference: {fileID: 0}
+    - target: {fileID: 9135050025410451964, guid: e0010c6c65a93c2408b46cd14d055409, type: 3}
+      propertyPath: m_LocalScale.y
+      value: 1.0000001
+      objectReference: {fileID: 0}
+    - target: {fileID: 9135050025410451964, guid: e0010c6c65a93c2408b46cd14d055409, type: 3}
+      propertyPath: m_LocalScale.z
+      value: 1.0000001
+      objectReference: {fileID: 0}
+    - target: {fileID: 9135050025410451964, guid: e0010c6c65a93c2408b46cd14d055409, type: 3}
       propertyPath: m_LocalPosition.x
       value: 0
       objectReference: {fileID: 0}
@@ -22050,15 +22066,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 9135050025410451964, guid: e0010c6c65a93c2408b46cd14d055409, type: 3}
       propertyPath: m_LocalRotation.x
-      value: 0
+      value: -0
       objectReference: {fileID: 0}
     - target: {fileID: 9135050025410451964, guid: e0010c6c65a93c2408b46cd14d055409, type: 3}
       propertyPath: m_LocalRotation.y
-      value: 0
+      value: -0
       objectReference: {fileID: 0}
     - target: {fileID: 9135050025410451964, guid: e0010c6c65a93c2408b46cd14d055409, type: 3}
       propertyPath: m_LocalRotation.z
-      value: 0
+      value: -0
       objectReference: {fileID: 0}
     - target: {fileID: 9135050025410451964, guid: e0010c6c65a93c2408b46cd14d055409, type: 3}
       propertyPath: m_AnchoredPosition.x

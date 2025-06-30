@@ -85,11 +85,11 @@ public class UI_Button_DuplicateObject : MonoBehaviour
             highlight.highlighted = false;
         }
 
-        // ✅ Process ALL SelectablePrice components in hierarchy
         SelectablePrice[] oldPrices = obj.GetComponentsInChildren<SelectablePrice>(true);
+        PopulateUIWithPricingItems pricingUI = FindObjectOfType<PopulateUIWithPricingItems>(true);
+
         foreach (var oldPrice in oldPrices)
         {
-            // Find corresponding new object in the duplicated hierarchy
             Transform relativePath = oldPrice.transform;
             string path = GetHierarchyPath(obj.transform, relativePath);
             Transform newTransform = newObj.transform.Find(path);
@@ -102,7 +102,6 @@ public class UI_Button_DuplicateObject : MonoBehaviour
 
             GameObject target = newTransform.gameObject;
 
-            // Clean any copied component
             SelectablePrice copiedPrice = target.GetComponent<SelectablePrice>();
             if (copiedPrice != null) DestroyImmediate(copiedPrice);
 
@@ -122,25 +121,15 @@ public class UI_Button_DuplicateObject : MonoBehaviour
             newPrice.selectableObjectForSize = oldPrice.selectableObjectForSize;
             newPrice.sheetName = oldPrice.sheetName;
 
-            // UI duplication
-            PopulateUIWithPricingItems pricingUI = FindObjectOfType<PopulateUIWithPricingItems>(true);
-            if (pricingUI != null)
-            {
-                PricingRowDataFill oldUIRow = oldPrice.PricingRowDataFill;
-                if (oldUIRow != null)
-                {
-                    PricingRowDataFill newUIRow = Instantiate(oldUIRow, pricingUI.transform);
-                    newPrice.PricingRowDataFill = newUIRow;
-
-                    Action onDestroyedAction = newUIRow.DestroyRow;
-                    newPrice.OnDestroyed += onDestroyedAction;
-                    newUIRow.OnDestroyEvent += () => newPrice.OnDestroyed -= onDestroyedAction;
-                }
-            }
+            pricingUI?.SetDataIntoList(newPrice);
         }
 
-        Debug.Log($"Duplicated {obj.name} with all selectable prices -> Scale: {newObj.transform.localScale}");
+        pricingUI?.SetDataIntoList(null);
+        //pricingUI?.ResolveAndLogLightPricing();
+
+        Debug.Log($"Anas Duplicated {obj.name} and regenerated pricing UI.");
     }
+
     private string GetHierarchyPath(Transform root, Transform target)
     {
         string path = "";
@@ -154,7 +143,7 @@ public class UI_Button_DuplicateObject : MonoBehaviour
 
     private void PrepareObjectToDuplicate(GameObject obj)
     {
-        foreach (Transform child in obj.GetComponentsInChildren<Transform>(true)) // true includes inactive children
+        foreach (Transform child in obj.GetComponentsInChildren<Transform>(true))
         {
             Selectable selectable = child.GetComponent<Selectable>();
             if (selectable)
@@ -166,7 +155,7 @@ public class UI_Button_DuplicateObject : MonoBehaviour
 
     private IEnumerator ApplyChildScalesDelayed(Transform original, Transform duplicate)
     {
-        yield return new WaitForEndOfFrame(); // Wait for Unity's update cycle
+        yield return new WaitForEndOfFrame();
         CopyChildScales(original, duplicate);
     }
 
@@ -177,10 +166,8 @@ public class UI_Button_DuplicateObject : MonoBehaviour
             Transform newChild = duplicate.Find(originalChild.name);
             if (newChild != null)
             {
-                newChild.localScale = originalChild.localScale; // Preserve exact local scale
+                newChild.localScale = originalChild.localScale;
                 Debug.Log($"Child: {originalChild.name}, Applied Scale: {newChild.localScale}");
-
-                // Recursively apply to all nested children
                 CopyChildScales(originalChild, newChild);
             }
         }

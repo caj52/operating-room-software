@@ -458,7 +458,7 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         _lineRenderer.positionCount = _positions.Count;
         _lineRenderer.SetPositions(_positions.ToArray());
 
-        Debug.Log("Array: " + string.Join(", ", _positions.ToArray()));
+        //Debug.Log("Array: " + string.Join(", ", _positions.ToArray()));
 
 
         _taskRunning = false;

@@ -119,6 +119,7 @@ public class ExcelReader : MonoBehaviour
             }
 
             Debug.LogError($"Object not found in the excel! {objectNameToSearch} while size is {objectSizeToSearch}");
+
             return null;
         }
     }
@@ -128,7 +129,7 @@ public class ExcelReader : MonoBehaviour
         if (!File.Exists(filePath))
         {
             Debug.Log(filePath);
-            Debug.LogError("Excel file not found!");
+          //  Debug.LogError("Excel file not found!");
             return null;
         }
 
@@ -367,4 +368,39 @@ public class ExcelReader : MonoBehaviour
         return priceExcelData;
     }
 */
+
+    public List<Dictionary<string, string>> GetRawSheetData(string sheetName)
+    {
+        List<Dictionary<string, string>> rows = new();
+
+        using (FileStream stream = new FileStream(filePath, FileMode.Open, FileAccess.Read))
+        {
+            IWorkbook workbook = new HSSFWorkbook(stream);
+            ISheet sheet = workbook.GetSheet(sheetName);
+            if (sheet == null) return rows;
+
+            IRow headerRow = sheet.GetRow(0);
+            List<string> headers = new();
+            for (int i = 0; i < headerRow.LastCellNum; i++)
+            {
+                headers.Add(headerRow.GetCell(i)?.ToString().Trim());
+            }
+
+            for (int r = 1; r <= sheet.LastRowNum; r++)
+            {
+                IRow row = sheet.GetRow(r);
+                if (row == null) continue;
+
+                var dict = new Dictionary<string, string>();
+                for (int c = 0; c < headers.Count; c++)
+                {
+                    dict[headers[c]] = row.GetCell(c)?.ToString();
+                }
+
+                rows.Add(dict);
+            }
+        }
+
+        return rows;
+    }
 }

@@ -7,6 +7,8 @@ using System.Linq;
 using UnityEngine;
 using iTextSharp.text;
 using iTextSharp.text.pdf;
+using System.Diagnostics;
+using Debug = UnityEngine.Debug;
 
 
 
@@ -91,7 +93,7 @@ public class PdfBatchExporter : MonoBehaviour
       new ButtonAction("Done"));
 #if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
         // Hack fix for macOS not liking Application.OpenURL
-        string location = path;
+        string location = filePath;
         ProcessStartInfo startInfo = new ProcessStartInfo("/System/Library/CoreServices/Finder.app")
         {
             WindowStyle = ProcessWindowStyle.Normal,

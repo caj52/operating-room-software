@@ -512,6 +512,7 @@ MonoBehaviour:
   - {fileID: 1199479408543421338}
   - {fileID: 990557865460738268}
   _assemblySelectables: []
+  UIButtonName: 
   canBeDuplicated: 0
   <CurrentScaleLevel>k__BackingField:
     <Size>k__BackingField: 0
@@ -781,7 +782,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4575778834203773398, guid: 88e0c686581f7184d9d10350c342bcc3, type: 3}
       propertyPath: <MoveUpOnAttach>k__BackingField
-      value: 1
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 4575778834203773398, guid: 88e0c686581f7184d9d10350c342bcc3, type: 3}
       propertyPath: <TreatAsTopMost>k__BackingField

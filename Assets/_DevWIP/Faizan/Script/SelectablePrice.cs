@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using UnityEngine;
 
 public class SelectablePrice : MonoBehaviour
@@ -10,8 +10,9 @@ public class SelectablePrice : MonoBehaviour
     public PriceExcelData objectPricingData;
     public Selectable selectable;
     private Selectable _selectableObjectForSize;
+    public string size;
 
-    public PricingRowDataFill PricingRowDataFill;
+    public PricingRowDataFill UIRefPricingRowDataFill;
     public Selectable selectableObjectForSize
     {
         get => _selectableObjectForSize;
@@ -38,6 +39,11 @@ public class SelectablePrice : MonoBehaviour
     public bool isBoomObject = false;
     #endregion
 
+    private void Start()
+    {
+        //OnScaleUpdated();
+    }
+
     public void GetPricingDataFromExcel(string sheetName)
     {
         ExcelReader excelReader = FindExcelReader();
@@ -62,26 +68,8 @@ public class SelectablePrice : MonoBehaviour
             // Check if the object is a Boom Base Model or not! Boom Base Model is not required size at the moment! The boom based model name already contain the size like XL etc
             bool isBoomBaseModel = UINameToExcelKey.IsBoomBaseModelFromExcel(pricingObjectName);
 
-            if (isBoomBaseModel)//boom base model not required size at the moment
-            {
-                Debug.Log($"{pricingObjectName } isBoomBaseModel.");
-                objectPricingData = excelReader.FetchPricingDataFromExcel(sheetName, pricingObjectName);
-                objectPricingData.ObjectSize = size;
-            }
-            else
-            {
-                Debug.Log($"Object: {pricingObjectName}  is Not Boom Base Model. Size is {size}");
-                objectPricingData = excelReader.FetchPricingDataFromExcel(sheetName, pricingObjectName, size);
-                if (objectPricingData == null)
-                {
-                    Debug.LogError($"Object Pricing Data is null for {pricingObjectName} and size {size}. Please make sure size and name availble in the excel ");
-                    Destroy(this.GetComponent<SelectablePrice>());//Destroy the object if the pricing data is not found!
-                }
-                else
-                {
-                    objectPricingData.ObjectSize = size;
-                }
-            }
+            objectPricingData = FetchPricingDataSmart(sheetName, pricingObjectName, size);
+
         }
 
         if (objectPricingData == null)
@@ -95,15 +83,16 @@ public class SelectablePrice : MonoBehaviour
             Debug.Log($"Price found for {pricingObjectName} for {objectPricingData.ListPrice} ");
             objectPricingData.isSimFlexArmAvailable = HasSimFlexArmInTheHirarchey();
             PopulateUIWithPricingItems pricingItems = FindObjectOfType<PopulateUIWithPricingItems>(true);
-            if (pricingItems != null)
-            {
-                uiReferenceForSelectablePrice = pricingItems.GenerateUIRow(this);
-                PricingRowDataFill = uiReferenceForSelectablePrice;
-            }
-            else
-            {
-                Debug.LogError("PopulateUIWithPricingItems not found in the scene");
-            }
+            pricingItems.OnSetPriceData.Invoke(this,null);
+            //if (pricingItems != null)
+            //{
+            //    uiReferenceForSelectablePrice = pricingItems.GenerateUIRow(this);
+            //    PricingRowDataFill = uiReferenceForSelectablePrice;
+            //}
+            //else
+            //{
+            //    Debug.LogError("PopulateUIWithPricingItems not found in the scene");
+            //}
 
         }
     }
@@ -135,15 +124,16 @@ public class SelectablePrice : MonoBehaviour
         {
             Debug.Log($"Price found for {pricingObjectName} for {objectPricingData.ListPrice} ");
             objectPricingData.isSimFlexArmAvailable = HasSimFlexArmInTheHirarchey();
-            PopulateUIWithPricingItems pricingItems = FindObjectOfType<PopulateUIWithPricingItems>(true);
-            if (uiReferenceForSelectablePrice != null)
-            {
-                uiReferenceForSelectablePrice.FillData(this);
-            }
-            else
-            {
-                Debug.LogError("uiReferenceForSelectablePrice is null! Debug Please");
-            }
+            //PopulateUIWithPricingItems pricingItems = FindObjectOfType<PopulateUIWithPricingItems>(true);
+            //if (uiReferenceForSelectablePrice != null)
+            //{
+            //    uiReferenceForSelectablePrice.FillData(this);
+            //    Debug.Log("Anas =>  Adding Excel Data In Quotation Panel");
+            //}
+            //else
+            //{
+            //    Debug.LogError("uiReferenceForSelectablePrice is null! Debug Please");
+            //}
         }
     }
 
@@ -154,6 +144,46 @@ public class SelectablePrice : MonoBehaviour
         Debug.Log($"Scale {scaleString} Updated for", selectableObjectForSize.gameObject);
         objectPricingData.ObjectSize = scaleString;
         GetPricingDataFromExcelUpdate(scaleString);
+        this.size = scaleString;
+        PopulateUIWithPricingItems pricingUI = FindObjectOfType<PopulateUIWithPricingItems>(true);
+        pricingUI.OnSetPriceData.Invoke(null,null);
+
+    }
+    public PriceExcelData FetchPricingDataSmart(string sheetName, string objectName, string size = null)
+    {
+        PriceExcelData data = null;
+        ExcelReader excelReader = FindExcelReader();
+        // First try to find with size (if size is provided)
+        if (!string.IsNullOrEmpty(size))
+        {
+            data = excelReader.FetchPricingDataFromExcel(sheetName, objectName, size);
+
+            if (data != null)
+            {
+                Debug.Log($"✅ Found pricing for '{objectName}' with size '{size}' in sheet '{sheetName}'");
+                data.ObjectSize = size;
+                return data;
+            }
+            else
+            {
+                Debug.LogWarning($"⚠️ No pricing found for '{objectName}' with size '{size}' in sheet '{sheetName}'. Trying without size...");
+            }
+        }
+
+        // Fallback to no-size version
+        data = excelReader.FetchPricingDataFromExcel(sheetName, objectName);
+
+        if (data != null)
+        {
+            Debug.Log($"✅ Found pricing for '{objectName}' without size in sheet '{sheetName}'");
+            data.ObjectSize = null; // indicate it's not size-based
+        }
+        else
+        {
+            Debug.LogError($"❌ Pricing not found for '{objectName}' in sheet '{sheetName}' (with or without size)");
+        }
+
+        return data;
     }
 
     /// <summary>
@@ -221,6 +251,7 @@ public class SelectablePrice : MonoBehaviour
             return null;
         }
         Debug.Log($"Object Object: {pricingObjectName} scale is  {size} found from same selectable", selectable.gameObject);
+        this.size = size.ToString();
         return size.ToString();
     }
 
@@ -241,8 +272,10 @@ public class SelectablePrice : MonoBehaviour
         {
             _selectableObjectForSize.ScaleUpdated.RemoveListener(OnScaleUpdated);
         }
-
+        PopulateUIWithPricingItems pricingUI = FindObjectOfType<PopulateUIWithPricingItems>(true);
+        pricingUI.OnClearSp(this);
         OnDestroyed?.Invoke();//Triggering event on destory so that relvant Objects e.g., UI should be destroy as well.
+        Debug.Log("Anas Destroy SelectablePrice");
     }
 
    

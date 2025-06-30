@@ -501,8 +501,8 @@ public class ObjectMenu : MonoBehaviour
                 obj.GetComponentInParent<BoomOutletValidator>()?.ValidateBoomConfiguration(grandParent);
         }
 
-        string excelName = UINameToExcelKey.GetExcelName(objectName);
-        if (!string.IsNullOrEmpty(excelName))
+       // string excelName = UINameToExcelKey.GetExcelName(objectName);
+        if (!string.IsNullOrEmpty(uiBtnName) && uiBtnName.StartsWith("Boom"))
         {
             if (isHVOutlet)
             {
@@ -510,19 +510,19 @@ public class ObjectMenu : MonoBehaviour
                 int duplexCount = outletParent?.GetComponentsInChildren<Selectable>().Count(s => s.MetaData.Name == "HV Power Outlet") ?? 0;
 
                 if (duplexCount == 2)
-                    excelName = "Electrical (2 Duplex)";
+                    uiBtnName = "Electrical (2 Duplex)";
                 else if (duplexCount == 3)
                 {
-                    excelName = "Electrical (3 Duplex)";
+                    uiBtnName = "Electrical (3 Duplex)";
                     var priceComp = outletParent?.GetComponentInChildren<SelectablePrice>();
                     if (priceComp != null) GameObject.Destroy(priceComp);
                 }
                 else
-                    excelName = "";
+                    uiBtnName = "";
 
-                if (!string.IsNullOrEmpty(excelName))
+                if (!string.IsNullOrEmpty(uiBtnName))
                 {
-                    AddSelectablePrice(obj, true, excelName, uiBtnName, DataFilePaths.sheetNameBoomIndividual);
+                    AddSelectablePrice(obj, true, uiBtnName, uiBtnName, DataFilePaths.sheetNameBoomIndividual);
                     if (outletParent?.GetComponent<DuplexWatcher>() == null)
                     {
                         var watcher = outletParent?.AddComponent<DuplexWatcher>();
@@ -532,7 +532,7 @@ public class ObjectMenu : MonoBehaviour
             }
             else
             {
-                AddSelectablePrice(obj, true, excelName, uiBtnName, DataFilePaths.sheetNameBoomIndividual);
+                AddSelectablePrice(obj, true, uiBtnName, uiBtnName, DataFilePaths.sheetNameBoomIndividual);
             }
         }
         else
@@ -553,7 +553,7 @@ public class ObjectMenu : MonoBehaviour
         Selectable currentSelectables = newSelectableGameObject.GetComponent<Selectable>();
         SelectablePrice selectablePrice = newSelectableGameObject.AddComponent<SelectablePrice>();
         selectablePrice.isBoomObject = isBoomObject;
-        selectablePrice.pricingObjectName = objectName;
+        selectablePrice.pricingObjectName = uiBtnName;
         selectablePrice.selectable = currentSelectables;
         selectablePrice.UIObjectName = uiBtnName;
         string excelFileName = excelName;
@@ -590,28 +590,6 @@ public class ObjectMenu : MonoBehaviour
             {
                 Debug.LogError("Something went wrong with LoadConfig!!");
                 return;
-            }
-
-            var selectables = newSelectable.GetComponentsInChildren<Selectable>();
-            foreach (var sel in selectables)
-            {
-                string objectName = sel.UIButtonName;
-                string excelKey = UINameToExcelKey.GetExcelName(objectName);
-                string uiBtnName = objectName; // Or override if you have saved UI name
-
-                bool isBoom = !string.IsNullOrEmpty(excelKey);
-                bool hasAttachment = sel.GetComponentsInChildren<AttachmentPoint>().Length > 0;
-
-                if (isBoom)
-                {
-                    string excelSheet = DataFilePaths.sheetNameBoomIndividual;
-                    AddSelectablePrice(sel.gameObject, true, excelKey, uiBtnName, excelSheet);
-                }
-                else if (!hasAttachment)
-                {
-                    string excelSheet = DataFilePaths.sheetNameLight;
-                    AddSelectablePrice(sel.gameObject, false, objectName, objectName, excelSheet);
-                }
             }
 
             Selectable selectable = newSelectable.GetComponent<Selectable>();

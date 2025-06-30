@@ -43,8 +43,20 @@ namespace TriLibCore.Samples
 
         private void OnBeginLoad(bool filesSelected)
         {
-            _loadModelButton.interactable = !filesSelected;
+            if (!filesSelected)
+            {
+                UI_DialogPrompt.Open("No Model has been Selected to Import", new ButtonAction
+                {
+                    ButtonText = "OK",
+                });
+                Debug.Log("User canceled the model selection.");
+                UI_GeneralLoadingScreen.instance.HideLoadingScreen();
+                return;
+            }
+
+            _loadModelButton.interactable = false;
         }
+
 
         private void OnError(IContextualizedError error)
         {
@@ -81,7 +93,6 @@ namespace TriLibCore.Samples
 
             GameObject newObject = Instantiate(preparedObject);
             SetupSelectableObject(newObject);
-
             _loadedGameObject = context.RootGameObject;
             if (_loadedGameObject == null)
             {
@@ -99,7 +110,6 @@ namespace TriLibCore.Samples
             if (selectable != null)
             {
                 selectable.StartRaycastPlacementMode();
-
                 var recordHierarchy = obj.AddComponent<RecordHirarcheySelectables>();
                 recordHierarchy.AddAttachedSelectables(selectable, preparedObject.name);
             }
@@ -128,7 +138,6 @@ namespace TriLibCore.Samples
                 {
                     child.transform.localScale = Vector3.one;
                     GameObject attachPointInstance = Instantiate(AttachPoint);
-                    
                     attachPointInstance.transform.SetParent(child.transform, false);
                 }
             }

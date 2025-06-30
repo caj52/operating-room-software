@@ -12,7 +12,6 @@ using static Selectable;
 public class ArticualtionToolScript : MonoBehaviour
 {
     public static ArticualtionToolScript instance;
-
     public static event Action uiChanged;
     public GameObject SelectedObject;
     public Transform ARPanel;
@@ -32,7 +31,6 @@ public class ArticualtionToolScript : MonoBehaviour
         Selectable.SelectionChanged += TargetObjectChanged;
         gizmoChanged += GizmoChanged;
     }
-
     private void OnEnable()
     {
         headingText.text = GizmoSelector.CurrentGizmoMode.ToString();
@@ -41,15 +39,11 @@ public class ArticualtionToolScript : MonoBehaviour
         zSlider.onValueChanged.AddListener(OnZSliderValueChanged);
 
     }
-
-
-
     private void GizmoChanged()
     {
         headingText.text = GizmoSelector.CurrentGizmoMode.ToString();
         SetSlidersForMultipleObjects();
     }
-
     private void TargetObjectChanged()
     {
         selectables = Selectable.SelectedSelectables;
@@ -69,7 +63,6 @@ public class ArticualtionToolScript : MonoBehaviour
             DisableAllSliders();
         }
     }
-
     void SetSlidersForMultipleObjects()
     {
         // Default behavior - all axes disabled
@@ -162,7 +155,6 @@ public class ArticualtionToolScript : MonoBehaviour
             DisableAllSliders();
         }
     }
-
     void SetSliderRangesForAllObjectsForRotation(Axis axis, Slider slider)
     {
         if (slider == null)
@@ -246,7 +238,6 @@ public class ArticualtionToolScript : MonoBehaviour
         }
         uiChanged?.Invoke();
     }
-
     void SetSliderRangesForAllObjectsForTranslation(Axis axis, Slider slider)
     {
         if (slider == null)
@@ -339,7 +330,6 @@ public class ArticualtionToolScript : MonoBehaviour
         slider.maxValue = maxValue;
         uiChanged?.Invoke();
     }
-
     void SetSliderRangesForAllObjectsForScale(Axis axis, Slider slider)
     {
         if (slider == null)
@@ -407,7 +397,6 @@ public class ArticualtionToolScript : MonoBehaviour
 
         uiChanged?.Invoke();
     }
-
     void DisableAllSliders()
     {
         xSlider.transform.parent.gameObject.SetActive(false);
@@ -415,7 +404,6 @@ public class ArticualtionToolScript : MonoBehaviour
         zSlider.transform.parent.gameObject.SetActive(false);
         gameObject.SetActive(false);
     }
-
     void SetAxisSliders(bool useX, bool useY, bool useZ)
     {
         xSlider.transform.parent.gameObject.SetActive(useX);
@@ -425,7 +413,6 @@ public class ArticualtionToolScript : MonoBehaviour
         // Remove the fallback behavior that shows all sliders if none are enabled
         // This was causing the issue where objects with all rotations disabled showed all sliders
     }
-
     private void OnZSliderValueChanged(float value)
     {
         if (GizmoSelector.CurrentGizmoMode == GizmoMode.Translate)
@@ -454,7 +441,6 @@ public class ArticualtionToolScript : MonoBehaviour
 
 
     }
-
     private void OnYSliderValueChanged(float value)
     {
         if (GizmoSelector.CurrentGizmoMode == GizmoMode.Translate)
@@ -472,7 +458,6 @@ public class ArticualtionToolScript : MonoBehaviour
 
         uiChanged?.Invoke();
     }
-
     private void OnXSliderValueChanged(float value)
     {
         if (GizmoSelector.CurrentGizmoMode == GizmoMode.Translate)
@@ -488,13 +473,9 @@ public class ArticualtionToolScript : MonoBehaviour
         }
         uiChanged?.Invoke();
     }
-
     private void UpdateTransformPositiom(float value, Axis axis)
     {
-        if (EventSystem.current.IsPointerOverGameObject())
-        {
-            return;
-        }
+
         if (selectables.Count == 0)
         {
             Debug.LogWarning("UpdateTransformRotation: No objects selected");
@@ -547,8 +528,6 @@ public class ArticualtionToolScript : MonoBehaviour
         }
 
     }
-
-
     private void UpdateTransformRotation(float value, Axis axis)
     {
 
@@ -589,8 +568,6 @@ public class ArticualtionToolScript : MonoBehaviour
             obj.transform.localRotation = Quaternion.Euler(currentEuler);
         }
     }
-
-
     private void UpdateTransformScale(float value, Axis axis)
     {
         if (selectables.Count == 0)

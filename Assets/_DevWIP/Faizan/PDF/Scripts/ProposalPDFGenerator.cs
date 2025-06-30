@@ -8,6 +8,8 @@ using System.Collections;
 using System.Collections.Generic;
 using Font = iTextSharp.text.Font;
 using iTextSharp.text.pdf.draw;
+using System.Diagnostics;
+using Debug = UnityEngine.Debug;
 
 /// <summary>
 /// Monolithic refactor of ProposalPDFGenerator with modularized methods and accurate itemized pricing
@@ -21,7 +23,7 @@ public class ProposalPDFGenerator : MonoBehaviour
     private readonly string companyAddress = "9155 Sterling St Suite 120";
     private readonly string companyCity = "Irving, TX 75063";
     private readonly string companyPhone = "1 877 789 8106";
-    private readonly string companyFax = "1 408 754 2969";
+
 
     // Client Details (public for inspector input)
     public string clientName = "Client Name";
@@ -522,7 +524,6 @@ public class ProposalPDFGenerator : MonoBehaviour
         leftCell.AddElement(new Paragraph(companyName, headerFont));
         leftCell.AddElement(new Paragraph(companyAddress, normalFont));
         leftCell.AddElement(new Paragraph(companyCity, normalFont));
-        leftCell.AddElement(new Paragraph($"Tel: {companyPhone} Fax: {companyFax}", normalFont));
         headerTable.AddCell(leftCell);
 
         // Right

@@ -480,6 +480,7 @@ MonoBehaviour:
   - {fileID: 6920900863554958560}
   - {fileID: 5795551125299341961}
   _assemblySelectables: []
+  UIButtonName: 
   canBeDuplicated: 0
   <CurrentScaleLevel>k__BackingField:
     <Size>k__BackingField: 0
@@ -853,6 +854,7 @@ MonoBehaviour:
   - {fileID: 6920900863554958560}
   - {fileID: 5795551125299341961}
   _assemblySelectables: []
+  UIButtonName: 
   canBeDuplicated: 0
   <CurrentScaleLevel>k__BackingField:
     <Size>k__BackingField: 0

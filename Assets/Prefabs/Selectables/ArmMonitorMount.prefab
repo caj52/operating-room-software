@@ -675,7 +675,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 332d91d59e26db94388a081459aa4e08, type: 3}
       propertyPath: m_LocalPosition.x
-      value: -0
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 332d91d59e26db94388a081459aa4e08, type: 3}
       propertyPath: m_LocalPosition.y
@@ -683,7 +683,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 332d91d59e26db94388a081459aa4e08, type: 3}
       propertyPath: m_LocalPosition.z
-      value: 0
+      value: -0.0456
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 332d91d59e26db94388a081459aa4e08, type: 3}
       propertyPath: m_LocalRotation.w
@@ -845,6 +845,7 @@ MonoBehaviour:
   - {fileID: 356605546129720916}
   - {fileID: 8018759280580034252}
   _assemblySelectables: []
+  UIButtonName: 
   canBeDuplicated: 0
   <CurrentScaleLevel>k__BackingField:
     <Size>k__BackingField: 0

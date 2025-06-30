@@ -307,7 +307,7 @@ public class Measurable : MonoBehaviour
 
                     if (Selectable.IsInElevationPhotoMode)
                     {
-                        measurer.UpdateTransform(camera);
+                       measurer.UpdateTransform(camera);
                     }
 
                     measurer.LineRenderers[0].enabled = true;
@@ -318,8 +318,9 @@ public class Measurable : MonoBehaviour
                     measurer.LineRenderers[0].SetPosition(1, line1End);
                     measurer.LineRenderers[0].startWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(line1Start, camera);
                     measurer.LineRenderers[0].endWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(line1End, camera);
+   
 
-                    measurer.LineRenderers[0].enabled = true;
+                    measurer.LineRenderers[1].enabled = true;
                     measurer.LineRenderers[1].positionCount = 2;
                     Vector3 line2Start = addedHeight + HighestAssemblyAttachmentPoint.transform.position;
                     Vector3 line2End = HighestAssemblyAttachmentPoint.transform.position;
@@ -327,7 +328,7 @@ public class Measurable : MonoBehaviour
                     measurer.LineRenderers[1].SetPosition(1, line2End);
                     measurer.LineRenderers[1].startWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(line2Start, camera);
                     measurer.LineRenderers[1].endWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(line2End, camera);
-                    heightMod += heightMod;
+                    heightMod += 0.15f;
 
                     break;
             }

@@ -11,6 +11,7 @@ using iTextSharp.text.pdf.draw;
 using Unity.Burst.Intrinsics;
 using Unity.VisualScripting;
 using UnityEngine;
+using UnityEngine.Rendering.Universal;
 using static iTextSharp.awt.geom.Point2D;
 using static Measurable;
 using Font = iTextSharp.text.Font;
@@ -99,7 +100,7 @@ public class PdfExporterLocal
      new ButtonAction("Done"));
 #if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
         // Hack fix for macOS not liking Application.OpenURL
-        string location = path;
+        string location = fileName;
         ProcessStartInfo startInfo = new ProcessStartInfo("/System/Library/CoreServices/Finder.app")
         {
             WindowStyle = ProcessWindowStyle.Normal,
@@ -230,7 +231,7 @@ public class PdfExporterLocal
                 stripe = !stripe;
             }
 
-            if (asm.TableName == "Flat Panel Arm" || asm.TableName == "U | ONE (Standard)" || asm.TableName == "Spring Arm (Low Ceiling)")
+            if (asm.TableName == "Flat Panel Arm" || asm.TableName == "Lights - U | ONE" || asm.TableName == "Spring Arm (Low Ceiling)")
             {
                 AddAdditionalRow(fldTbl, "Circuits Required", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
                 AddAdditionalRow(fldTbl, "Overall Weight", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
@@ -707,12 +708,6 @@ public class PdfExporterLocal
                     }
                 }
 
-                bool requiresLengthManually =
-     itemName.Contains("Spring XL") ||
-     itemName.Contains("Spring") ||
-     itemName.Contains("Powered XL") ||
-     itemName.Contains("Powered") ||
-     itemName.Contains("Fixed");
 
                 bool lengthAlreadyAdded = assembly.Fields.Any(f => f.Item == itemName + " length");
 
@@ -720,12 +715,6 @@ public class PdfExporterLocal
                 if (!lengthAlreadyAdded)
                 {
                     float size = item.CurrentScaleLevel?.Size ?? 0f;
-
-                    // If size is still 0 and it's a special case, force it to 1m (1000mm)
-                    if (size == 0f && requiresLengthManually)
-                    {
-                        size = 1f; // default 1000mm
-                    }
 
                     // Only add if size is meaningful
                     if (size > 0f)
@@ -785,12 +774,13 @@ public class PdfExporterLocal
 
     private static bool IsServiceHeadAttachment(SelectableMetaData meta)
     {
-        return meta.Categories.Contains("High Voltage Services") ||
-               meta.Categories.Contains("Low Voltage Services") ||
-               meta.Categories.Contains("Service Head Rails") ||
+        return meta.Categories.Contains("Boom - SH High Voltage") ||
+               meta.Categories.Contains("Boom - SH Low Voltage") ||
+               meta.Categories.Contains("Boom - SH Accessories") ||
                meta.Categories.Contains("Service Head Shelf (500mm)") ||
                meta.Name.Contains("Service Head Shelf (500mm)") ||
-               meta.Name.Contains("SHP_Rails");
+               meta.Name.Contains("SHP_Rails") ||
+               meta.Name.Contains("NitrogenRegulator");
     }
 
 }
