@@ -3,42 +3,7 @@ guid: 2d8ae23b1b061d449bea30270f6282a3
 ModelImporter:
   serializedVersion: 21300
   internalIDToNameTable: []
-  externalObjects:
-  - first:
-      type: UnityEngine:Material
-      assembly: UnityEngine.CoreModule
-      name: Body
-    second: {fileID: 2100000, guid: 81591b145d8cc0341a4f0516bee6647e, type: 2}
-  - first:
-      type: UnityEngine:Material
-      assembly: UnityEngine.CoreModule
-      name: Body_Black
-    second: {fileID: 2100000, guid: 8941bc165c5729747bf2724fabb01067, type: 2}
-  - first:
-      type: UnityEngine:Material
-      assembly: UnityEngine.CoreModule
-      name: Glass
-    second: {fileID: 2100000, guid: 2d6f310aa1718e6498c95026595d07cb, type: 2}
-  - first:
-      type: UnityEngine:Material
-      assembly: UnityEngine.CoreModule
-      name: Logo
-    second: {fileID: 2100000, guid: 9abce2aef75d48141b018656a187359f, type: 2}
-  - first:
-      type: UnityEngine:Material
-      assembly: UnityEngine.CoreModule
-      name: Metal
-    second: {fileID: 2100000, guid: e5745fb9fdba56b47b5049bd4cec08f1, type: 2}
-  - first:
-      type: UnityEngine:Material
-      assembly: UnityEngine.CoreModule
-      name: Reflector
-    second: {fileID: 2100000, guid: 1ecbb79448ccd5e488f4481fbaabb890, type: 2}
-  - first:
-      type: UnityEngine:Material
-      assembly: UnityEngine.CoreModule
-      name: Screen
-    second: {fileID: 2100000, guid: 0246b716a0fc21b4ba68b15a1b2f83fd, type: 2}
+  externalObjects: {}
   materials:
     materialImportMode: 2
     materialName: 0

@@ -414,8 +414,10 @@ public class ConfigurationManager : MonoBehaviour
         }
     }
 
+
     private async void LoadRoom()
     {
+       
         IsLoading = true;
         var token = Loading.GetLoadingToken();
 
@@ -442,7 +444,9 @@ public class ConfigurationManager : MonoBehaviour
                 token.SetProgress(progression);
             }
 
-        
+
+          
+
             OnRoomLoadComplete?.Invoke();
 
         }
@@ -555,13 +559,25 @@ public class ConfigurationManager : MonoBehaviour
                     }
                 }
             }
-
-
-
             duplicateRoom.onObjectPlaced?.Invoke(go);
         }
 
- 
+        GameObject root = _newObjects.FirstOrDefault(o => o.transform == o.transform.root)?.gameObject;
+        if (root != null && root.GetComponent<RecordHirarcheySelectables>() == null)
+        {
+            var recordHierarchy = root.AddComponent<RecordHirarcheySelectables>();
+
+            // Get all Selectables under root including the root itself
+            SelectablePrice[] allSelectables = root.GetComponentsInChildren<SelectablePrice>(includeInactive: true);
+            foreach (var selectable in allSelectables)
+            {
+                if (selectable == null) continue;
+
+                string uiName = selectable.UIObjectName;
+                recordHierarchy.AddAttachedSelectables(selectable.selectable, uiName);
+            }
+        }
+
     }
     /// <summary>
     /// Loads all objects into cache so they are easily handled by the loading process
@@ -649,8 +665,8 @@ public class ConfigurationManager : MonoBehaviour
                 obj.GetComponentInParent<BoomOutletValidator>()?.ValidateBoomConfiguration(grandParent);
         }
 
-        string excelName = UINameToExcelKey.GetExcelName(uiBtnName);
-        if (!string.IsNullOrEmpty(excelName))
+        string excelName = uiBtnName;
+        if (excelName.ToLower().Contains("boom"))
         {
             if (isHVOutlet)
             {

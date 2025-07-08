@@ -393,10 +393,10 @@ MonoBehaviour:
           m_StringArgument: 
           m_BoolArgument: 0
         m_CallState: 2
-      - m_Target: {fileID: 5331150289804656757}
-        m_TargetAssemblyTypeName: UnityEngine.GameObject, UnityEngine
-        m_MethodName: SetActive
-        m_Mode: 0
+      - m_Target: {fileID: 4814838450212097885}
+        m_TargetAssemblyTypeName: BoomHeadBottomPostEnabler, Assembly-CSharp
+        m_MethodName: EnableGameObject
+        m_Mode: 6
         m_Arguments:
           m_ObjectArgument: {fileID: 0}
           m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
@@ -1301,6 +1301,19 @@ GameObject:
   m_CorrespondingSourceObject: {fileID: 7126403934356442674, guid: c9f6aee74b8a5974f9da9db7dbcc7a49, type: 3}
   m_PrefabInstance: {fileID: 3105828357754064455}
   m_PrefabAsset: {fileID: 0}
+--- !u!114 &4814838450212097885
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5331150289804656757}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 10746b49712551c478517b88e8db846a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  attachmentPoint: {fileID: 4460034532636006353}
 --- !u!1001 &3355884042471820486
 PrefabInstance:
   m_ObjectHideFlags: 0

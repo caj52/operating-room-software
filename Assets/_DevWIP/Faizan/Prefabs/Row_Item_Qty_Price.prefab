@@ -489,6 +489,7 @@ MonoBehaviour:
   modelName: {fileID: 9135050025833194301}
   quantity: {fileID: 9135050024621231383}
   listPrice: {fileID: 9135050024896615549}
+  price: 0
   associatedObject: {fileID: 0}
 --- !u!1 &9135050025833194299
 GameObject:

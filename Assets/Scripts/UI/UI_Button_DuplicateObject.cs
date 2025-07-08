@@ -87,7 +87,6 @@ public class UI_Button_DuplicateObject : MonoBehaviour
 
         SelectablePrice[] oldPrices = obj.GetComponentsInChildren<SelectablePrice>(true);
         PopulateUIWithPricingItems pricingUI = FindObjectOfType<PopulateUIWithPricingItems>(true);
-
         foreach (var oldPrice in oldPrices)
         {
             Transform relativePath = oldPrice.transform;
@@ -121,10 +120,10 @@ public class UI_Button_DuplicateObject : MonoBehaviour
             newPrice.selectableObjectForSize = oldPrice.selectableObjectForSize;
             newPrice.sheetName = oldPrice.sheetName;
 
-            pricingUI?.SetDataIntoList(newPrice);
+            pricingUI?.OnSetPriceData(newPrice,null);
         }
 
-        pricingUI?.SetDataIntoList(null);
+        pricingUI?.OnSetPriceData(null,null);
         //pricingUI?.ResolveAndLogLightPricing();
 
         Debug.Log($"Anas Duplicated {obj.name} and regenerated pricing UI.");

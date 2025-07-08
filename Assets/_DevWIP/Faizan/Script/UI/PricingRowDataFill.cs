@@ -9,7 +9,7 @@ public class PricingRowDataFill : MonoBehaviour
     public TMP_Text modelName;
     public TMP_Text quantity;
     public TMP_Text listPrice;
-
+    public double price;
     [Header("Data Reference")]
     public SelectablePrice associatedObject;
 
@@ -31,6 +31,9 @@ public class PricingRowDataFill : MonoBehaviour
 
         listPrice.text = totalPrice.ToString("F2");
         primaryObject.UIRefPricingRowDataFill = this;
+
+
+        price = totalPrice;
     }
 
     /// <summary>

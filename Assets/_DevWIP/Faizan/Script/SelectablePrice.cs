@@ -11,7 +11,7 @@ public class SelectablePrice : MonoBehaviour
     public Selectable selectable;
     private Selectable _selectableObjectForSize;
     public string size;
-
+    public string rootParentName;
     public PricingRowDataFill UIRefPricingRowDataFill;
     public Selectable selectableObjectForSize
     {
@@ -33,7 +33,7 @@ public class SelectablePrice : MonoBehaviour
             }
         }
     }
-    public event Action OnDestroyed;
+    //public event Action OnDestroyed;
     public string sheetName;
     private PricingRowDataFill uiReferenceForSelectablePrice;
     public bool isBoomObject = false;
@@ -84,16 +84,6 @@ public class SelectablePrice : MonoBehaviour
             objectPricingData.isSimFlexArmAvailable = HasSimFlexArmInTheHirarchey();
             PopulateUIWithPricingItems pricingItems = FindObjectOfType<PopulateUIWithPricingItems>(true);
             pricingItems.OnSetPriceData.Invoke(this,null);
-            //if (pricingItems != null)
-            //{
-            //    uiReferenceForSelectablePrice = pricingItems.GenerateUIRow(this);
-            //    PricingRowDataFill = uiReferenceForSelectablePrice;
-            //}
-            //else
-            //{
-            //    Debug.LogError("PopulateUIWithPricingItems not found in the scene");
-            //}
-
         }
     }
 
@@ -274,7 +264,7 @@ public class SelectablePrice : MonoBehaviour
         }
         PopulateUIWithPricingItems pricingUI = FindObjectOfType<PopulateUIWithPricingItems>(true);
         pricingUI.OnClearSp(this);
-        OnDestroyed?.Invoke();//Triggering event on destory so that relvant Objects e.g., UI should be destroy as well.
+        //OnDestroyed?.Invoke();//Triggering event on destory so that relvant Objects e.g., UI should be destroy as well.
         Debug.Log("Anas Destroy SelectablePrice");
     }
 

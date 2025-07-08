@@ -11,6 +11,7 @@ using iTextSharp.text.pdf.draw;
 using System.Diagnostics;
 using Debug = UnityEngine.Debug;
 
+
 /// <summary>
 /// Monolithic refactor of ProposalPDFGenerator with modularized methods and accurate itemized pricing
 /// </summary>
@@ -249,11 +250,17 @@ public class ProposalPDFGenerator : MonoBehaviour
         {
             string btName = a.btName;
 
-            // Get the Selectable component
-            Selectable selectable = a.gameObject.GetComponent<Selectable>();
-            if (selectable == null)
+            // Ensure object and GameObject are not destroyed
+            if (a == null || a.Equals(null) || a.gameObject == null || a.gameObject.Equals(null))
             {
-                return btName; // If no Selectable component, return only btName
+                return btName;
+            }
+
+            // Get the Selectable component safely
+            Selectable selectable = a.gameObject.GetComponent<Selectable>();
+            if (selectable == null || selectable.Equals(null))
+            {
+                return btName;
             }
 
             float size = selectable.CurrentPreviewScaleLevel?.Size ?? 0f;
@@ -283,6 +290,73 @@ public class ProposalPDFGenerator : MonoBehaviour
 
         return concatenatedNames;
     }
+
+    private Dictionary<string, List<string>> GetBtNamesGroupedByType(List<SelectablePrice> selectables)
+    {
+        var result = new Dictionary<string, List<string>>
+    {
+        { "Light", new List<string>() },
+        { "Boom", new List<string>() }
+    };
+
+        foreach (var sp in selectables)
+        {
+            GameObject rootObject = sp.transform.root.gameObject;
+            var hierarchyScript = rootObject.GetComponent<RecordHirarcheySelectables>();
+            if (hierarchyScript == null) continue;
+
+            var attachedList = hierarchyScript.attachedSelectables
+                .FirstOrDefault(a => a.gameObject == sp.gameObject) != null
+                ? hierarchyScript.attachedSelectables
+                : hierarchyScript.attachedSelectables2;
+
+            foreach (var a in attachedList)
+            {
+                if (a == null || a.Equals(null)) continue; // Unity-safe null check
+
+                // Guard against destroyed GameObject
+                GameObject go = a.gameObject;
+                if (go == null || go.Equals(null)) continue;
+
+                string btName = a.btName;
+                var selectable = go.GetComponent<Selectable>();
+                string sizeStr = "";
+
+                if (selectable != null && !selectable.Equals(null))
+                {
+                    float size = selectable.CurrentPreviewScaleLevel?.Size ?? 0f;
+                    if (size > 0)
+                    {
+                        sizeStr = $" ({size * 1000}mm)";
+                    }
+                    else
+                    {
+                        foreach (var related in selectable.RelatedSelectables)
+                        {
+                            var selectedScale = related.ScaleLevels?.FirstOrDefault(s => s.Selected);
+                            if (selectedScale != null)
+                            {
+                                sizeStr = $" ({selectedScale.Size * 1000}mm)";
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                string fullName = btName + sizeStr;
+
+                // Classify by keyword
+                if (btName.ToLower().Contains("light") || btName.ToLower().Contains("spring arm"))
+                    result["Light"].Add(fullName);
+                else
+                    result["Boom"].Add(fullName);
+            }
+
+        }
+
+        return result;
+    }
+
     private string GetHierarchyPath(Transform transform)
     {
         string path = transform.name;
@@ -300,7 +374,6 @@ public class ProposalPDFGenerator : MonoBehaviour
         AddCompanyHeader(document);
         document.Add(Chunk.NEWLINE);
 
-        // Group all SelectablePrices by their root configuration
         var rootGroups = selectablePrices
             .Where(sp => sp.objectPricingData != null)
             .GroupBy(sp => sp.transform.root)
@@ -314,29 +387,23 @@ public class ProposalPDFGenerator : MonoBehaviour
             string configTitle = $"Configuration {configCount++}: {first.objectPricingData.ObjectName}";
             AddTableTitle(document, configTitle);
 
-            // MODEL DESCRIPTION
             var lights = group.Where(sp => !sp.isBoomObject).ToList();
             var booms = group.Where(sp => sp.isBoomObject).ToList();
 
             if (lights.Count > 0)
             {
-                PdfPTable lightTable = CreateModelTable("MODEL DESCRIPTION", "QTY", "LIGHT", "1");
+                PdfPTable lightTable = CreateModelTable("MODEL DESCRIPTION", "QTY", "LIGHT", lights.Count.ToString());
                 document.Add(lightTable);
                 AddHorizontalLine(document);
 
                 AddSectionHeader(document, "OPTION/ACCESSORY DESCRIPTION");
 
-                string lightOptionsText = string.Join(", ",
-                    lights.AsEnumerable().Reverse().Select(sp =>
-                        string.IsNullOrEmpty(sp.objectPricingData.ObjectSize)
-                            ? sp.objectPricingData.ObjectName
-                            : $"{sp.objectPricingData.ObjectSize} {sp.objectPricingData.ObjectName}"));
+                // Light-related options only
+                var btNamesGrouped = GetBtNamesGroupedByType(lights);
+                string lightOptionsText = string.Join(", ", btNamesGrouped["Light"]);
+                PdfPTable lightOptions = CreateOptionTable(lightOptionsText);
 
-                string btNames = string.Join(", ",
-                    lights.AsEnumerable().Reverse().Select(sp => ConcatenateBtNamesFromSelectablePrice(sp))
-                          .Where(bt => !string.IsNullOrEmpty(bt)));
 
-                PdfPTable lightOptions = CreateOptionTable($"{btNames}");
                 document.Add(lightOptions);
                 document.Add(Chunk.NEWLINE);
             }
@@ -349,20 +416,17 @@ public class ProposalPDFGenerator : MonoBehaviour
 
                 AddSectionHeader(document, "OPTION/ACCESSORY DESCRIPTION");
 
-                string boomOptionsText = string.Join(", ",
-                    booms.AsEnumerable().Reverse().Select(sp => string.IsNullOrEmpty(sp.objectPricingData.ObjectSize)
-                        ? sp.objectPricingData.ObjectName
-                        : $"{sp.objectPricingData.ObjectSize} {sp.objectPricingData.ObjectName}"));
-
+                // Boom-related options only
+                var btNamesGroupedBoom = GetBtNamesGroupedByType(booms);
+                string boomOptionsText = string.Join(", ", btNamesGroupedBoom["Boom"].Distinct());
                 PdfPTable boomOptions = CreateOptionTable(boomOptionsText);
+
                 document.Add(boomOptions);
                 AddHorizontalLine(document);
             }
 
-            // Subtotal
             double configTotal = group.Sum(sp =>
-                sp.objectPricingData.ListPrice +
-                (sp.objectPricingData.isSimFlexArmAvailable ? sp.objectPricingData.SimFlexPrice : 0));
+              sp.UIRefPricingRowDataFill.price);
 
             PdfPTable totalTable = CreateTotalTable("EQUIPMENT TOTAL LIST PRICE", configTotal.ToString("C"));
             document.Add(totalTable);
@@ -409,60 +473,97 @@ public class ProposalPDFGenerator : MonoBehaviour
 
         int configNumber = 1;
 
-        foreach (var configGroup in rootConfigs)
+      foreach (var configGroup in rootConfigs)
+{
+    var firstSp = configGroup.FirstOrDefault();
+    string configTitle = $"Configuration {configNumber++}: {firstSp?.objectPricingData?.ObjectName ?? "Unnamed Configuration"}";
+    AddTableTitle(document, configTitle);
+
+    PdfPTable configTable = new PdfPTable(5);
+    configTable.WidthPercentage = 100;
+    configTable.SetWidths(new float[] { 2, 5, 1, 2, 2 });
+
+    AddRowToTable(configTable, "MODEL DESCRIPTION", BaseColor.WHITE, BaseColor.BLACK, PdfPCell.NO_BORDER);
+
+    double subtotal = 0;
+
+    // Group light components by name/partNumber for aggregation
+    var lightGroups = configGroup
+        .Where(sp => sp.objectPricingData != null &&
+                     sp.objectPricingData.ObjectName.ToLower().Contains("light"))
+        .GroupBy(sp => new
         {
-            var firstSp = configGroup.FirstOrDefault();
-            string configTitle = $"Configuration {configNumber++}: {firstSp.objectPricingData.ObjectName}";
-            AddTableTitle(document, configTitle);
+            sp.objectPricingData.PartNumber,
+            Name = string.IsNullOrEmpty(sp.objectPricingData.ObjectSize)
+                ? sp.objectPricingData.ObjectName
+                : $"{sp.objectPricingData.ObjectSize} {sp.objectPricingData.ObjectName}"
+        });
 
-            PdfPTable configTable = new PdfPTable(5);
-            configTable.WidthPercentage = 100;
-            configTable.SetWidths(new float[] { 2, 5, 1, 2, 2 });
+    // Add lights as aggregated rows
+    foreach (var lightGroup in lightGroups)
+    {
+        int quantity = lightGroup.Count();
+        var sample = lightGroup.Last();
+        double unitPrice = sample.objectPricingData.ListPrice + 
+                           (sample.objectPricingData.isSimFlexArmAvailable ? sample.objectPricingData.SimFlexPrice : 0);
+        Debug.LogError(sample.name, gameObject);
+        PricingRowDataFill pricingRowDataFill = sample?.UIRefPricingRowDataFill;
+               
 
-            AddRowToTable(configTable, "MODEL DESCRIPTION", BaseColor.WHITE, BaseColor.BLACK, PdfPCell.NO_BORDER);
 
-            double subtotal = 0;
+        configTable.AddCell(CreateLeftAlignedCell(pricingRowDataFill.partNo.text ?? "N/A", normalFont));
+        configTable.AddCell(CreateLeftAlignedCell(lightGroup.Key.Name, normalFont));
+        configTable.AddCell(CreateCenteredCell(pricingRowDataFill.quantity.text, normalFont));
+        configTable.AddCell(CreateRightAlignedCell(unitPrice.ToString("C"), normalFont));
+        configTable.AddCell(CreateRightAlignedCell(pricingRowDataFill.price.ToString("C"), normalFont));
 
-            foreach (var sp in configGroup.Reverse())
-            {
-                var data = sp.objectPricingData;
-                if (data == null) continue;
+        subtotal += pricingRowDataFill.price;
+    }
 
-                string partNumber = string.IsNullOrEmpty(data.PartNumber) ? "N/A" : data.PartNumber;
-                string objectName = string.IsNullOrEmpty(data.ObjectSize)
-                    ? data.ObjectName
-                    : $"{data.ObjectSize} {data.ObjectName}";
+            // Add all non-light components as individual rows
+            var nonLightItems = configGroup
+                .Where(sp => sp.objectPricingData != null &&
+                             !sp.objectPricingData.ObjectName.ToLower().Contains("light"))
+                .Reverse()
+                .ToList();
 
-                double price = data.ListPrice + (data.isSimFlexArmAvailable ? data.SimFlexPrice : 0);
+            foreach (var sp in nonLightItems)
+    {
+        var data = sp.objectPricingData;
+        string partNumber = string.IsNullOrEmpty(data.PartNumber) ? "N/A" : data.PartNumber;
+        string objectName = string.IsNullOrEmpty(data.ObjectSize)
+            ? data.ObjectName
+            : $"{data.ObjectSize} {data.ObjectName}";
+                PricingRowDataFill pricingRowDataFill = sp?.UIRefPricingRowDataFill;
 
-                configTable.AddCell(CreateLeftAlignedCell(partNumber, normalFont));
-                configTable.AddCell(CreateLeftAlignedCell(objectName, normalFont));
-                configTable.AddCell(CreateCenteredCell("1", normalFont));
-                configTable.AddCell(CreateRightAlignedCell(price.ToString("C"), normalFont));
-                configTable.AddCell(CreateRightAlignedCell(price.ToString("C"), normalFont));
 
-                subtotal += price;
-            }
+        configTable.AddCell(CreateLeftAlignedCell(pricingRowDataFill.partNo.text, normalFont));
+        configTable.AddCell(CreateLeftAlignedCell(pricingRowDataFill.modelName.text, normalFont));
+        configTable.AddCell(CreateCenteredCell("1", normalFont));
+        configTable.AddCell(CreateRightAlignedCell(pricingRowDataFill.listPrice.text, normalFont));
+        configTable.AddCell(CreateRightAlignedCell(pricingRowDataFill.price.ToString("C"), normalFont));
 
-            // Add subtotal row
-            PdfPCell subtotalLabel = new PdfPCell(new Phrase("Subtotal", boldFont))
-            {
-                Colspan = 4,
-                Border = Rectangle.TOP_BORDER,
-                HorizontalAlignment = Element.ALIGN_RIGHT,
-                PaddingTop = 5
-            };
-            PdfPCell subtotalValue = CreateRightAlignedCell(subtotal.ToString("C"), boldFont);
-            subtotalValue.Border = Rectangle.TOP_BORDER;
+        subtotal += pricingRowDataFill.price;
+    }
 
-            configTable.AddCell(subtotalLabel);
-            configTable.AddCell(subtotalValue);
+    // Add subtotal row
+    PdfPCell subtotalLabel = new PdfPCell(new Phrase("Subtotal", boldFont))
+    {
+        Colspan = 4,
+        Border = Rectangle.TOP_BORDER,
+        HorizontalAlignment = Element.ALIGN_RIGHT,
+        PaddingTop = 5
+    };
+    PdfPCell subtotalValue = CreateRightAlignedCell(subtotal.ToString("C"), boldFont);
+    subtotalValue.Border = Rectangle.TOP_BORDER;
 
-            document.Add(configTable);
-            document.Add(Chunk.NEWLINE);
-        }
+    configTable.AddCell(subtotalLabel);
+    configTable.AddCell(subtotalValue);
 
- 
+    document.Add(configTable);
+    document.Add(Chunk.NEWLINE);
+}
+
         // Charges
         PdfPTable misc = new PdfPTable(5);
         misc.WidthPercentage = 100;
@@ -768,8 +869,7 @@ public class ProposalPDFGenerator : MonoBehaviour
     private double CalculateTotalPrice()
     {
         double selectablesPrice = selectablePrices.Sum(sp =>
-            sp.objectPricingData.ListPrice +
-            (sp.objectPricingData.isSimFlexArmAvailable ? sp.objectPricingData.SimFlexPrice : 0));
+          sp.UIRefPricingRowDataFill.price);
 
         double dropdownTotal = DropdownPopulator.GetAllCurrentStates().Sum(state => state.Item2.ListPrice);
         double install = FindObjectOfType<ExcelReader>()?.GetInstallationLightsCharges()?.ListPrice ?? 0;

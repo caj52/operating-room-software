@@ -1,5 +1,6 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
+using UnityEditor;
 using UnityEngine;
 
 public class SplashScreen : MonoBehaviour
@@ -40,10 +41,10 @@ public class SplashScreen : MonoBehaviour
         {
             status = FadeStatus.Paused;
         }
-
+        ClearRoomPrefs();
         //whiteFill = new Texture2D(1, 1);
-      //  whiteFill.SetPixel(0, 0, Color.white);
-       // whiteFill.Apply();
+        //  whiteFill.SetPixel(0, 0, Color.white);
+        // whiteFill.Apply();
 
         GameObject storageGB = new GameObject("Flash");
         storageGB.transform.localScale = new Vector3(0, 0, 1);
@@ -74,6 +75,15 @@ public class SplashScreen : MonoBehaviour
         {
             Debug.LogWarning("Invalid levelToLoad value.");
         }
+    }
+
+    public void ClearRoomPrefs()
+    {
+        PlayerPrefs.DeleteKey("RoomWidth");
+        PlayerPrefs.DeleteKey("RoomHeight");
+        PlayerPrefs.DeleteKey("RoomDepth");
+        PlayerPrefs.Save();
+        Debug.Log("Room width and height prefs have been cleared.");
     }
 
     private void Update()

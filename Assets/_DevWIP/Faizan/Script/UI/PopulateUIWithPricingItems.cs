@@ -1,11 +1,6 @@
-﻿using Org.BouncyCastle.Asn1.Mozilla;
-using System;
+﻿using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.Linq;
-using Unity.VisualScripting;
-using UnityEditor;
-using UnityEditor.UI;
 using UnityEngine;
 
 public class PopulateUIWithPricingItems : MonoBehaviour
@@ -19,6 +14,8 @@ public class PopulateUIWithPricingItems : MonoBehaviour
     public Action<SelectablePrice, GameObject> OnSetPriceData;
     public Action<SelectablePrice> OnClearSp; //Clearing from SelectablePrice.cs
 
+    private Dictionary<string, PriceExcelData> pricingCache = new();
+
     private void OnEnable()
     {
         OnSetPriceData += SetDataIntoList;
@@ -28,7 +25,7 @@ public class PopulateUIWithPricingItems : MonoBehaviour
 
     private void OnDisable()
     {
-        ClearContent();
+       // ClearContent();
     }
     private void Start()
     {
@@ -59,13 +56,11 @@ public class PopulateUIWithPricingItems : MonoBehaviour
     public void SetDataIntoList(SelectablePrice selectablePrice = null,GameObject destroyingObject = null)
     {
 
-        boomObjects =  CleanList(boomObjects);
-        lightObjects = CleanList(lightObjects);
-        otherObjects = CleanList(otherObjects);
+        boomObjects =  CleanListWithNullVaules(boomObjects);
+        lightObjects = CleanListWithNullVaules(lightObjects);
+        otherObjects = CleanListWithNullVaules(otherObjects);
 
-        Debug.Log(" LightObjects count after cleanup: " + lightObjects.Count);
-
-        
+        Debug.Log(" LightObjects count after cleanup: " + lightObjects.Count);        
 
         if (selectablePrice != null)
         {
@@ -81,10 +76,10 @@ public class PopulateUIWithPricingItems : MonoBehaviour
                     break;
 
                 case "2025_03_28 Boom Pricing":
-
                     bool isBoomObjectDuplicated = boomObjects.Any(x => x.GetInstanceID() == selectablePrice.GetInstanceID());
                     if (isBoomObjectDuplicated)
                         return;
+                    Debug.Log("Checking Boom Added From");
 
                     boomObjects.Add(selectablePrice);
                     break;
@@ -93,41 +88,26 @@ public class PopulateUIWithPricingItems : MonoBehaviour
                     break;
             }
 
-
-           
-
-            //if (selectablePrice.sheetName.Contains("Boom Pricing"))
-            //{
-            //    boomObjects.Add(selectablePrice);
-            //}
-            //else if (selectablePrice.sheetName.Contains("Light Pricing"))
-            //{
-            //    lightObjects.Add(selectablePrice);
-            //}
-            //else
-            //{
-            //    otherObjects.Add(selectablePrice);
-            //}
-
             Debug.Log("Anas => Added to list");
         }
         if (destroyingObject != null)
         {
             Destroy(destroyingObject);
         }
-        ResolveAndLogLightPricing(); 
+        
+        ResolveAndLogLightPricing();
     }
 
 
     public void ResolveAndLogLightPricing()
     {
         ClearContent();
-        ExcelReader reader = FindAnyObjectByType<ExcelReader>();
-        if (reader == null)
-        {
-            Debug.LogError("ExcelReader not found in scene!");
-            return;
-        }
+        //ExcelReader reader = FindAnyObjectByType<ExcelReader>();
+        //if (reader == null)
+        //{
+        //    Debug.LogError("ExcelReader not found in scene!");
+        //    return;
+        //}
 
         string lightsSheetName = "2025_03_28 3D Light Pricing";
         string boomSheetName = "2025_03_28 Boom Pricing";
@@ -155,16 +135,15 @@ public class PopulateUIWithPricingItems : MonoBehaviour
                 Debug.Log("Anas => ui2 " + ui2);
                 Debug.Log("Anas => ui3 " + ui3);
 
-
-
                 bool has2 = (i + 1 < lightGroupList.Count);
                 bool has3 = (i + 2 < lightGroupList.Count);                
-
 
                 if (has3 && !string.IsNullOrEmpty(ui1) && !string.IsNullOrEmpty(ui2) && !string.IsNullOrEmpty(ui3))
                 {
                     string combo3 = string.Join(", ", ui1, ui2, ui3);
-                    var data3 = reader.FetchPricingDataFromExcel(lightsSheetName, combo3);
+                    //var data3 = reader.FetchPricingDataFromExcel(lightsSheetName, combo3);
+                    var data3 = GetCachedPricingData(lightsSheetName, combo3);
+
                     if (data3 != null)
                     {
                         AddComboRowToUI(data3, 3, new List<SelectablePrice> { lightGroupList[i], lightGroupList[i + 1], lightGroupList[i + 2] });
@@ -178,7 +157,8 @@ public class PopulateUIWithPricingItems : MonoBehaviour
                 if (has2 && !string.IsNullOrEmpty(ui1) && !string.IsNullOrEmpty(ui2))
                 {
                     string combo2 = string.Join(", ", ui1, ui2);
-                    var data2 = reader.FetchPricingDataFromExcel(lightsSheetName, combo2);
+                    // var data2 = reader.FetchPricingDataFromExcel(lightsSheetName, combo2);
+                    var data2 = GetCachedPricingData(lightsSheetName, combo2);
                     if (data2 != null)
                     {
                         AddComboRowToUI(data2, 2, new List<SelectablePrice> { lightGroupList[i], lightGroupList[i + 1] });
@@ -191,20 +171,17 @@ public class PopulateUIWithPricingItems : MonoBehaviour
 
                 if (!string.IsNullOrEmpty(ui1))
                 {   
-                    var data1 = reader.FetchPricingDataFromExcel(lightsSheetName, ui1);
+                    var data1 = GetCachedPricingData(lightsSheetName, ui1);
                     if (data1 != null)
                     {
                         AddComboRowToUI(data1, 1, new List<SelectablePrice> { lightGroupList[i] });
                         Debug.Log("ANas = > Combo of 1 " + data1);
-
                     }
                 }
 
                 i++;
             }
         }
-
-
 
         int boomIndex = 0;
        
@@ -214,8 +191,9 @@ public class PopulateUIWithPricingItems : MonoBehaviour
             string ui1 = boomObjects[boomIndex].UIObjectName?.Trim();
             if (!string.IsNullOrEmpty(ui1))
             {
-                //var data1 = reader.FetchPricingDataFromExcel(boomSheetName, ui1);
-                var data1 = reader.FetchPricingDataFromExcel(boomSheetName, ui1, boomObjects[boomIndex].size);
+                //var data1 = reader.FetchPricingDataFromExcel(boomSheetName, ui1, boomObjects[boomIndex].size);
+                var data1 = GetCachedPricingData(boomSheetName, ui1, boomObjects[boomIndex].size);
+
 
                 Debug.Log("Anas => " + ui1);
                 if (data1 != null)
@@ -234,18 +212,18 @@ public class PopulateUIWithPricingItems : MonoBehaviour
         PricingRowDataFill row = Instantiate(rowPrefab, transform);
 
         row.FillData(data, quantity, linkedObjects.FirstOrDefault());
-        
 
 
-        foreach (var sp in linkedObjects)
-        {
-            if (sp == null) continue;
 
-            sp.OnDestroyed += row.DestroyRow;
-            Debug.Log("Anas => sp Destroy Event", sp.gameObject);
+        //foreach (var sp in linkedObjects)
+        //{
+        //    if (sp == null) continue;
 
-            row.OnDestroyEvent += () => sp.OnDestroyed -= row.DestroyRow;
-        }
+        //    sp.OnDestroyed += row.DestroyRow;
+        //    Debug.Log("Anas => sp Destroy Event", sp.gameObject);
+
+        //    row.OnDestroyEvent += () => sp.OnDestroyed -= row.DestroyRow;
+        //}
     }
 
     private void ClearContent() 
@@ -260,7 +238,7 @@ public class PopulateUIWithPricingItems : MonoBehaviour
             Destroy(child.gameObject);
         }
     }
-    private List<SelectablePrice> CleanList(List<SelectablePrice> list)
+    private List<SelectablePrice> CleanListWithNullVaules(List<SelectablePrice> list)
     {
         return list
             .Where(x => x != null && !ReferenceEquals(x, null) && x.gameObject != null)
@@ -271,6 +249,7 @@ public class PopulateUIWithPricingItems : MonoBehaviour
     {
         lightObjects.Remove(sp);
         boomObjects.Remove(sp);
+        SetDataIntoList(null);
 
     }
 
@@ -283,5 +262,35 @@ public class PopulateUIWithPricingItems : MonoBehaviour
         Debug.Log("Anas => " + t , t.gameObject);
         return t;
     }
+
+    private PriceExcelData GetCachedPricingData(string sheetName, string key, string size = "")
+    {
+        string cacheKey = $"{sheetName}::{key}::{size}";
+
+        if (pricingCache.TryGetValue(cacheKey, out var cachedData))
+        {   
+            Debug.Log("Anas => Using cached data for: " + cacheKey);
+            return cachedData;
+        }
+
+        ExcelReader reader = FindAnyObjectByType<ExcelReader>();
+        if (reader == null)
+        {
+            Debug.LogError("ExcelReader not found in scene!");
+            return null;
+        }
+
+        PriceExcelData data;
+
+        if (!string.IsNullOrEmpty(size))
+            data = reader.FetchPricingDataFromExcel(sheetName, key, size);
+        else
+            data = reader.FetchPricingDataFromExcel(sheetName, key);
+
+        pricingCache[cacheKey] = data;
+
+        return data;
+    }
+
 
 }

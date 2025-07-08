@@ -548,7 +548,7 @@ public class ObjectMenu : MonoBehaviour
     }
     #endregion
 
-    public void AddSelectablePrice(GameObject newSelectableGameObject, bool isBoomObject, string objectName, string uiBtnName, string excelName)
+    public void AddSelectablePrice(GameObject newSelectableGameObject, bool isBoomObject, string objectName, string uiBtnName, string excelName,string parent=null)
     {
         Selectable currentSelectables = newSelectableGameObject.GetComponent<Selectable>();
         SelectablePrice selectablePrice = newSelectableGameObject.AddComponent<SelectablePrice>();
@@ -556,6 +556,7 @@ public class ObjectMenu : MonoBehaviour
         selectablePrice.pricingObjectName = uiBtnName;
         selectablePrice.selectable = currentSelectables;
         selectablePrice.UIObjectName = uiBtnName;
+        selectablePrice.rootParentName= parent;
         string excelFileName = excelName;
         selectablePrice.GetPricingDataFromExcel(excelFileName);
     }

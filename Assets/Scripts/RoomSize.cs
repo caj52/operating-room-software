@@ -32,18 +32,28 @@ public class RoomSize : MonoBehaviour
     {
         Instance = this;
 
-        InputFieldWidth.onEndEdit
-            .AddListener(text => EnforceDimensionSize(InputFieldWidth, text));
+        RoomDimension savedRoom = GetSavedRoomDimensions();
 
-        InputFieldHeight.onEndEdit
-            .AddListener(text => EnforceDimensionSize(InputFieldHeight, text));
+        // Set input fields with saved values if available
+        if (PlayerPrefs.HasKey("RoomWidth"))
+            InputFieldWidth.text = savedRoom.Width.ToString();
 
-        InputFieldDepth.onEndEdit
-            .AddListener(text => EnforceDimensionSize(InputFieldDepth, text));
+        if (PlayerPrefs.HasKey("RoomHeight"))
+            InputFieldHeight.text = savedRoom.Height.ToString();
 
+        if (PlayerPrefs.HasKey("RoomDepth"))
+            InputFieldDepth.text = savedRoom.Depth.ToString();
+
+        // Add listeners for dimension enforcement
+        InputFieldWidth.onEndEdit.AddListener(text => EnforceDimensionSize(InputFieldWidth, text));
+        InputFieldHeight.onEndEdit.AddListener(text => EnforceDimensionSize(InputFieldHeight, text));
+        InputFieldDepth.onEndEdit.AddListener(text => EnforceDimensionSize(InputFieldDepth, text));
+
+        // Subscribe to room size changed event
         RoomSizeChanged.AddListener(OnRoomSizeChanged);
         RoomSizeChanged.AddListener(UpdateBounds);
     }
+
 
     private void OnDestroy()
     {
@@ -104,12 +114,61 @@ public class RoomSize : MonoBehaviour
             float.Parse(Instance.InputFieldHeight.text),
             float.Parse(Instance.InputFieldDepth.text)
             ));
+
+        SaveRoomDimensions(Instance.InputFieldWidth.text, Instance.InputFieldHeight.text, Instance.InputFieldDepth.text);
         gameObject.SetActive(false);
+
     }
 
 
+    #region Save Values
 
-    
+    public void SaveRoomDimensions(string widthInput, string heightInput, string depthInput)
+    {
+        if (string.IsNullOrEmpty(widthInput) || string.IsNullOrEmpty(heightInput) || string.IsNullOrEmpty(depthInput))
+        {
+            Debug.LogWarning("Width, height, or depth input is null or empty.");
+            return;
+        }
+
+        if (float.TryParse(widthInput, out float width) &&
+            float.TryParse(heightInput, out float height) &&
+            float.TryParse(depthInput, out float depth))
+        {
+            PlayerPrefs.SetFloat("RoomWidth", width);
+            PlayerPrefs.SetFloat("RoomHeight", height);
+            PlayerPrefs.SetFloat("RoomDepth", depth); // Save depth here
+            PlayerPrefs.Save();
+            Debug.Log($"Saved Room Dimensions: Width = {width}, Height = {height}, Depth = {depth}");
+        }
+        else
+        {
+            Debug.LogWarning("Invalid number format for width, height, or depth.");
+        }
+    }
+
+    #endregion
+
+    #region Get Dimension Values
+    public RoomDimension GetSavedRoomDimensions()
+    {
+        if (PlayerPrefs.HasKey("RoomWidth") && PlayerPrefs.HasKey("RoomHeight"))
+        {
+            float width = PlayerPrefs.GetFloat("RoomWidth");
+            float height = PlayerPrefs.GetFloat("RoomHeight");
+            float depth = PlayerPrefs.HasKey("RoomDepth") ? PlayerPrefs.GetFloat("RoomDepth") : 0f;
+
+            return new RoomDimension(width, height, depth);
+        }
+        else
+        {
+            Debug.LogWarning("Room dimensions not found in PlayerPrefs. Returning default values.");
+            return new RoomDimension(0f, 0f, 0f);
+        }
+    }
+
+
+    #endregion
 }
 
 [Serializable]

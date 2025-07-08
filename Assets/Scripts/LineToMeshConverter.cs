@@ -12,12 +12,13 @@ public class LineToMeshConverter : MonoBehaviour
     public float lineThickness = 0.1f;
     public float widthScale = 0.5f;
     public int circleResolution = 8;
-
+    Selectable selectable;
     void Start()
     {
+
         lineRenderer = GetComponent<LineRenderer>();
         meshFilter = GetComponent<MeshFilter>();
-
+        selectable = transform.parent.GetComponent<Selectable>();
         // Get or add a SphereCollider component
         sphereCollider = GetComponent<SphereCollider>();
         if (sphereCollider == null)
@@ -135,7 +136,7 @@ public class LineToMeshConverter : MonoBehaviour
                 Debug.Log("Anas => Not Same Highest Selectable and Intersaction");
                 SetRendererColor(this, new Color(1f, 0f, 0f, 0.5f)); // Red
                 SetRendererColor(other.GetComponent<LineToMeshConverter>(), new Color(1f, 0f, 0f, 0.5f));
-                UI_DialogPrompt.Open($"{this.gameObject.name} is colliding with the {other.gameObject.name}",
+                UI_DialogPrompt.Open($"{selectable.UIButtonName} is colliding with the {other.gameObject.name}",
                  new ButtonAction
                  {
                      ButtonText = "Ok",
@@ -150,7 +151,7 @@ public class LineToMeshConverter : MonoBehaviour
         {
             Debug.Log("Anas => Touching the Wall!");
             SetRendererColor(this, new Color(1f, 0f, 0f, 0.5f));
-            UI_DialogPrompt.Open($"{this.gameObject.name} is touching the wall!",
+            UI_DialogPrompt.Open($"{selectable.UIButtonName} is touching the wall!",
             new ButtonAction
             {
                 ButtonText = "Ok",

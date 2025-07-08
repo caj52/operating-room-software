@@ -1,4 +1,4 @@
-using Newtonsoft.Json.Linq;
+﻿using Newtonsoft.Json.Linq;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -55,7 +55,9 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
     {
         ArmAssembly,
         Door,
-        Azurion
+        Azurion,
+        PetCTscan,
+        Allia
     }
 
     private static readonly float _sizeScalar = 0.0035f;
@@ -87,7 +89,7 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
     private float DoorSwingAngle { get; set; } = 90f;
 
     [field: SerializeField]
-    private RendererType Type { get; set; }
+    public RendererType Type { get; set; }
 
     private Selectable _highestSelectable;
 
@@ -108,7 +110,7 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
     [SerializeField] float epsilon = 0.00001f;
     private float MedianY => ((_highestY + _lowestY) / 2f) - _highestSelectable.transform.position.y;
     private object _lockObj = new();
-    [SerializeField] Material renderMaterialColor;
+   public Material renderMaterialColor;
     #endregion
 
     #region Monobehaviour
@@ -241,10 +243,18 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
     #region Logic
     private void CheckStatus()
     {
+        GameObject prefab;
         if (_lineRenderer == null)
         {
             Debug.Log("Anas => Adding ClearacneLine ");
-            var prefab = Resources.Load<GameObject>("Prefabs/ClearanceLinesRenderer");
+            if (Type==RendererType.Allia||Type==RendererType.PetCTscan)
+            {
+                prefab = Resources.Load<GameObject>("Prefabs/ClearanceLinesRendererRectangle");
+            }
+            else
+            {
+                prefab = Resources.Load<GameObject>("Prefabs/ClearanceLinesRenderer");
+            }
             var newObj = Instantiate(prefab, Type == RendererType.ArmAssembly ? _highestSelectable.transform : transform.root);
             newObj.name = gameObject.name;
             //newObj.transform.localPosition = new Vector3(newObj.transform.localPosition.x, newObj.transform.localPosition.y, _trackedParentSelectables[0].transform.localPosition.z);
@@ -400,6 +410,15 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         {
             UpdateLineRendererAzurion();
         }
+        else if (Type == RendererType.PetCTscan)
+        {
+            UpdateLineRendererBedScanner();
+        }
+
+        else if (Type == RendererType.Allia)
+        {
+            UpdateLineRendererBedScannerAllia();
+        }
     }
 
 
@@ -488,6 +507,93 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
 
         _lineRenderer.positionCount = _positions.Count;
         _lineRenderer.SetPositions(_positions.ToArray());
+
+        _needsUpdate = false;
+    }
+
+
+
+    private void UpdateLineRendererBedScanner()
+    {
+        _positions.Clear();
+
+        // Rectangle size
+        float length = 5f; // Total length (opposite to X)
+        float width = 0.5f; // Width (Z-wise, centered)
+        float yOffset = 0.2f;
+
+        // Base position at object's center + upward offset
+        Vector3 baseCenter = transform.position + Vector3.up * yOffset;
+
+        // Directional vectors
+        Vector3 left = -transform.right * length;               // Full length toward -X
+        Vector3 forward = new Vector3(0, width * 0.5f,0);     // Half width on each side (Z)
+
+        // Define corners
+        Vector3 corner1 = baseCenter - forward;                 // Front-left (near center)
+        Vector3 corner2 = baseCenter + forward;                 // Front-right (near center)
+        Vector3 corner3 = baseCenter + left + forward;          // Back-right
+        Vector3 corner4 = baseCenter + left - forward;          // Back-left
+
+        _positions.Add(corner1);
+        _positions.Add(corner2);
+        _positions.Add(corner3);
+        _positions.Add(corner4);
+        _positions.Add(corner1); // Close the loop
+
+        _lineRenderer.positionCount = _positions.Count;
+        _lineRenderer.SetPositions(_positions.ToArray());
+
+        _lineRenderer.widthMultiplier = 0.01f;
+        _lineRenderer.textureMode = LineTextureMode.Tile;
+
+        if (renderMaterialColor != null)
+        {
+            _lineRenderer.material = renderMaterialColor;
+        }
+
+        _needsUpdate = false;
+    }
+
+
+    private void UpdateLineRendererBedScannerAllia()
+    {
+        _positions.Clear();
+
+        // Rectangle size
+        float length = 5f; // Total length (opposite to X)
+        float width = 0.5f; // Width (Z-wise, centered)
+        float yOffset = 0.2f;
+
+        // Base position at object's center + upward offset
+        Vector3 baseCenter = transform.position + Vector3.up * yOffset;
+
+        // Directional vectors
+        Vector3 left = transform.right * length;               // Full length toward X
+        Vector3 forward = new Vector3(0, width * 0.5f, 0);     // Half width on each side (Z)
+
+        // Define corners
+        Vector3 corner1 = baseCenter - forward;                 // Front-left (near center)
+        Vector3 corner2 = baseCenter + forward;                 // Front-right (near center)
+        Vector3 corner3 = baseCenter + left + forward;          // Back-right
+        Vector3 corner4 = baseCenter + left - forward;          // Back-left
+
+        _positions.Add(corner1);
+        _positions.Add(corner2);
+        _positions.Add(corner3);
+        _positions.Add(corner4);
+        _positions.Add(corner1); // Close the loop
+
+        _lineRenderer.positionCount = _positions.Count;
+        _lineRenderer.SetPositions(_positions.ToArray());
+
+        _lineRenderer.widthMultiplier = 0.01f;
+        _lineRenderer.textureMode = LineTextureMode.Tile;
+
+        if (renderMaterialColor != null)
+        {
+            _lineRenderer.material = renderMaterialColor;
+        }
 
         _needsUpdate = false;
     }

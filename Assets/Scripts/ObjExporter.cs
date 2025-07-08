@@ -136,6 +136,8 @@ public static class ObjExporter
         {
             OnExportFinished?.Invoke();
             ObjExporterScript.End();
+            Resources.UnloadUnusedAssets();
+
         }
     }
 
