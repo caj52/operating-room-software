@@ -663,7 +663,17 @@ MonoBehaviour:
       <SubPartName>k__BackingField: 
       <Categories>k__BackingField: []
       <KeyWords>k__BackingField: []
-      <AttachmentPointGuidMetaData>k__BackingField: []
+      <AttachmentPointGuidMetaData>k__BackingField:
+      - <Guid>k__BackingField: 3e5ba2e6-622f-4a58-9add-c5a63bcfe95d
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 3e5ba2e6-622f-4a58-9add-c5a63bcfe95d
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: 837dd8e6-6505-4f78-ad7a-5193405f0876
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: 837dd8e6-6505-4f78-ad7a-5193405f0876
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField: []
   - <PrefabName>k__BackingField: CeilingMount_Single
     <SaveLoadGuid>k__BackingField: gameobject_6ced0f3653094ef46a674087d015ebe0
     <AssetBundleName>k__BackingField: gameobject_6ced0f3653094ef46a674087d015ebe0

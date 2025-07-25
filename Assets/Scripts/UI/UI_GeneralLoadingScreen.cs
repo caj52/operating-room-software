@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using System.Collections;
 using TMPro;
+using System;
 
 public class UI_GeneralLoadingScreen : MonoBehaviour
 {
@@ -9,8 +10,8 @@ public class UI_GeneralLoadingScreen : MonoBehaviour
     public Image loadingImage;
     public float loadingSpeed = 1f;
     public TextMeshProUGUI statusText;
-
-    private bool isLoading = false;
+    public Action OnCancel;
+    public bool isLoading = false;
     private float targetFillAmount = 0f;
 
     private void Awake()
@@ -35,6 +36,7 @@ public class UI_GeneralLoadingScreen : MonoBehaviour
 
     public void ShowLoadingScreen(float targetProgress = 1f)
     {
+    
         gameObject.SetActive(true);
         targetFillAmount = Mathf.Clamp01(targetProgress);
 
@@ -46,6 +48,7 @@ public class UI_GeneralLoadingScreen : MonoBehaviour
 
     public void HideLoadingScreen()
     {
+        Debug.LogError("HideLoadingScreen");
         gameObject.SetActive(false);
         loadingImage.fillAmount = 0f;
     }
@@ -74,5 +77,12 @@ public class UI_GeneralLoadingScreen : MonoBehaviour
         {
             statusText.text = "Please wait .." +message;
         }
+    }
+
+
+    public void EnableLoadingScreen (bool enable)
+    {
+        gameObject.SetActive(enable);
+        loadingImage.fillAmount = 0;
     }
 }

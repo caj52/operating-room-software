@@ -215,6 +215,7 @@ MonoBehaviour:
   loadingImage: {fileID: 4073379064733044661}
   loadingSpeed: 1
   statusText: {fileID: 7904567615419870759}
+  isLoading: 0
 --- !u!1 &7132367131341023086
 GameObject:
   m_ObjectHideFlags: 0

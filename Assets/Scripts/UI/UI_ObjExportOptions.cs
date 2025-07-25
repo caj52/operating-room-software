@@ -58,7 +58,6 @@ public class UI_ObjExportOptions : MonoBehaviour
 
         _eventManager.RegisterEvents
             ((ObjExporter.OnExportFinished, FinishAllLoadingTokens),
-            (ObjExporter.OnMeshDataWritten, OnMeshDataWritten),
             (ObjExporter.OnMeshCombineSuccess, OnMeshCombineSuccess),
             (ObjExporter.OnExportStarted, OnExportStarted));
 

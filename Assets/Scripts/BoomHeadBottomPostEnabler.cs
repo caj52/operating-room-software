@@ -21,7 +21,7 @@ public class BoomHeadBottomPostEnabler : MonoBehaviour
         }
         else
         {
-            gameObject.SetActive(enable);
+            gameObject.SetActive(true);
         }
     }
 

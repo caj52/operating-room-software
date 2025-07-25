@@ -148,7 +148,7 @@ public class KeepRelativePosition : MonoBehaviour
 
     private void GoToRelativePosition()
     {
-        transform.position = VirtualParent.position + _relativePosition;
+        transform.position = VirtualParent != null ? VirtualParent.position + _relativePosition : _relativePosition;
         RecalculateRelativePosition();
     }
 

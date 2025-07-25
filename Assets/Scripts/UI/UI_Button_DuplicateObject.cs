@@ -1,30 +1,22 @@
 ﻿using HighlightPlus;
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using UnityEngine;
-using UnityEngine.UI;
 
 public class UI_Button_DuplicateObject : MonoBehaviour
 {
+    private PopulateUIWithPricingItems _pricingUI;
+    private DuplicateRoom _duplicateRoom;
+
     private void Awake()
     {
         Selectable.SelectionChanged += UpdateActiveState;
         gameObject.SetActive(false);
-    }
 
-    private void UpdateActiveState()
-    {
-        if (!Application.isPlaying || this == null || gameObject == null) return;
-
-        var selectedObjects = Selectable.SelectedSelectables;
-        bool active = selectedObjects.Count > 0;
-
-        if (active && !selectedObjects.Any(x => x.IsDestructible))
-            return;
-
-        gameObject.SetActive(active && selectedObjects[0].canBeDuplicated);
+        _pricingUI = FindObjectOfType<PopulateUIWithPricingItems>(true);
+        _duplicateRoom = FindObjectOfType<DuplicateRoom>();
     }
 
     private void OnDestroy()
@@ -32,7 +24,19 @@ public class UI_Button_DuplicateObject : MonoBehaviour
         Selectable.SelectionChanged -= UpdateActiveState;
     }
 
-    public void DeleteSelectedSelectable()
+    private void UpdateActiveState()
+    {
+        if (!Application.isPlaying || this == null) return;
+
+        var selectedObjects = Selectable.SelectedSelectables;
+        bool shouldBeActive = selectedObjects.Count > 0 &&
+                              selectedObjects.Any(x => x.IsDestructible) &&
+                              selectedObjects[0].canBeDuplicated;
+
+        gameObject.SetActive(shouldBeActive);
+    }
+
+    public void OnDuplicateButtonClicked()
     {
         if (Selectable.SelectedSelectables.Count == 0) return;
 
@@ -40,23 +44,25 @@ public class UI_Button_DuplicateObject : MonoBehaviour
             new ButtonAction
             {
                 ButtonText = "Yes",
-                Action = () =>
+                Action = async () =>
                 {
                     var selectables = Selectable.SelectedSelectables;
                     if (selectables.Count > 0)
-                        DuplicateObject(selectables[0].gameObject);
-
+                    {
+                        await DuplicateObjectAsync(selectables[0].gameObject);
+                    }
                     UI_DialogPrompt.Close();
                 },
             },
             new ButtonAction
             {
-                ButtonText = "Cancel"
+                ButtonText = "Cancel",
+                Action = () => UI_DialogPrompt.Close()
             }
         );
     }
 
-    public void DuplicateObject(GameObject obj)
+    public async Task DuplicateObjectAsync(GameObject obj)
     {
         if (obj == null)
         {
@@ -64,111 +70,185 @@ public class UI_Button_DuplicateObject : MonoBehaviour
             return;
         }
 
-        PrepareObjectToDuplicate(obj);
-
-        Vector3 objPos = obj.transform.position;
-        Quaternion objRot = obj.transform.rotation;
-        Vector3 objScale = obj.transform.localScale;
-
-        GameObject newObj = Instantiate(obj, objPos + Vector3.right, objRot);
-        newObj.transform.localScale = objScale;
-
-        DuplicateRoom room = FindObjectOfType<DuplicateRoom>();
-        if (room != null)
+        try
         {
-            room.onObjectPlaced?.Invoke(newObj);
-        }
+            PrepareObjectForDuplication(obj);
+            GameObject duplicatedObj = CreateDuplicate(obj);
+            DisableHighlighting(duplicatedObj);
+            await DuplicatePricingComponentsAsync(obj, duplicatedObj);
+            NotifyDuplication(duplicatedObj);
 
-        HighlightEffect highlight = newObj.GetComponent<HighlightEffect>();
-        if (highlight != null)
+            Debug.Log($"Successfully duplicated {obj.name}");
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Error duplicating object: {e.Message}");
+        }
+    }
+
+    private GameObject CreateDuplicate(GameObject original)
+    {
+        Vector3 position = original.transform.position + Vector3.right * 2f;
+        GameObject duplicate = Instantiate(original, position, original.transform.rotation);
+        duplicate.transform.localScale = original.transform.localScale;
+        return duplicate;
+    }
+
+    private void PrepareObjectForDuplication(GameObject obj)
+    {
+        var selectables = obj.GetComponentsInChildren<Selectable>(true);
+        foreach (var selectable in selectables)
+        {
+            selectable.isDuplicated = true;
+        }
+    }
+
+    private void DisableHighlighting(GameObject obj)
+    {
+        var highlights = obj.GetComponentsInChildren<HighlightEffect>(true);
+        foreach (var highlight in highlights)
         {
             highlight.highlighted = false;
         }
+    }
 
-        SelectablePrice[] oldPrices = obj.GetComponentsInChildren<SelectablePrice>(true);
-        PopulateUIWithPricingItems pricingUI = FindObjectOfType<PopulateUIWithPricingItems>(true);
-        foreach (var oldPrice in oldPrices)
+    private async Task DuplicatePricingComponentsAsync(GameObject original, GameObject duplicate)
+    {
+        var originalPrices = original.GetComponentsInChildren<SelectablePrice>(true);
+        if (originalPrices.Length == 0) return;
+
+        bool isLightGroup = originalPrices.Any(p => p.sheetName == DataFilePaths.sheetNameLight);
+
+        if (isLightGroup && originalPrices.Length > 1)
         {
-            Transform relativePath = oldPrice.transform;
-            string path = GetHierarchyPath(obj.transform, relativePath);
-            Transform newTransform = newObj.transform.Find(path);
-
-            if (newTransform == null)
-            {
-                Debug.LogWarning($"DuplicateObject: Could not find duplicated path: {path}");
-                continue;
-            }
-
-            GameObject target = newTransform.gameObject;
-
-            SelectablePrice copiedPrice = target.GetComponent<SelectablePrice>();
-            if (copiedPrice != null) DestroyImmediate(copiedPrice);
-
-            Selectable newSelectable = target.GetComponent<Selectable>();
-            if (newSelectable == null)
-            {
-                Debug.LogWarning($"DuplicateObject: No Selectable found on {target.name}");
-                continue;
-            }
-
-            SelectablePrice newPrice = target.AddComponent<SelectablePrice>();
-            newPrice.isBoomObject = oldPrice.isBoomObject;
-            newPrice.pricingObjectName = oldPrice.pricingObjectName;
-            newPrice.UIObjectName = oldPrice.UIObjectName;
-            newPrice.selectable = newSelectable;
-            newPrice.objectPricingData = oldPrice.objectPricingData;
-            newPrice.selectableObjectForSize = oldPrice.selectableObjectForSize;
-            newPrice.sheetName = oldPrice.sheetName;
-
-            pricingUI?.OnSetPriceData(newPrice,null);
+            await BatchProcessLightGroup(originalPrices, original, duplicate);
         }
+        else
+        {
+            var tasks = originalPrices.Select(price => DuplicateSinglePricingComponent(price, original, duplicate));
+            await Task.WhenAll(tasks);
+        }
+    }
 
-        pricingUI?.OnSetPriceData(null,null);
-        //pricingUI?.ResolveAndLogLightPricing();
+    private async Task BatchProcessLightGroup(SelectablePrice[] originalPrices, GameObject original, GameObject duplicate)
+    {
+        var lightPrices = originalPrices.Where(p => p.sheetName == DataFilePaths.sheetNameLight);
+        var nonLightPrices = originalPrices.Where(p => p.sheetName != DataFilePaths.sheetNameLight);
 
-        Debug.Log($"Anas Duplicated {obj.name} and regenerated pricing UI.");
+        // Process light prices in batch (without individual events)
+        var lightTasks = lightPrices.Select(price => CreatePricingComponent(price, original, duplicate, suppressEvents: true));
+        await Task.WhenAll(lightTasks);
+
+        // Process non-light prices normally
+        var nonLightTasks = nonLightPrices.Select(price => DuplicateSinglePricingComponent(price, original, duplicate));
+        await Task.WhenAll(nonLightTasks);
+
+        // Trigger batch update
+        PricingManager.Instance.OnTotalPriceChanged?.Invoke();
+    }
+
+    private async Task DuplicateSinglePricingComponent(SelectablePrice originalPrice, GameObject original, GameObject duplicate)
+    {
+        await CreatePricingComponent(originalPrice, original, duplicate, suppressEvents: false);
+    }
+
+    private async Task CreatePricingComponent(SelectablePrice originalPrice, GameObject original, GameObject duplicate, bool suppressEvents)
+    {
+        try
+        {
+            var targetObject = FindTargetObject(originalPrice, original, duplicate);
+            if (targetObject == null) return;
+
+            CleanExistingPricing(targetObject);
+
+            if (!targetObject.TryGetComponent(out Selectable targetSelectable))
+            {
+                Debug.LogWarning($"No Selectable on duplicate: {targetObject.name}");
+                return;
+            }
+
+            var newPrice = await PricingManager.Instance.AddPricingComponent(
+                targetObject,
+                originalPrice.isBoomObject,
+                originalPrice.pricingObjectName,
+                originalPrice.UIObjectName,
+                originalPrice.sheetName,
+                originalPrice.rootParentName,
+                originalPrice.Price
+            );
+
+            SetupSizeReference(originalPrice, newPrice, original, duplicate);
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Error duplicating pricing: {e.Message}");
+        }
+    }
+
+    private GameObject FindTargetObject(SelectablePrice originalPrice, GameObject original, GameObject duplicate)
+    {
+        string hierarchyPath = GetHierarchyPath(original.transform, originalPrice.transform);
+        Transform targetTransform = FindTransformByPath(duplicate.transform, hierarchyPath);
+        return targetTransform?.gameObject;
+    }
+
+    private void CleanExistingPricing(GameObject targetObject)
+    {
+        if (targetObject.TryGetComponent(out SelectablePrice existing))
+            DestroyImmediate(existing);
+    }
+
+    private void SetupSizeReference(SelectablePrice originalPrice, SelectablePrice newPrice, GameObject original, GameObject duplicate)
+    {
+        if (newPrice == null || originalPrice.SelectableObjectForSize == null) return;
+
+        string sizePath = GetHierarchyPath(original.transform, originalPrice.SelectableObjectForSize.transform);
+        Transform sizeTransform = FindTransformByPath(duplicate.transform, sizePath);
+
+        if (sizeTransform != null && sizeTransform.TryGetComponent(out Selectable sizeSelectable))
+        {
+            newPrice.SelectableObjectForSize = sizeSelectable;
+        }
     }
 
     private string GetHierarchyPath(Transform root, Transform target)
     {
-        string path = "";
-        while (target != root && target != null)
+        if (target == root) return "";
+
+        var path = new List<string>();
+        Transform current = target;
+
+        while (current != root && current != null)
         {
-            path = target.name + (string.IsNullOrEmpty(path) ? "" : "/" + path);
-            target = target.parent;
+            path.Insert(0, current.name);
+            current = current.parent;
         }
-        return path;
+
+        return string.Join("/", path);
     }
 
-    private void PrepareObjectToDuplicate(GameObject obj)
+    private Transform FindTransformByPath(Transform root, string path)
     {
-        foreach (Transform child in obj.GetComponentsInChildren<Transform>(true))
+        if (string.IsNullOrEmpty(path)) return root;
+
+        Transform current = root;
+        foreach (string part in path.Split('/'))
         {
-            Selectable selectable = child.GetComponent<Selectable>();
-            if (selectable)
-            {
-                selectable.isDuplicated = true;
-            }
+            current = current.Find(part);
+            if (current == null) break;
         }
+
+        return current;
     }
 
-    private IEnumerator ApplyChildScalesDelayed(Transform original, Transform duplicate)
+    private void NotifyDuplication(GameObject duplicatedObj)
     {
-        yield return new WaitForEndOfFrame();
-        CopyChildScales(original, duplicate);
+        _duplicateRoom?.onObjectPlaced?.Invoke(duplicatedObj);
+        duplicatedObj.GetComponent<Selectable>()?.StartRaycastPlacementMode();
     }
 
-    private void CopyChildScales(Transform original, Transform duplicate)
+    public void DuplicateObject(GameObject obj)
     {
-        foreach (Transform originalChild in original)
-        {
-            Transform newChild = duplicate.Find(originalChild.name);
-            if (newChild != null)
-            {
-                newChild.localScale = originalChild.localScale;
-                Debug.Log($"Child: {originalChild.name}, Applied Scale: {newChild.localScale}");
-                CopyChildScales(originalChild, newChild);
-            }
-        }
+        _ = DuplicateObjectAsync(obj);
     }
 }

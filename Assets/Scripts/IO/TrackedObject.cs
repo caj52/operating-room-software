@@ -20,13 +20,17 @@ public class TrackedObject : MonoBehaviour
         public Selectable.ScaleLevel scaleLevel;
         public List<string> materialNames;
         public string keepRelativePositionParentName;
+        // Price data
+        public string sheetName;
+        public string UIObjectName;
+        public string size;
     }
 
     private void Awake()
     {
         // Tracked object requires at least one of these
         // components or things will break
-        if (!gameObject.TryGetComponent<Selectable>(out var _) && 
+        if (!gameObject.TryGetComponent<Selectable>(out var _) &&
         !gameObject.TryGetComponent<AttachmentPoint>(out var _))
         {
             Debug.LogWarning($"TrackedObject component is on " +
@@ -48,20 +52,19 @@ public class TrackedObject : MonoBehaviour
     public Data GetData()
     {
         data.objectName = gameObject.name;
-       
+
         GetGUIDs();
 
-        data.pos = transform.position;
+        data.pos = transform.localPosition;
         data.rot = transform.rotation;
         data.scale = transform.localScale;
-       
+
         if (gameObject.TryGetComponent(out Selectable s))
         {
             data.UIButtonname = s.UIButtonName;
             if (s.ScaleLevels.Count() == 0) data.scaleLevel = null;
             else
                 data.scaleLevel = s.CurrentScaleLevel;
-
         }
 
         if (gameObject.TryGetComponent(out MaterialPalette palette))
@@ -75,6 +78,14 @@ public class TrackedObject : MonoBehaviour
             }
         }
 
+        // Store price data
+        if (gameObject.TryGetComponent(out SelectablePrice sp))
+        {
+            data.sheetName = sp.sheetName;
+            data.UIObjectName = sp.UIObjectName;
+            data.size = sp.Size;
+        }
+
         return data;
     }
 
@@ -86,7 +97,6 @@ public class TrackedObject : MonoBehaviour
 
         return scales.First(x => x.Size == data.scaleLevel.Size);
     }
-
 
     public Vector3 GetPosition()
     {
@@ -122,6 +132,14 @@ public class TrackedObject : MonoBehaviour
         data.rot = d.rot;
         data.scale = d.scale;
         data.attachedTo = d.attachedTo;
+
+        // Restore price data
+        if (!string.IsNullOrEmpty(d.sheetName) && gameObject.TryGetComponent(out SelectablePrice sp))
+        {
+            sp.sheetName = d.sheetName;
+            sp.UIObjectName = d.UIObjectName;
+            sp.Size = d.size;
+        }
     }
 
     /// <summary>
@@ -152,7 +170,7 @@ public class TrackedObject : MonoBehaviour
                 data.parent = ConfigurationManager.GetGameObjectPath(this.gameObject);
             }
 
-            if (gameObject.TryGetComponent<KeepRelativePosition>(out var krp) && 
+            if (gameObject.TryGetComponent<KeepRelativePosition>(out var krp) &&
                 krp.VirtualParent != null)
             {
                 data.keepRelativePositionParentName = krp.VirtualParent.name;
@@ -169,7 +187,7 @@ public class TrackedObject : MonoBehaviour
 
     public bool IsDecal()
     {
-        if(!string.IsNullOrEmpty(data.attachedTo) || GetComponent<Selectable>().AttachedTo != null)
+        if (!string.IsNullOrEmpty(data.attachedTo) || GetComponent<Selectable>().AttachedTo != null)
         {
             data.attachedTo = "";
             return true;

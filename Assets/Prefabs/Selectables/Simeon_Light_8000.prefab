@@ -382,6 +382,30 @@ PrefabInstance:
       value: 
       objectReference: {fileID: 0}
     - target: {fileID: 4014627101839371476, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
+      propertyPath: <Measurables>k__BackingField.Array.size
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4014627101839371476, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
+      propertyPath: <Measurables>k__BackingField.Array.data[4]
+      value: 
+      objectReference: {fileID: 2422528193752449719}
+    - target: {fileID: 4014627101839371476, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
+      propertyPath: <Measurables>k__BackingField.Array.data[5]
+      value: 
+      objectReference: {fileID: 2422528193752449719}
+    - target: {fileID: 4014627101839371476, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
+      propertyPath: <Measurables>k__BackingField.Array.data[6]
+      value: 
+      objectReference: {fileID: 2422528193752449719}
+    - target: {fileID: 4014627101839371476, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
+      propertyPath: <Measurables>k__BackingField.Array.data[7]
+      value: 
+      objectReference: {fileID: 2422528193752449719}
+    - target: {fileID: 4014627101839371476, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
+      propertyPath: <Measurables>k__BackingField.Array.data[8]
+      value: 
+      objectReference: {fileID: 2422528193752449719}
+    - target: {fileID: 4014627101839371476, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
       propertyPath: <GizmoSettingsList>k__BackingField.Array.size
       value: 0
       objectReference: {fileID: 0}
@@ -451,15 +475,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4297370789474308351, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 4.4703502e-10
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 4297370789474308351, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
       propertyPath: m_LocalPosition.y
-      value: 0.0072000963
+      value: 0.007
       objectReference: {fileID: 0}
     - target: {fileID: 4297370789474308351, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
       propertyPath: m_LocalPosition.z
-      value: 0.0034000054
+      value: -0.037
       objectReference: {fileID: 0}
     - target: {fileID: 4297370789474308351, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
       propertyPath: m_LocalRotation.w
@@ -489,6 +513,10 @@ PrefabInstance:
       propertyPath: m_ConstrainProportionsScale
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 4330286502733109334, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 6917772863880111987, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
       propertyPath: m_Name
       value: UImagine_WholeLogo
@@ -505,6 +533,17 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2ccc1c21eb92b2d43903fee16c414d2c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+--- !u!114 &2422528193752449719 stripped
+MonoBehaviour:
+  m_CorrespondingSourceObject: {fileID: 2010411395438422699, guid: 4ff4a3a21c91871479ff85ba2ac3ba57, type: 3}
+  m_PrefabInstance: {fileID: 4213370397791021084}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 533802ce717278149876c674f9f556b7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
 --- !u!1 &6519026195748867951 stripped
@@ -537,15 +576,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 46bea1cbba7b3a547924ca582432e4ac, type: 3}
       propertyPath: m_LocalScale.x
-      value: 1
+      value: 0.9
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 46bea1cbba7b3a547924ca582432e4ac, type: 3}
       propertyPath: m_LocalScale.y
-      value: 1
+      value: 0.9
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 46bea1cbba7b3a547924ca582432e4ac, type: 3}
       propertyPath: m_LocalScale.z
-      value: 1
+      value: 0.9
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 46bea1cbba7b3a547924ca582432e4ac, type: 3}
       propertyPath: m_LocalPosition.x

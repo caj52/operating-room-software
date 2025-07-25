@@ -52,7 +52,7 @@ public class TandomRestrictions : MonoBehaviour
         string warning = CheckForRestrictionViolations();
 
         // Show warning if needed
-        if (!string.IsNullOrEmpty(warning))
+        if (!string.IsNullOrEmpty(warning) && UI_ToggleProximityAlerts.IsActive)
         {
             ShowTandemWarning(warning);
         }

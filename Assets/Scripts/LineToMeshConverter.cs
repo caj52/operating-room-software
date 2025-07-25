@@ -136,30 +136,40 @@ public class LineToMeshConverter : MonoBehaviour
                 Debug.Log("Anas => Not Same Highest Selectable and Intersaction");
                 SetRendererColor(this, new Color(1f, 0f, 0f, 0.5f)); // Red
                 SetRendererColor(other.GetComponent<LineToMeshConverter>(), new Color(1f, 0f, 0f, 0.5f));
+
+                if (UI_ToggleProximityAlerts.IsActive)
+                {
                 UI_DialogPrompt.Open($"{selectable.UIButtonName} is colliding with the {other.gameObject.name}",
-                 new ButtonAction
-                 {
-                     ButtonText = "Ok",
-                     Action = () =>
-                     {
-                         UI_DialogPrompt.Close();
-                     },
-                 });
+                new ButtonAction
+                {
+                    ButtonText = "Ok",
+                    Action = () =>
+                    {
+                        UI_DialogPrompt.Close();
+                    },
+                });
+                }
+               
             }
         }
         if (other.gameObject.layer == LayerMask.NameToLayer("Wall") && !other.gameObject.name.Contains("Ceil") && !other.gameObject.name.Contains("Floor"))
         {
             Debug.Log("Anas => Touching the Wall!");
             SetRendererColor(this, new Color(1f, 0f, 0f, 0.5f));
-            UI_DialogPrompt.Open($"{selectable.UIButtonName} is touching the wall!",
-            new ButtonAction
+
+            if (UI_ToggleProximityAlerts.IsActive)
             {
-                ButtonText = "Ok",
-                Action = () =>
-                {
-                    UI_DialogPrompt.Close();
-                },
-            });
+           UI_DialogPrompt.Open($"{selectable.UIButtonName} is touching the wall!",
+           new ButtonAction
+           {
+               ButtonText = "Ok",
+               Action = () =>
+               {
+                   UI_DialogPrompt.Close();
+               },
+           });
+            }
+           
         }
     }
     private void OnTriggerStay(Collider other)

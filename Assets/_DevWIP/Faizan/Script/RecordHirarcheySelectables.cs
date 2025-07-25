@@ -2,218 +2,387 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using System.Threading.Tasks;
 
+/// <summary>
+/// Records and manages hierarchical relationships between selectables in a configuration
+/// </summary>
 public class RecordHirarcheySelectables : MonoBehaviour
 {
-    [SerializeField]
-    public List<AttachedSelectables> attachedSelectables= new List<AttachedSelectables>();
+    #region Fields and Properties
 
-    public List<AttachedSelectables> attachedSelectables2 = new List<AttachedSelectables>();
+    [Header("Attached Selectables")]
+    [SerializeField] private List<AttachedSelectable> _attachedSelectables = new List<AttachedSelectable>();
+    [SerializeField] private List<AttachedSelectable> _attachedSelectables2 = new List<AttachedSelectable>();
 
-    public GameObject tandemMount1;
-    public GameObject tandemMount2;
+    [Header("Tandem Mount References")]
+    [SerializeField] private GameObject _tandemMount1;
+    [SerializeField] private GameObject _tandemMount2;
 
-    public void AddAttachedSelectables(Selectable selectable, string objectName)
+    // Public properties for access
+    public IReadOnlyList<AttachedSelectable> AttachedSelectables => _attachedSelectables;
+    public IReadOnlyList<AttachedSelectable> AttachedSelectables2 => _attachedSelectables2;
+    public GameObject TandemMount1 => _tandemMount1;
+    public GameObject TandemMount2 => _tandemMount2;
+
+    // Scale configurations
+    private static readonly Dictionary<string, ScaleConfiguration> ScaleConfigurations = new Dictionary<string, ScaleConfiguration>
     {
-        if(objectName == "Tandem Mount")//Tandem Mount has two attachment points so it have specific condition.
+        { "Standard_Top", new ScaleConfiguration { Scales = new[] { 0.6f, 0.8f, 1f, 1.2f } } },
+        { "XL_Top", new ScaleConfiguration { Scales = new[] { 0.6f, 0.8f, 1f, 1.2f, 1.4f, 1.6f } } },
+        { "Articulating_Bottom", new ScaleConfiguration { Scales = new[] { 1.0f } } },
+        { "Fixed_Bottom", new ScaleConfiguration { Scales = new[] { 0.6f, 0.8f, 1f, 1.2f, 1.4f, 1.6f } } }
+    };
+
+    #endregion
+
+    #region Public Methods
+
+    /// <summary>
+    /// Adds a selectable to the hierarchy and configures it appropriately
+    /// </summary>
+    public async Task AddAttachedSelectableAsync(Selectable selectable, string objectName)
+    {
+        if (selectable == null || string.IsNullOrEmpty(objectName))
         {
-            if (selectable.AttachmentPointDatas.Count == 2)
-            {
-                tandemMount1 = selectable.AttachmentPointDatas[0].AttachmentPoint.gameObject;
-                tandemMount2 = selectable.AttachmentPointDatas[1].AttachmentPoint.gameObject;
-                //selectable.gameObject.AddComponent<SelectablePrice>();
-                //var selectablePrice = selectable.gameObject.AddComponent<SelectablePrice>();
-                //selectablePrice.pricingObjectName = objectName;
-                //string boomExcelFileName = DataFilePaths.ExcelFileBoomPricingSheet;
-                //Debug.Log("Boom Object found");
-                //selectablePrice.GetPricingDataFromExcel(boomExcelFileName);
-            }
+            Debug.LogWarning("Cannot add null selectable or empty object name");
+            return;
+        }
+
+        if (objectName == "Tandem Mount")
+        {
+            await HandleTandemMount(selectable, objectName);
         }
         else
         {
-            if (tandemMount1 == null && tandemMount2 == null)//normal Object
-            {
-                AttachedSelectables attachedSelectable = new AttachedSelectables();
-                attachedSelectable.gameObject = selectable.gameObject;
-                attachedSelectable.btName = objectName;
-                attachedSelectables.Add(attachedSelectable);
-
-                //Debug.LogError("==" + objectName);
-
-                // Define length options
-                List<float> standardTopArmLengths = new List<float> { 0.6f, 0.8f, 1f, 1.2f };
-                List<float> xlTopArmLengths = new List<float> { 0.6f, 0.8f, 1f, 1.2f, 1.4f, 1.6f };
-                List<float> standardBottomArmLengths = new List<float> { 1.0f }; // Articulating default
-                List<float> fixedBottomArmLengths = new List<float> { 0.6f, 0.8f, 1f, 1.2f, 1.4f, 1.6f };
-
-                // Utility to apply scale
-                void ApplyToArm(string armKeyword, List<float> scales)
-                {
-                    var arm = attachedSelectables
-    .Where(a => a != null && a.gameObject != null)
-    .FirstOrDefault(a => a.gameObject.name.Contains(armKeyword));
-
-                    if (arm == null) return;
-
-                    var selectables = arm.gameObject.GetComponentsInChildren<Selectable>().Where(x => x.ScaleLevels.Count > 0);
-                    var target = selectables.FirstOrDefault();
-                    if (target != null)
-                    {
-                        Debug.LogError("Applying scale to " + armKeyword + ": " + target.name);
-                        ApplyScaleFilter(scales, target);
-                    }
-                }
-
-                if (objectName.Contains("Fixed"))
-                {
-                    ApplyToArm("TopArm", objectName.Contains("XL") ? xlTopArmLengths : standardTopArmLengths);
-                    ApplyToArm("BottomArm", fixedBottomArmLengths);
-                }
-                else if (objectName.Contains("Powered") || objectName.Contains("Spring"))
-                {
-                    ApplyToArm("TopArm", objectName.Contains("XL") ? xlTopArmLengths : standardTopArmLengths);
-                    ApplyToArm("BottomArm", standardBottomArmLengths); // Articulating 1000mm
-                }
-
-            }
-            else
-            {
-                GameObject selectableGo = selectable.gameObject;
-                bool isFirstTandemChild = selectableGo.transform.IsChildOf(tandemMount1.transform);
-                if (isFirstTandemChild)
-                {
-                    AttachedSelectables attachedSelectable = new AttachedSelectables();
-                    attachedSelectable.gameObject = selectable.gameObject;
-                    attachedSelectable.btName = objectName;
-                    attachedSelectables.Add(attachedSelectable);
-                }
-                else
-                {
-                    bool isSecondTandemChild = selectableGo.transform.IsChildOf(tandemMount2.transform);
-                    if (isSecondTandemChild)
-                    {
-                        AttachedSelectables attachedSelectable = new AttachedSelectables();
-                        attachedSelectable.gameObject = selectable.gameObject;
-                        attachedSelectable.btName = objectName;
-                        attachedSelectables2.Add(attachedSelectable);
-                    }
-                }
-                 
-            }
+            await HandleStandardSelectable(selectable, objectName);
         }
     }
 
+    /// <summary>
+    /// Synchronous version for backward compatibility
+    /// </summary>
+    public void AddAttachedSelectables(Selectable selectable, string objectName)
+    {
+        _ = AddAttachedSelectableAsync(selectable, objectName);
+    }
 
+    /// <summary>
+    /// Gets all attached selectables across both lists
+    /// </summary>
+    public List<AttachedSelectable> GetAllAttachedSelectables()
+    {
+        var allSelectables = new List<AttachedSelectable>();
+        allSelectables.AddRange(_attachedSelectables);
+        allSelectables.AddRange(_attachedSelectables2);
+        return allSelectables;
+    }
+
+    /// <summary>
+    /// Finds an attached selectable by name
+    /// </summary>
+    public AttachedSelectable FindAttachedSelectable(string name)
+    {
+        return GetAllAttachedSelectables()
+            .FirstOrDefault(a => a.GameObject != null && a.GameObject.name.Contains(name));
+    }
+
+    /// <summary>
+    /// Clears all attached selectables
+    /// </summary>
+    public void ClearAll()
+    {
+        _attachedSelectables.Clear();
+        _attachedSelectables2.Clear();
+        _tandemMount1 = null;
+        _tandemMount2 = null;
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    private async Task HandleTandemMount(Selectable selectable, string objectName)
+    {
+        if (selectable.AttachmentPointDatas.Count == 2)
+        {
+            _tandemMount1 = selectable.AttachmentPointDatas[0].AttachmentPoint.gameObject;
+            _tandemMount2 = selectable.AttachmentPointDatas[1].AttachmentPoint.gameObject;
+
+            Debug.Log($"Tandem Mount configured with two attachment points");
+
+            // Add pricing if needed
+           // await AddPricingIfRequired(selectable, objectName, true);
+        }
+        else
+        {
+            Debug.LogWarning($"Tandem Mount expected 2 attachment points but found {selectable.AttachmentPointDatas.Count}");
+        }
+    }
+
+    private async Task HandleStandardSelectable(Selectable selectable, string objectName)
+    {
+        if (_tandemMount1 == null && _tandemMount2 == null)
+        {
+            // Normal object
+            await AddToMainList(selectable, objectName);
+            await ApplyScaleConfigurations(objectName);
+        }
+        else
+        {
+            // Object attached to tandem mount
+            await HandleTandemAttachment(selectable, objectName);
+        }
+    }
+
+    private async Task AddToMainList(Selectable selectable, string objectName)
+    {
+        var attachedSelectable = new AttachedSelectable(selectable.gameObject, objectName);
+        _attachedSelectables.Add(attachedSelectable);
+
+        Debug.Log($"Added {objectName} to main attached selectables list");
+
+        // Add pricing if needed
+        //await AddPricingIfRequired(selectable, objectName, false);
+    }
+
+    private async Task HandleTandemAttachment(Selectable selectable, string objectName)
+    {
+        GameObject selectableGo = selectable.gameObject;
+
+        if (_tandemMount1 != null && selectableGo.transform.IsChildOf(_tandemMount1.transform))
+        {
+            var attachedSelectable = new AttachedSelectable(selectableGo, objectName);
+            _attachedSelectables.Add(attachedSelectable);
+            Debug.Log($"Added {objectName} to first tandem mount");
+        }
+        else if (_tandemMount2 != null && selectableGo.transform.IsChildOf(_tandemMount2.transform))
+        {
+            var attachedSelectable = new AttachedSelectable(selectableGo, objectName);
+            _attachedSelectables2.Add(attachedSelectable);
+            Debug.Log($"Added {objectName} to second tandem mount");
+        }
+        else
+        {
+            Debug.LogWarning($"Object {objectName} is not a child of either tandem mount");
+        }
+
+        // Add pricing if needed
+       // await AddPricingIfRequired(selectable, objectName, false);
+    }
+
+    private async Task AddPricingIfRequired(Selectable selectable, string objectName, bool isBoom)
+    {
+        // Check if pricing component already exists
+        if (selectable.GetComponent<SelectablePrice>() != null)
+        {
+            return;
+        }
+
+        // Use PricingManager if available
+        if (PricingManager.Instance != null)
+        {
+            string sheetName = isBoom ? DataFilePaths.sheetNameBoomIndividual : DataFilePaths.sheetNameLight;
+
+            await PricingManager.Instance.AddPricingComponent(
+                selectable.gameObject,
+                isBoom,
+                objectName,
+                objectName,
+                sheetName
+            );
+        }
+    }
+
+    private async Task ApplyScaleConfigurations(string objectName)
+    {
+        await Task.Yield(); // Ensure UI doesn't freeze
+
+        if (objectName.Contains("Fixed"))
+        {
+            ApplyScaleToArm("TopArm", objectName.Contains("XL") ? "XL_Top" : "Standard_Top");
+            ApplyScaleToArm("BottomArm", "Fixed_Bottom");
+        }
+        else if (objectName.Contains("Powered") || objectName.Contains("Spring"))
+        {
+            ApplyScaleToArm("TopArm", objectName.Contains("XL") ? "XL_Top" : "Standard_Top");
+            ApplyScaleToArm("BottomArm", "Articulating_Bottom");
+        }
+    }
+
+    private void ApplyScaleToArm(string armKeyword, string configKey)
+    {
+        var arm = _attachedSelectables
+            .Where(a => a?.GameObject != null)
+            .FirstOrDefault(a => a.GameObject.name.Contains(armKeyword));
+
+        if (arm == null)
+        {
+            Debug.LogWarning($"Could not find arm with keyword: {armKeyword}");
+            return;
+        }
+
+        var selectables = arm.GameObject
+            .GetComponentsInChildren<Selectable>()
+            .Where(x => x.ScaleLevels != null && x.ScaleLevels.Count > 0);
+
+        var target = selectables.FirstOrDefault();
+        if (target != null && ScaleConfigurations.TryGetValue(configKey, out var config))
+        {
+            Debug.Log($"Applying scale configuration '{configKey}' to {armKeyword}: {target.name}");
+            ApplyScaleFilter(config.Scales.ToList(), target);
+        }
+    }
 
     private void ApplyScaleFilter(List<float> allowedScales, Selectable selectable)
     {
         try
         {
-            if (selectable == null)
+            if (!ValidateScaleFilter(selectable, allowedScales))
             {
-                Debug.LogWarning("Cannot apply scale filter to null selectable", this);
-                return;
-            }
-
-            if (selectable.ScaleLevels == null)
-            {
-                Debug.LogWarning($"ScaleLevels is null on {selectable.name}", this);
-                return;
-            }
-
-            if (selectable.ScaleLevels.Count == 0)
-            {
-                Debug.LogWarning($"ScaleLevels is empty on {selectable.name}", this);
                 return;
             }
 
             // Log before filtering
-            Debug.Log($"Before filtering: {selectable.name} has {selectable.ScaleLevels.Count} scale levels: {string.Join(", ", selectable.ScaleLevels.Select(l => l.Size))}", this);
+            LogScaleLevels("Before filtering", selectable);
 
-            // Create a new filtered list to avoid modifying during enumeration
+            // Create filtered list
             var filteredScales = selectable.ScaleLevels
                 .Where(level => level != null && allowedScales.Contains(level.Size))
                 .ToList();
 
-            // Assign the filtered list
+            // Apply filtered list
             selectable.ScaleLevels = filteredScales;
 
             // Log after filtering
-            Debug.Log($"After filtering: {selectable.name} has {selectable.ScaleLevels.Count} scale levels: {string.Join(", ", selectable.ScaleLevels.Select(l => l.Size))}", this);
-            Debug.Log($"Applied scale filter to {selectable.name} - Allowed scales: {string.Join(", ", allowedScales)}", this);
+            LogScaleLevels("After filtering", selectable);
 
-            if (selectable.ScaleLevels.Count == 0)
+            // Ensure at least one scale level remains
+            if (filteredScales.Count == 0)
             {
-                Debug.LogWarning($"WARNING: Filtering resulted in zero scale levels for {selectable.name}!", this);
+                Debug.LogError($"Filtering removed all scale levels from {selectable.name}! Reverting to original.", this);
+                // Consider reverting or adding a default scale
+            }
+            else
+            {
+                // Ensure one scale is selected
+                if (!filteredScales.Any(s => s.Selected))
+                {
+                    filteredScales[0].Selected = true;
+                }
             }
         }
-        catch (System.Exception e)
+        catch (Exception e)
         {
-            Debug.LogException(e, this);
             Debug.LogError($"Error applying scale filter to {selectable?.name}: {e.Message}", this);
+            Debug.LogException(e, this);
         }
     }
 
-}
-
-[Serializable]
-public class AttachedSelectables
-{
-    public GameObject gameObject;
-    public string btName;
-    ExcelKeys[] excelKeysAll = new ExcelKeys[6];
-    public void ExcelCompatibleName()
+    private bool ValidateScaleFilter(Selectable selectable, List<float> allowedScales)
     {
-
-
-        ExcelKeys excelKeys1 = new ExcelKeys("Boom Bottom Arm - Powered", "Powered Boom");
-        ExcelKeys excelKeys2 = new ExcelKeys("Boom Bottom Arm - Spring", "Spring Boom");
-        ExcelKeys excelKeys3 = new ExcelKeys("Boom Bottom Arm - Fixed", "Fixed Boom");
-        ExcelKeys excelKeys4 = new ExcelKeys("Boom Drop Tube", "Ceiling Flange");
-        ExcelKeys excelKeys5 = new ExcelKeys("Boom Top Arm(XL)", "XL Top");
-        ExcelKeys excelKeys6 = new ExcelKeys("Boom Column Tube", "Ceiling Flange");
-
-        excelKeysAll[0] = excelKeys1;
-        excelKeysAll[1] = excelKeys2;
-        excelKeysAll[2] = excelKeys3;
-        excelKeysAll[3] = excelKeys4;
-        excelKeysAll[4] = excelKeys5;
-        excelKeysAll[5] = excelKeys6;
-        
-
-        //ExcelKeys excelKeys7 = new ExcelKeys("Boom Top Arm(XL)", "Bottom Arm");
-
-        //Boom Drop Tube
-        //Boom Column Tube
-
-
-
-    }
-
-    public string GetExcelName()
-    {
-        for (int i = 0; i < excelKeysAll.Length; i++)
+        if (selectable == null)
         {
-            if (excelKeysAll[i].uiBtnName == btName)
-            {
-                return excelKeysAll[i].excelKey;
-            }
-            
+            Debug.LogWarning("Cannot apply scale filter to null selectable", this);
+            return false;
         }
-        Debug.Log("Excel Key not found");
-        return null;
+
+        if (selectable.ScaleLevels == null || selectable.ScaleLevels.Count == 0)
+        {
+            Debug.LogWarning($"No scale levels to filter on {selectable.name}", this);
+            return false;
+        }
+
+        if (allowedScales == null || allowedScales.Count == 0)
+        {
+            Debug.LogWarning("No allowed scales specified", this);
+            return false;
+        }
+
+        return true;
     }
 
+    private void LogScaleLevels(string prefix, Selectable selectable)
+    {
+        var scales = string.Join(", ", selectable.ScaleLevels.Select(l => $"{l.Size}m"));
+        Debug.Log($"{prefix}: {selectable.name} has {selectable.ScaleLevels.Count} scale levels: [{scales}]", this);
+    }
+
+    #endregion
+
+    #region Nested Types
+
+    [Serializable]
+    public class AttachedSelectable
+    {
+        [SerializeField] private GameObject gameObject;
+        [SerializeField] private string btName;
+        [SerializeField] private string excelKey;
+
+        public GameObject GameObject => gameObject;
+        public string BtName => btName;
+        public string ExcelKey => excelKey;
+
+        // Excel key mappings
+        private static readonly Dictionary<string, string> ExcelKeyMappings = new Dictionary<string, string>
+        {
+            { "Boom Bottom Arm - Powered", "Powered Boom" },
+            { "Boom Bottom Arm - Spring", "Spring Boom" },
+            { "Boom Bottom Arm - Fixed", "Fixed Boom" },
+            { "Boom Drop Tube", "Ceiling Flange" },
+            { "Boom Top Arm(XL)", "XL Top" },
+            { "Boom Column Tube", "Ceiling Flange" }
+        };
+
+        public AttachedSelectable(GameObject go, string name)
+        {
+            gameObject = go;
+            btName = name;
+            excelKey = GetExcelKey(name);
+        }
+
+        private string GetExcelKey(string uiName)
+        {
+            return ExcelKeyMappings.TryGetValue(uiName, out string key) ? key : uiName;
+        }
+
+        public void UpdateExcelKey()
+        {
+            excelKey = GetExcelKey(btName);
+        }
+    }
+
+    private class ScaleConfiguration
+    {
+        public float[] Scales { get; set; }
+    }
+
+    #endregion
 }
 
-public class ExcelKeys 
+// Backward compatibility extension
+public static class RecordHierarchyExtensions
 {
-    public string excelKey;
-    public string uiBtnName;
-
-    public ExcelKeys(string uiBtnName, string excelKey)
+    /// <summary>
+    /// Extension method for backward compatibility with the misspelled property name
+    /// </summary>
+    public static List<RecordHirarcheySelectables.AttachedSelectable> GetAttachedSelectables(this RecordHirarcheySelectables record)
     {
-        this.excelKey = excelKey;
-        this.uiBtnName = uiBtnName;
+        return record.AttachedSelectables.ToList();
     }
+
+    /// <summary>
+    /// Extension method for backward compatibility with the misspelled property name
+    /// </summary>
+    public static List<RecordHirarcheySelectables.AttachedSelectable> GetAttachedSelectables2(this RecordHirarcheySelectables record)
+    {
+        return record.AttachedSelectables2.ToList();
+    }
+}
+
+// For backward compatibility - redirect old class name references
+[Obsolete("Use RecordHirarcheySelectables.AttachedSelectable instead")]
+public class AttachedSelectables : RecordHirarcheySelectables.AttachedSelectable
+{
+    public AttachedSelectables() : base(null, "") { }
 }

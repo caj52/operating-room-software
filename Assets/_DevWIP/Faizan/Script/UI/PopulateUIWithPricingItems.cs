@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
@@ -11,286 +10,249 @@ public class PopulateUIWithPricingItems : MonoBehaviour
     public List<SelectablePrice> lightObjects = new();
     public List<SelectablePrice> otherObjects = new();
 
-    public Action<SelectablePrice, GameObject> OnSetPriceData;
-    public Action<SelectablePrice> OnClearSp; //Clearing from SelectablePrice.cs
-
-    private Dictionary<string, PriceExcelData> pricingCache = new();
+    private readonly HashSet<int> processedLightIds = new();
+    private readonly HashSet<int> processedBoomIds = new();
 
     private void OnEnable()
     {
-        OnSetPriceData += SetDataIntoList;
-        OnClearSp += CleanSelectableObject;
-        ResolveAndLogLightPricing();
+        if (PricingManager.Instance == null) return;
+
+        // Subscribe to PricingManager events
+        var manager = PricingManager.Instance;
+        manager.OnPriceAdded.AddListener(OnPriceAddedHandler);
+        manager.OnPriceRemoved.AddListener(OnPriceRemovedHandler);
+        manager.OnPriceUpdated.AddListener(OnPriceUpdatedHandler);
+
+        RebuildListsFromActivePrices();
     }
 
     private void OnDisable()
     {
-       // ClearContent();
+        if (PricingManager.Instance == null) return;
+
+        var manager = PricingManager.Instance;
+        manager.OnPriceAdded.RemoveListener(OnPriceAddedHandler);
+        manager.OnPriceRemoved.RemoveListener(OnPriceRemovedHandler);
+        manager.OnPriceUpdated.RemoveListener(OnPriceUpdatedHandler);
     }
-    private void Start()
+
+    private void RebuildListsFromActivePrices()
     {
-        parentObject.SetActive(false);
-    }
+        ClearLists();
 
-    //public PricingRowDataFill GenerateUIRow(SelectablePrice selectablePrice)
-    //{
-    //    SetDataIntoList(selectablePrice);
-
-    //    //PricingRowDataFill pricingRowDataFill = Instantiate(rowPrefab, transform);
-    //    //pricingRowDataFill.FillData(selectablePrice);
-    //    Debug.Log("Anas Adding Excel Data In Quotation Panel 1");
-
-
-    //    //selectablePrice.OnDestroyed += pricingRowDataFill.DestroyRow;
-
-    //    // Store the event subscription
-    //    Action onDestroyedAction = pricingRowDataFill.DestroyRow;
-    //    selectablePrice.OnDestroyed += onDestroyedAction;
-
-    //    // Unsubscribe from the event when the UI row is destroyed
-    //    pricingRowDataFill.OnDestroyEvent += () => selectablePrice.OnDestroyed -= onDestroyedAction;
-    //    ResolveAndLogLightPricing();
-    //    return pricingRowDataFill;
-    //}
-
-    public void SetDataIntoList(SelectablePrice selectablePrice = null,GameObject destroyingObject = null)
-    {
-
-        boomObjects =  CleanListWithNullVaules(boomObjects);
-        lightObjects = CleanListWithNullVaules(lightObjects);
-        otherObjects = CleanListWithNullVaules(otherObjects);
-
-        Debug.Log(" LightObjects count after cleanup: " + lightObjects.Count);        
-
-        if (selectablePrice != null)
+        foreach (var sp in PricingManager.Instance.GetAllPrices())
         {
-            switch (selectablePrice.sheetName)
-            {
-                case "2025_03_28 3D Light Pricing":
-                    bool isLightObjectDuplicated = lightObjects.Any(x => x.GetInstanceID() == selectablePrice.GetInstanceID());
-                    if (isLightObjectDuplicated)
-                        return;
+            if (sp?.sheetName == null) continue;
 
-                    lightObjects.Add(selectablePrice);
-
-                    break;
-
-                case "2025_03_28 Boom Pricing":
-                    bool isBoomObjectDuplicated = boomObjects.Any(x => x.GetInstanceID() == selectablePrice.GetInstanceID());
-                    if (isBoomObjectDuplicated)
-                        return;
-                    Debug.Log("Checking Boom Added From");
-
-                    boomObjects.Add(selectablePrice);
-                    break;
-
-                default:
-                    break;
-            }
-
-            Debug.Log("Anas => Added to list");
+            AddToAppropriateList(sp);
         }
-        if (destroyingObject != null)
-        {
-            Destroy(destroyingObject);
-        }
-        
+
         ResolveAndLogLightPricing();
     }
 
+    private void ClearLists()
+    {
+        lightObjects.Clear();
+        boomObjects.Clear();
+        otherObjects.Clear();
+        processedLightIds.Clear();
+        processedBoomIds.Clear();
+    }
+
+    private void AddToAppropriateList(SelectablePrice sp)
+    {
+        int id = sp.GetInstanceID();
+
+        switch (sp.sheetName)
+        {
+            case var sheet when sheet == DataFilePaths.sheetNameLight:
+                if (processedLightIds.Add(id))
+                    lightObjects.Add(sp);
+                break;
+            case var sheet when sheet == DataFilePaths.sheetNameBoomIndividual:
+                if (processedBoomIds.Add(id))
+                    boomObjects.Add(sp);
+                break;
+            default:
+                if (!otherObjects.Contains(sp))
+                    otherObjects.Add(sp);
+                break;
+        }
+    }
+
+    // Event handlers
+    private void OnPriceAddedHandler(SelectablePrice sp) => SetDataIntoList(sp);
+
+    private void OnPriceRemovedHandler(SelectablePrice sp)
+    {
+        sp?.UIRefPricingRowDataFill?.DestroyRow();
+        CleanSelectableObject(sp);
+    }
+
+    private void OnPriceUpdatedHandler(SelectablePrice sp) => ResolveAndLogLightPricing();
+
+    public void SetDataIntoList(SelectablePrice selectablePrice = null, GameObject destroyingObject = null)
+    {
+        CleanNullEntries();
+
+        if (selectablePrice != null)
+        {
+            AddToAppropriateList(selectablePrice);
+            Debug.Log($"Added pricing item to list: {selectablePrice.UIObjectName}");
+        }
+
+        if (destroyingObject != null)
+            Destroy(destroyingObject);
+
+        ResolveAndLogLightPricing();
+    }
+
+    private void CleanNullEntries()
+    {
+        if (boomObjects.RemoveAll(x => x == null) > 0) { }
+        if (lightObjects.RemoveAll(x => x == null) > 0) { }
+        if (otherObjects.RemoveAll(x => x == null) > 0) { }
+    }
 
     public void ResolveAndLogLightPricing()
     {
         ClearContent();
-        //ExcelReader reader = FindAnyObjectByType<ExcelReader>();
-        //if (reader == null)
-        //{
-        //    Debug.LogError("ExcelReader not found in scene!");
-        //    return;
-        //}
 
-        string lightsSheetName = "2025_03_28 3D Light Pricing";
-        string boomSheetName = "2025_03_28 Boom Pricing";
-        
+        ProcessLightGroups();
+        ProcessBoomObjects();
+    }
+
+    private void ProcessLightGroups()
+    {
         var lightGroups = lightObjects
-        .GroupBy(obj => GetRootParent(obj.transform))
-        .ToList();
-
-        Debug.Log("Anas lightGroups => " + lightGroups.Count);
-
-
+            .Where(obj => obj?.gameObject != null)
+            .GroupBy(obj => GetRootParent(obj.transform))
+            .ToList();
 
         foreach (var group in lightGroups)
         {
-            var lightGroupList = group.ToList();
-            int i = 0;
+            ProcessLightGroup(group.ToList(), DataFilePaths.sheetNameLight);
+        }
+    }
 
-            while (i < lightGroupList.Count)
-            {               
-                string ui1 = lightGroupList[i].UIObjectName?.Trim();
-                string ui2 = (i + 1 < lightGroupList.Count) ? lightGroupList[i + 1].UIObjectName?.Trim() : null;
-                string ui3 = (i + 2 < lightGroupList.Count) ? lightGroupList[i + 2].UIObjectName?.Trim() : null;
-
-                Debug.Log("Anas => ui1 " + ui1);
-                Debug.Log("Anas => ui2 " + ui2);
-                Debug.Log("Anas => ui3 " + ui3);
-
-                bool has2 = (i + 1 < lightGroupList.Count);
-                bool has3 = (i + 2 < lightGroupList.Count);                
-
-                if (has3 && !string.IsNullOrEmpty(ui1) && !string.IsNullOrEmpty(ui2) && !string.IsNullOrEmpty(ui3))
-                {
-                    string combo3 = string.Join(", ", ui1, ui2, ui3);
-                    //var data3 = reader.FetchPricingDataFromExcel(lightsSheetName, combo3);
-                    var data3 = GetCachedPricingData(lightsSheetName, combo3);
-
-                    if (data3 != null)
-                    {
-                        AddComboRowToUI(data3, 3, new List<SelectablePrice> { lightGroupList[i], lightGroupList[i + 1], lightGroupList[i + 2] });
-                        i += 3;
-                        Debug.Log("ANas = > Combo of 3 " + data3);
-                        continue;
-                    }
-
-                }
-
-                if (has2 && !string.IsNullOrEmpty(ui1) && !string.IsNullOrEmpty(ui2))
-                {
-                    string combo2 = string.Join(", ", ui1, ui2);
-                    // var data2 = reader.FetchPricingDataFromExcel(lightsSheetName, combo2);
-                    var data2 = GetCachedPricingData(lightsSheetName, combo2);
-                    if (data2 != null)
-                    {
-                        AddComboRowToUI(data2, 2, new List<SelectablePrice> { lightGroupList[i], lightGroupList[i + 1] });
-                        i += 2;
-                        Debug.Log("ANas = > Combo of 2 " + data2);
-
-                        continue;
-                    }
-                }
-
-                if (!string.IsNullOrEmpty(ui1))
-                {   
-                    var data1 = GetCachedPricingData(lightsSheetName, ui1);
-                    if (data1 != null)
-                    {
-                        AddComboRowToUI(data1, 1, new List<SelectablePrice> { lightGroupList[i] });
-                        Debug.Log("ANas = > Combo of 1 " + data1);
-                    }
-                }
-
+    private void ProcessLightGroup(List<SelectablePrice> lightGroupList, string sheetName)
+    {
+        int i = 0;
+        while (i < lightGroupList.Count)
+        {
+            var validLights = GetValidLightsAtIndex(lightGroupList, i, 3);
+            if (validLights.Count == 0)
+            {
                 i++;
-            }
-        }
-
-        int boomIndex = 0;
-       
-        while (boomIndex < boomObjects.Count)
-        {
-
-            string ui1 = boomObjects[boomIndex].UIObjectName?.Trim();
-            if (!string.IsNullOrEmpty(ui1))
-            {
-                //var data1 = reader.FetchPricingDataFromExcel(boomSheetName, ui1, boomObjects[boomIndex].size);
-                var data1 = GetCachedPricingData(boomSheetName, ui1, boomObjects[boomIndex].size);
-
-
-                Debug.Log("Anas => " + ui1);
-                if (data1 != null)
-                {
-                    AddComboRowToUI(data1, 1, new List<SelectablePrice> { boomObjects[boomIndex] });
-                }
-            }
-
-            boomIndex++;
-        }
-
-    }
-
-    private void AddComboRowToUI(PriceExcelData data, int quantity,List<SelectablePrice> linkedObjects = null)
-    {
-        PricingRowDataFill row = Instantiate(rowPrefab, transform);
-
-        row.FillData(data, quantity, linkedObjects.FirstOrDefault());
-
-
-
-        //foreach (var sp in linkedObjects)
-        //{
-        //    if (sp == null) continue;
-
-        //    sp.OnDestroyed += row.DestroyRow;
-        //    Debug.Log("Anas => sp Destroy Event", sp.gameObject);
-
-        //    row.OnDestroyEvent += () => sp.OnDestroyed -= row.DestroyRow;
-        //}
-    }
-
-    private void ClearContent() 
-    {
-        foreach (Transform child in transform)
-        {
-            if (child.name == "Heading")
-            {
                 continue;
             }
-            Debug.Log("Anas Clearig Row " + child.name);
-            Destroy(child.gameObject);
+
+            int processed = TryProcessLightCombo(validLights, lightGroupList, i, sheetName);
+            i += processed > 0 ? processed : 1;
         }
     }
-    private List<SelectablePrice> CleanListWithNullVaules(List<SelectablePrice> list)
+
+    private int TryProcessLightCombo(List<string> validLights, List<SelectablePrice> lightGroupList, int startIndex, string sheetName)
     {
-        return list
-            .Where(x => x != null && !ReferenceEquals(x, null) && x.gameObject != null)
-            .ToList();
+        // Try 3-light combo
+        if (validLights.Count == 3)
+        {
+            string combo3Key = string.Join(", ", validLights);
+            var data3 = PricingManager.Instance.GetCachedPricingData(sheetName, combo3Key);
+            if (data3 != null)
+            {
+                AddComboRowToUI(data3, 3, lightGroupList.Skip(startIndex).Take(3).ToList());
+                return 3;
+            }
+        }
+
+        // Try 2-light combo
+        if (validLights.Count >= 2)
+        {
+            string combo2Key = string.Join(", ", validLights.Take(2));
+            var data2 = PricingManager.Instance.GetCachedPricingData(sheetName, combo2Key);
+            if (data2 != null)
+            {
+                AddComboRowToUI(data2, 2, lightGroupList.Skip(startIndex).Take(2).ToList());
+                return 2;
+            }
+        }
+
+        // Single light
+        var data1 = PricingManager.Instance.GetCachedPricingData(sheetName, validLights[0]);
+        if (data1 != null)
+        {
+            AddComboRowToUI(data1, 1, new List<SelectablePrice> { lightGroupList[startIndex] });
+        }
+
+        return 1;
     }
 
-    public void CleanSelectableObject(SelectablePrice sp) 
+    private void ProcessBoomObjects()
     {
+        foreach (var boomObj in boomObjects.Where(obj => obj != null))
+        {
+            string key = boomObj.UIObjectName?.Trim();
+            if (string.IsNullOrEmpty(key)) continue;
+
+            var data = PricingManager.Instance.GetCachedPricingData(DataFilePaths.sheetNameBoomIndividual, key, boomObj.Size);
+            if (data != null)
+            {
+                AddComboRowToUI(data, 1, new List<SelectablePrice> { boomObj });
+            }
+        }
+    }
+
+    private List<string> GetValidLightsAtIndex(List<SelectablePrice> lights, int startIndex, int maxCount)
+    {
+        var result = new List<string>();
+        int endIndex = Mathf.Min(startIndex + maxCount, lights.Count);
+
+        for (int j = startIndex; j < endIndex; j++)
+        {
+            string uiName = lights[j].pricingObjectName?.Trim();
+            if (string.IsNullOrEmpty(uiName)) break;
+            result.Add(uiName);
+        }
+
+        return result;
+    }
+
+    private void AddComboRowToUI(PriceExcelData data, int quantity, List<SelectablePrice> linkedObjects)
+    {
+        var row = Instantiate(rowPrefab, transform);
+        row.Initialize(data, quantity, linkedObjects.FirstOrDefault());
+    }
+
+    private void ClearContent()
+    {
+        for (int i = transform.childCount - 1; i >= 0; i--)
+        {
+            var child = transform.GetChild(i);
+            if (child.name != "Heading")
+                Destroy(child.gameObject);
+        }
+    }
+
+    public void CleanSelectableObject(SelectablePrice sp)
+    {
+        if (sp == null) return;
+
+        int instanceId = sp.GetInstanceID();
+
         lightObjects.Remove(sp);
         boomObjects.Remove(sp);
-        SetDataIntoList(null);
+        otherObjects.Remove(sp);
+        processedLightIds.Remove(instanceId);
+        processedBoomIds.Remove(instanceId);
 
+        SetDataIntoList(null);
     }
 
     private Transform GetRootParent(Transform t)
     {
         while (t.parent != null)
-        {
             t = t.parent;
-        }
-        Debug.Log("Anas => " + t , t.gameObject);
         return t;
     }
-
-    private PriceExcelData GetCachedPricingData(string sheetName, string key, string size = "")
-    {
-        string cacheKey = $"{sheetName}::{key}::{size}";
-
-        if (pricingCache.TryGetValue(cacheKey, out var cachedData))
-        {   
-            Debug.Log("Anas => Using cached data for: " + cacheKey);
-            return cachedData;
-        }
-
-        ExcelReader reader = FindAnyObjectByType<ExcelReader>();
-        if (reader == null)
-        {
-            Debug.LogError("ExcelReader not found in scene!");
-            return null;
-        }
-
-        PriceExcelData data;
-
-        if (!string.IsNullOrEmpty(size))
-            data = reader.FetchPricingDataFromExcel(sheetName, key, size);
-        else
-            data = reader.FetchPricingDataFromExcel(sheetName, key);
-
-        pricingCache[cacheKey] = data;
-
-        return data;
-    }
-
-
 }

@@ -92,8 +92,12 @@ public class RectangleToMeshCollider : MonoBehaviour
             {
                 Debug.Log($"{name} collided with {other.name}");
                 SetRendererColor(Color.red);
-                UI_DialogPrompt.Open($"{selectable.UIButtonName} is colliding with {other.name}",
-                    new ButtonAction { ButtonText = "Ok", Action = UI_DialogPrompt.Close });
+                if (UI_ToggleProximityAlerts.IsActive)
+                {
+                    UI_DialogPrompt.Open($"{selectable.UIButtonName} is colliding with {other.name}",
+                           new ButtonAction { ButtonText = "Ok", Action = UI_DialogPrompt.Close });
+                }
+   
             }
         }
 
@@ -102,8 +106,13 @@ public class RectangleToMeshCollider : MonoBehaviour
         {
             Debug.Log($"{name} touching Wall!");
             SetRendererColor(Color.red);
-            UI_DialogPrompt.Open($"{selectable.UIButtonName} is touching the wall!",
+
+            if (UI_ToggleProximityAlerts.IsActive)
+            {
+                UI_DialogPrompt.Open($"{selectable.UIButtonName} is touching the wall!",
                 new ButtonAction { ButtonText = "Ok", Action = UI_DialogPrompt.Close });
+            }
+
         }
     }
 

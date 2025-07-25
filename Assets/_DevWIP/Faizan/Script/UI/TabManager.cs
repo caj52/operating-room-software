@@ -24,6 +24,9 @@ public class TabManager : MonoBehaviour
 
         // Initialize default active tab
         OpenTab(tab1ButtonItem, tab1Panel);
+
+
+        gameObject.SetActive(false);
     }
 
     private void OpenTab(Button activeButton, GameObject activePanel)

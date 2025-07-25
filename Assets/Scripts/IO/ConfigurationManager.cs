@@ -450,7 +450,7 @@ public class ConfigurationManager : MonoBehaviour
             OnRoomLoadComplete?.Invoke();
 
         }
-        catch { throw; }
+        catch(Exception e) { Debug.LogError(e); }
         finally 
         { 
             IsLoading = false;
@@ -830,7 +830,7 @@ public class ConfigurationManager : MonoBehaviour
                 Debug.LogWarning("Attempted to reset a missing Attachment Point reference.");
                 return;
             }
-            ap.gameObject.transform.position = ap.GetComponent<TrackedObject>().GetPosition();
+            ap.gameObject.transform.localPosition = ap.GetComponent<TrackedObject>().GetPosition();
         }
     }
 

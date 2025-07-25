@@ -472,7 +472,7 @@ public class ObjectMenu : MonoBehaviour
         Debug.Log($"Object Instantiated :: Menu Name: {uiBtnName} and GameObject Name: {obj.name}", obj.transform);
 
         HandleBoomRestrictions(obj);
-        HandleOutletAndPricing(obj, objectName, uiBtnName, newMenuItem);
+        HandleOutletAndPricing(obj, uiBtnName);
     }
 
     private void HandleBoomRestrictions(GameObject obj)
@@ -487,79 +487,222 @@ public class ObjectMenu : MonoBehaviour
         }
     }
 
-    public void HandleOutletAndPricing(GameObject obj, string objectName, string uiBtnName, GameObject? newMenuItem)
+    // Replace the HandleOutletAndPricing method in ObjectMenu.cs with this optimized version:
+
+    public async void HandleOutletAndPricing(GameObject obj, string uiBtnName, TrackedObject.Data? trackedObject = null)
     {
         string name = obj.name;
-        bool isHVOutlet = name.Equals("Outlet_HV_Power(Clone)");
-        bool isKnownGasOutlet = name.Contains("GasOutlet") || name.Equals("EthernetOutlet") || name.Equals("BlankOutlet(Clone)");
-
-        if (isHVOutlet || isKnownGasOutlet)
+        // If this object is an outlet on a boom, validate its configuration first
+        if (IsOutlet(name))
         {
-            var outletParent = obj.transform.parent?.parent?.gameObject;
-            var grandParent = outletParent?.transform.parent?.parent?.gameObject;
-            if (grandParent != null)
-                obj.GetComponentInParent<BoomOutletValidator>()?.ValidateBoomConfiguration(grandParent);
+            ValidateOutletConfiguration(obj);
         }
 
-       // string excelName = UINameToExcelKey.GetExcelName(objectName);
-        if (!string.IsNullOrEmpty(uiBtnName) && uiBtnName.StartsWith("Boom"))
+        // Determine pricing configuration for this object
+        var pricingConfig = GetPricingConfiguration(obj, name, uiBtnName);
+
+        if (pricingConfig.ShouldAddPrice)
         {
-            if (isHVOutlet)
+            // Use PricingManager to add pricing component (centralized handling)
+            await AddPricingComponent(obj, pricingConfig);
+
+            // If this outlet requires a duplex watcher (e.g., HV outlet combos), add it
+            if (pricingConfig.RequiresDuplexWatcher)
             {
-                var outletParent = obj.transform.parent?.parent?.gameObject;
-                int duplexCount = outletParent?.GetComponentsInChildren<Selectable>().Count(s => s.MetaData.Name == "HV Power Outlet") ?? 0;
-
-                if (duplexCount == 2)
-                    uiBtnName = "Electrical (2 Duplex)";
-                else if (duplexCount == 3)
-                {
-                    uiBtnName = "Electrical (3 Duplex)";
-                    var priceComp = outletParent?.GetComponentInChildren<SelectablePrice>();
-                    if (priceComp != null) GameObject.Destroy(priceComp);
-                }
-                else
-                    uiBtnName = "";
-
-                if (!string.IsNullOrEmpty(uiBtnName))
-                {
-                    AddSelectablePrice(obj, true, uiBtnName, uiBtnName, DataFilePaths.sheetNameBoomIndividual);
-                    if (outletParent?.GetComponent<DuplexWatcher>() == null)
-                    {
-                        var watcher = outletParent?.AddComponent<DuplexWatcher>();
-                        if (watcher != null) watcher.UIObjectName = uiBtnName;
-                    }
-                }
+                AddDuplexWatcher(obj, uiBtnName);
             }
-            else
+        }
+    }
+    // Helper methods to support the optimized HandleOutletAndPricing:
+
+
+
+    private bool IsOutlet(string objName)
+    {
+        return objName.Equals("Outlet_HV_Power(Clone)") ||
+               objName.Contains("GasOutlet") ||
+               objName.Equals("EthernetOutlet") ||
+               objName.Equals("BlankOutlet(Clone)");
+    }
+
+    private void ValidateOutletConfiguration(GameObject obj)
+    {
+        var outletParent = obj.transform.parent?.parent?.gameObject;
+        var grandParent = outletParent?.transform.parent?.parent?.gameObject;
+
+        if (grandParent != null)
+        {
+            obj.GetComponentInParent<BoomOutletValidator>()?.ValidateBoomConfiguration(grandParent);
+        }
+    }
+
+    private PricingConfiguration GetPricingConfiguration(GameObject obj, string objName, string uiBtnName)
+    {
+        var config = new PricingConfiguration
+        {
+            GameObject = obj,
+            UIButtonName = uiBtnName,
+            PricingObjectName = uiBtnName,
+            IsBoomObject = uiBtnName.StartsWith("Boom", StringComparison.OrdinalIgnoreCase),
+            ShouldAddPrice = true
+        };
+
+        // Special handling for boom objects
+        if (config.IsBoomObject)
+        {
+            config.ExcelFileName = DataFilePaths.sheetNameBoomIndividual;
+
+            // Special handling for HV outlets
+            if (objName.Equals("Outlet_HV_Power(Clone)"))
             {
-                AddSelectablePrice(obj, true, uiBtnName, uiBtnName, DataFilePaths.sheetNameBoomIndividual);
+                var duplexConfig = GetDuplexConfiguration(obj);
+                config.UIButtonName = duplexConfig.UIName;
+                config.PricingObjectName = duplexConfig.PricingName;
+                config.ShouldAddPrice = !string.IsNullOrEmpty(duplexConfig.UIName);
+                config.RequiresDuplexWatcher = config.ShouldAddPrice;
+                config.ShouldRemoveExistingPrice = duplexConfig.RemoveExisting;
+                config.OutletParent = duplexConfig.Parent;
             }
         }
         else
         {
-            bool hasAttachments = obj.GetComponentsInChildren<AttachmentPoint>().Any();
-            if (!hasAttachments)
+            // Non-boom objects (lights, etc.)
+            config.ExcelFileName = DataFilePaths.sheetNameLight;
+            config.PricingObjectName = uiBtnName;
+            config.UIButtonName = config.PricingObjectName;
+        }
+
+        return config;
+    }
+
+    private DuplexConfiguration GetDuplexConfiguration(GameObject hvOutlet)
+    {
+        var config = new DuplexConfiguration();
+        var outletParent = hvOutlet.transform.parent?.parent?.gameObject;
+        config.Parent = outletParent;
+
+        if (outletParent != null)
+        {
+            int duplexCount = outletParent.GetComponentsInChildren<Selectable>()
+                .Count(s => s.MetaData?.Name == "HV Power Outlet");
+
+            switch (duplexCount)
             {
-                string excelFileName = DataFilePaths.sheetNameLight;
-                string label = newMenuItem.GetComponentInChildren<TextMeshProUGUI>().text;
-                AddSelectablePrice(obj, false, label, label, excelFileName);
+                case 2:
+                    config.UIName = "Electrical (2 Duplex)";
+                    config.PricingName = config.UIName;
+                    break;
+                case 3:
+                    config.UIName = "Electrical (3 Duplex)";
+                    config.PricingName = config.UIName;
+                    config.RemoveExisting = true;
+                    break;
+                default:
+                    config.UIName = "";
+                    config.PricingName = "";
+                    break;
             }
         }
-    }
-    #endregion
 
-    public void AddSelectablePrice(GameObject newSelectableGameObject, bool isBoomObject, string objectName, string uiBtnName, string excelName,string parent=null)
-    {
-        Selectable currentSelectables = newSelectableGameObject.GetComponent<Selectable>();
-        SelectablePrice selectablePrice = newSelectableGameObject.AddComponent<SelectablePrice>();
-        selectablePrice.isBoomObject = isBoomObject;
-        selectablePrice.pricingObjectName = uiBtnName;
-        selectablePrice.selectable = currentSelectables;
-        selectablePrice.UIObjectName = uiBtnName;
-        selectablePrice.rootParentName= parent;
-        string excelFileName = excelName;
-        selectablePrice.GetPricingDataFromExcel(excelFileName);
+        return config;
     }
+
+    private async Task AddPricingComponent(GameObject obj, PricingConfiguration config)
+    {
+        // Remove an existing price component on the parent (for duplex outlet cases) if needed
+        if (config.ShouldRemoveExistingPrice && config.OutletParent != null)
+        {
+            var existingPrice = config.OutletParent.GetComponentInChildren<SelectablePrice>();
+            if (existingPrice != null)
+            {
+                Destroy(existingPrice);
+            }
+        }
+
+        // Delegate all pricing setup to the PricingManager
+        await PricingManager.Instance.AddPricingComponent(
+            obj,
+            config.IsBoomObject,
+            config.PricingObjectName,
+            config.UIButtonName,
+            config.ExcelFileName,
+            config.RootParentName,
+            config.Price
+        );
+    }
+    private void AddDuplexWatcher(GameObject obj, string uiButtonName)
+    {
+        var outletParent = obj.transform.parent?.parent?.gameObject;
+        if (outletParent != null && outletParent.GetComponent<DuplexWatcher>() == null)
+        {
+            var watcher = outletParent.AddComponent<DuplexWatcher>();
+            watcher.UIObjectName = uiButtonName;
+        }
+    }
+    // Supporting data structures
+    private class PricingConfiguration
+    {
+        public GameObject GameObject { get; set; }
+        public string UIButtonName { get; set; }
+        public string PricingObjectName { get; set; }
+        public string ExcelFileName { get; set; }
+        public bool IsBoomObject { get; set; }
+        public bool ShouldAddPrice { get; set; }
+        public bool RequiresDuplexWatcher { get; set; }
+        public bool ShouldRemoveExistingPrice { get; set; }
+        public GameObject OutletParent { get; set; }
+        public string RootParentName { get; set; }
+        public string Price { get; set; }
+    }
+    private class DuplexConfiguration
+    {
+        public string UIName { get; set; }
+        public string PricingName { get; set; }
+        public bool RemoveExisting { get; set; }
+        public GameObject Parent { get; set; }
+    }
+
+    // Also update the AddSelectablePrice method to be more efficient:
+    public void AddSelectablePrice(GameObject newSelectableGameObject, bool isBoomObject, string objectName, string uiBtnName, string excelName, string parent = null, string price = null,string size=null)
+    {
+        // Check if component already exists
+        var existingPrice = newSelectableGameObject.GetComponent<SelectablePrice>();
+        if (existingPrice != null)
+        {
+            Debug.LogWarning($"SelectablePrice already exists on {newSelectableGameObject.name}");
+            return;
+        }
+
+        Selectable currentSelectable = newSelectableGameObject.GetComponent<Selectable>();
+        if (currentSelectable == null)
+        {
+            Debug.LogError($"No Selectable component found on {newSelectableGameObject.name}");
+            return;
+        }
+
+        SelectablePrice selectablePrice = newSelectableGameObject.AddComponent<SelectablePrice>();
+
+        // Initialize all properties at once
+        selectablePrice.Initialize(
+            objectName: objectName,
+            uiName: uiBtnName,
+            excelName: excelName,
+            parentName: parent,
+            price: price,
+            size
+        );
+
+        selectablePrice.isBoomObject = isBoomObject;
+        selectablePrice.selectable = currentSelectable;
+
+/*        // Let the component handle its own Excel data retrieval
+        if (string.IsNullOrEmpty(price))
+        {
+            selectablePrice.GetPricingDataFromExcel(excelName);
+        }*/
+    }
+
+    #endregion
 
 
     private void AddSavedRoomConfigs()
