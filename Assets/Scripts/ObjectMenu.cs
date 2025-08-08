@@ -252,7 +252,7 @@ public class ObjectMenu : MonoBehaviour
     {
         if (!gameObject.activeSelf) return;
 
-        if (string.IsNullOrWhiteSpace(searchText))
+        if (string.IsNullOrWhiteSpace(searchText.ToLower()))
         {
             //Debug.Log("Search filter nullified");
             ObjectMenuItems.ForEach(x => x.ValidForSearch = true);
@@ -263,21 +263,22 @@ public class ObjectMenu : MonoBehaviour
         ObjectMenuItems.ForEach(x =>
         {
             // Name
-            double ratio = Fuzz.PartialRatio
-                (x.SelectableMetaData?.Name ?? x.GameObject.GetComponentInChildren<TextMeshProUGUI>().text, searchText);
+            string search = searchText.ToLower();
+            string nameToCompare = (x.SelectableMetaData?.Name ?? x.GameObject.GetComponentInChildren<TextMeshProUGUI>().text).ToLower();
+            double ratio = Fuzz.PartialRatio(nameToCompare, search);
 
             if (x.SelectableMetaData != null)
             {
                 // Categories
                 foreach (var category in x.SelectableMetaData.Categories)
                 {
-                    ratio = Math.Max(ratio, Fuzz.Ratio(searchText, category));
+                    ratio = Math.Max(ratio, Fuzz.Ratio(searchText, category.ToLower()));
                 }
 
                 // Keywords
                 foreach (var keyword in x.SelectableMetaData.KeyWords)
                 {
-                    ratio = Math.Max(ratio, Fuzz.Ratio(searchText, keyword));
+                    ratio = Math.Max(ratio, Fuzz.Ratio(searchText, keyword.ToLower()));
                 }
             }
 

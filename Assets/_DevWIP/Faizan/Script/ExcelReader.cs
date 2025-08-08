@@ -15,15 +15,16 @@ public class ExcelReader : MonoBehaviour
     
     private void Start()
     {
-        string fileName = DataFilePaths.ExcelFileNameForLightAndBoomPricing;
-        SetExcelFileName(fileName);
+        
+        SetExcelFileName();
     }
 
-    private void SetExcelFileName(string excelFileNameToUse)
+    public void SetExcelFileName()
     {
+        string fileName = DataFilePaths.ExcelFileNameForLightAndBoomPricing;
         string excelBasePath = Path.Combine(Application.streamingAssetsPath, "Data", "quotes");
         
-        filePath = Path.Combine(excelBasePath, excelFileNameToUse);
+        filePath = Path.Combine(excelBasePath, fileName);
         if (!File.Exists(filePath))
         {
             Debug.LogWarning($"The specified Excel file does not exist at path: {filePath}");
@@ -129,7 +130,7 @@ public class ExcelReader : MonoBehaviour
         if (!File.Exists(filePath))
         {
             Debug.Log(filePath);
-          //  Debug.LogError("Excel file not found!");
+            Debug.LogError("Excel file not found!");
             return null;
         }
 

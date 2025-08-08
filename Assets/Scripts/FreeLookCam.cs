@@ -47,6 +47,7 @@ public class FreeLookCam : MonoBehaviour
 
         if (Input.GetMouseButtonDown(0) && InputHandler.IsPointerOverUIElement())
         {
+
             _noRotating = true;
             return;
         }
@@ -122,7 +123,7 @@ public class FreeLookCam : MonoBehaviour
 
         transform.Rotate(new Vector3(0, InputHandler.MouseDeltaScreenPercentage.x * LookSensitivityX, 0));
         Head.transform.Rotate(new Vector3(-InputHandler.MouseDeltaScreenPercentage.y * LookSensitivityY, 0, 0));
-
+        
         var signedAngle = Vector3.SignedAngle(transform.forward, Head.forward, transform.right);
 
         if (signedAngle > 70)

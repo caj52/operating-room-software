@@ -9,7 +9,7 @@ public class UI_MeasurementButton : MonoBehaviour
 {
     public static UnityEvent Toggled = new();
 
-    private Toggle _toggle;
+    public Toggle _toggle;
     private List<Measurable> _currentMeasurables = new();
 
     private void Awake()

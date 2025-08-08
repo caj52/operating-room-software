@@ -14,6 +14,7 @@ using Debug = UnityEngine.Debug;
 
 /// <summary>
 /// Monolithic refactor of ProposalPDFGenerator with modularized methods and accurate itemized pricing
+/// Enhanced with better UI messages and error handling while maintaining original functionality
 /// </summary>
 public class ProposalPDFGenerator : MonoBehaviour
 {
@@ -23,7 +24,7 @@ public class ProposalPDFGenerator : MonoBehaviour
     private readonly string companyName = "Imagine Unlimited";
     private readonly string companyAddress = "9155 Sterling St Suite 120";
     private readonly string companyCity = "Irving, TX 75063";
-    private readonly string companyPhone = "1 877 789 8106";
+    private readonly string companyPhone = "Tel: 1 877 789 8106";
 
 
     // Client Details (public for inspector input)
@@ -66,6 +67,11 @@ public class ProposalPDFGenerator : MonoBehaviour
     // Fonts
     private Font titleFont, headerFont, normalFont, smallFont, boldFont, notesFont, tableHeaderFont, tableTitleFont;
 
+    // Progress tracking
+    private float currentProgress = 0f;
+    private bool isCancelled = false;
+    private Coroutine pdfGenerationCoroutine = null;
+
     #endregion
 
     private void Start()
@@ -73,17 +79,44 @@ public class ProposalPDFGenerator : MonoBehaviour
         screenshot = FindObjectOfType<ScreenshotCapture>();
     }
 
+    private void OnDestroy()
+    {
+        // Cancel any ongoing PDF generation
+        if (pdfGenerationCoroutine != null)
+        {
+            StopCoroutine(pdfGenerationCoroutine);
+            pdfGenerationCoroutine = null;
+        }
+    }
+
     public void GeneratePDF()
     {
-        UI_GeneralLoadingScreen.instance.SetStatus("Starting PDF Generation...");
-        StartCoroutine(GeneratePDFCoroutine());
+        // Cancel any existing generation
+        if (pdfGenerationCoroutine != null)
+        {
+            StopCoroutine(pdfGenerationCoroutine);
+        }
+
+        isCancelled = false;
+        pdfGenerationCoroutine = StartCoroutine(GeneratePDFCoroutine());
     }
 
     private IEnumerator GeneratePDFCoroutine()
     {
         path = null;
+        bool hasError = false;
+        string errorMessage = "";
+        string filePath = "";
 
+        // Show loading screen with cancel option
         UI_GeneralLoadingScreen.instance.ShowLoadingScreen();
+        UI_GeneralLoadingScreen.instance.OnCancel += HandleCancellation;
+        UI_GeneralLoadingScreen.instance.SetStatus("Initializing PDF generation...");
+        UI_GeneralLoadingScreen.instance.SetProgress(0f);
+
+        // Step 1: Capture screenshot
+        UI_GeneralLoadingScreen.instance.SetStatus("Capturing ceiling view for visualization...");
+        UI_GeneralLoadingScreen.instance.SetProgress(0.1f);
 
         yield return StartCoroutine(
             screenshot.CaptureCeilingOnly(
@@ -93,52 +126,233 @@ public class ProposalPDFGenerator : MonoBehaviour
             )
         );
 
-        yield return new WaitUntil(() => !string.IsNullOrEmpty(path) && File.Exists(path));
-
-
-        string fileName = $"SalesProposal_{Guid.NewGuid()}.pdf";
-        string filePath = Path.Combine(Application.persistentDataPath, fileName);
-
-        Document document = new Document(PageSize.A4, 18, 18, 18, 18);
-        PdfWriter writer = PdfWriter.GetInstance(document, new FileStream(filePath, FileMode.Create));
-        writer.PageEvent = new PageEventHelper { clientName = clientName, projectName = projectName, configName = configName };
-
-        document.Open();
-        SetupFonts();
-
-
-        PrepareQuoteData();
-
-
-        GenerateFirstPage(document);
-        document.NewPage();
-
-
-        GenerateSecondPage(document, writer);
-        document.NewPage();
-
-        GeneratePricingPage(document, writer);
-
-        document.Close();
-        UI_GeneralLoadingScreen.instance.HideLoadingScreen();
-        UI_DialogPrompt.Open(
-      $"Success! PDF saved to {filePath}",
-      new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = filePath),
-      new ButtonAction("Done"));
-#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
-        // Hack fix for macOS not liking Application.OpenURL
-        string location = path;
-        ProcessStartInfo startInfo = new ProcessStartInfo("/System/Library/CoreServices/Finder.app")
+        if (isCancelled)
         {
-            WindowStyle = ProcessWindowStyle.Normal,
-            FileName = location.Trim()
-        };
-        Process.Start(startInfo);
+            CleanupAndShowResult(isCancelled, hasError, errorMessage, filePath);
+            yield break;
+        }
+
+        // Wait for screenshot with timeout
+        float timeout = 5f;
+        float elapsed = 0f;
+        while (string.IsNullOrEmpty(path) && elapsed < timeout && !isCancelled)
+        {
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        if (!string.IsNullOrEmpty(path) && File.Exists(path))
+        {
+            UI_GeneralLoadingScreen.instance.SetStatus("Ceiling view captured successfully");
+            UI_GeneralLoadingScreen.instance.SetProgress(0.2f);
+        }
+        else if (!isCancelled)
+        {
+            Debug.LogWarning("Screenshot capture failed or timed out, continuing without image");
+            UI_GeneralLoadingScreen.instance.SetStatus("Continuing without ceiling view image");
+        }
+
+        if (isCancelled)
+        {
+            CleanupAndShowResult(isCancelled, hasError, errorMessage, filePath);
+            yield break;
+        }
+
+        // Step 2: Prepare pricing data
+        UI_GeneralLoadingScreen.instance.SetStatus("Collecting and organizing pricing data...");
+        UI_GeneralLoadingScreen.instance.SetProgress(0.3f);
+        yield return null; // Allow UI to update
+
+        // Prepare data with error handling
+        try
+        {
+            PrepareQuoteData();
+        }
+        catch (Exception e)
+        {
+            hasError = true;
+            errorMessage = $"Failed to prepare pricing data: {e.Message}";
+            Debug.LogError($"PDF Generation Error: {errorMessage}\n{e.StackTrace}");
+        }
+
+        // Check if we have any pricing data
+        if (!hasError && (selectablePrices == null || selectablePrices.Length == 0))
+        {
+            hasError = true;
+            errorMessage = "No pricing data found. Please ensure you have configured at least one item.";
+        }
+
+        if (isCancelled || hasError)
+        {
+            CleanupAndShowResult(isCancelled, hasError, errorMessage, filePath);
+            yield break;
+        }
+
+        UI_GeneralLoadingScreen.instance.SetStatus($"Successfully collected {selectablePrices.Length} pricing items");
+        UI_GeneralLoadingScreen.instance.SetProgress(0.4f);
+
+        // Step 3: Generate PDF
+        string fileName = $"SalesProposal_{Guid.NewGuid()}.pdf";
+        filePath = Path.Combine(Application.persistentDataPath, fileName);
+
+        UI_GeneralLoadingScreen.instance.SetStatus("Creating PDF document structure...");
+        yield return null;
+
+        if (isCancelled)
+        {
+            CleanupAndShowResult(isCancelled, hasError, errorMessage, filePath);
+            yield break;
+        }
+
+        // Generate PDF document
+        bool pdfGenerated = false;
+        try
+        {
+            pdfGenerated = GeneratePDFDocument(filePath);
+        }
+        catch (Exception e)
+        {
+            hasError = true;
+            errorMessage = $"Failed to generate PDF: {e.Message}";
+            Debug.LogError($"PDF Generation Error: {errorMessage}\n{e.StackTrace}");
+        }
+
+        if (!hasError && pdfGenerated && !isCancelled)
+        {
+            UI_GeneralLoadingScreen.instance.SetStatus("PDF generation completed successfully!");
+            UI_GeneralLoadingScreen.instance.SetProgress(1f);
+            yield return new WaitForSeconds(0.5f); // Brief pause to show completion
+        }
+
+        // Clean up and show results
+        CleanupAndShowResult(isCancelled, hasError, errorMessage, filePath);
+    }
+
+    private bool GeneratePDFDocument(string filePath)
+    {
+        Document document = null;
+        PdfWriter writer = null;
+
+        try
+        {
+            document = new Document(PageSize.A4, 18, 18, 18, 18);
+            writer = PdfWriter.GetInstance(document, new FileStream(filePath, FileMode.Create));
+            writer.PageEvent = new PageEventHelper { clientName = clientName, projectName = projectName, configName = configName };
+
+            document.Open();
+            SetupFonts();
+
+            if (!isCancelled)
+            {
+                UI_GeneralLoadingScreen.instance.SetStatus("Generating configuration summary page...");
+                UI_GeneralLoadingScreen.instance.SetProgress(0.5f);
+                GenerateFirstPage(document);
+            }
+
+            if (!isCancelled)
+            {
+                document.NewPage();
+                UI_GeneralLoadingScreen.instance.SetStatus("Adding visual representations...");
+                UI_GeneralLoadingScreen.instance.SetProgress(0.6f);
+                GenerateSecondPage(document, writer);
+            }
+
+            if (!isCancelled)
+            {
+                document.NewPage();
+                UI_GeneralLoadingScreen.instance.SetStatus("Creating detailed pricing breakdown...");
+                UI_GeneralLoadingScreen.instance.SetProgress(0.8f);
+                GeneratePricingPage(document, writer);
+            }
+
+            document.Close();
+            return !isCancelled;
+        }
+        catch (Exception e)
+        {
+            document?.Close();
+            writer?.Close();
+            throw;
+        }
+    }
+
+    private void CleanupAndShowResult(bool cancelled, bool hasError, string errorMessage, string filePath)
+    {
+        // Clean up
+        UI_GeneralLoadingScreen.instance.OnCancel -= HandleCancellation;
+        UI_GeneralLoadingScreen.instance.HideLoadingScreen();
+        pdfGenerationCoroutine = null;
+
+        // Show result dialog
+        if (cancelled)
+        {
+            UI_DialogPrompt.Open(
+                "PDF generation was cancelled.",
+                new ButtonAction("OK")
+            );
+        }
+        else if (hasError)
+        {
+            UI_DialogPrompt.Open(
+                $"Unable to generate PDF:\n\n{errorMessage}\n\nPlease check your configuration and try again.",
+                new ButtonAction("OK")
+            );
+        }
+        else
+        {
+            UI_DialogPrompt.Open(
+                $"PDF generated successfully!\n\nFile saved to:\n{filePath}",
+                new ButtonAction("Open PDF", () => OpenPDF(filePath)),
+                new ButtonAction("Copy Path", () => {
+                    GUIUtility.systemCopyBuffer = filePath;
+                    UI_DialogPrompt.Open("Path copied to clipboard!", new ButtonAction("OK"));
+                }),
+                new ButtonAction("Done")
+            );
+
+            // Try to open the PDF automatically
+            OpenPDF(filePath);
+        }
+    }
+
+    private void HandleCancellation()
+    {
+        isCancelled = true;
+        Debug.Log("PDF generation cancelled by user");
+    }
+
+    private void OpenPDF(string filePath)
+    {
+        try
+        {
+            if (!File.Exists(filePath))
+            {
+                UI_DialogPrompt.Open("PDF file not found at the specified location.", new ButtonAction("OK"));
+                return;
+            }
+
+#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
+            // Hack fix for macOS not liking Application.OpenURL
+            string location = filePath;
+            ProcessStartInfo startInfo = new ProcessStartInfo("/System/Library/CoreServices/Finder.app")
+            {
+                WindowStyle = ProcessWindowStyle.Normal,
+                FileName = location.Trim()
+            };
+            Process.Start(startInfo);
+#else
+            Application.OpenURL("file:///" + filePath);
 #endif
-
-        Application.OpenURL("file:///" + filePath);
-
-
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Failed to open PDF: {e.Message}");
+            UI_DialogPrompt.Open(
+                "Unable to open PDF automatically. You can find it at:\n" + filePath,
+                new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = filePath),
+                new ButtonAction("OK")
+            );
+        }
     }
 
     private void SetupFonts()
@@ -156,43 +370,51 @@ public class ProposalPDFGenerator : MonoBehaviour
 
     private void PrepareQuoteData()
     {
-        selectablePrices = FindObjectsOfType<SelectablePrice>();
-        selectables = new Selectable[selectablePrices.Length];
-
-        for (int i = 0; i < selectablePrices.Length; i++)
+        try
         {
-            selectables[i] = selectablePrices[i].transform.root.GetComponentInChildren<Selectable>();
+            selectablePrices = FindObjectsOfType<SelectablePrice>();
+            selectables = new Selectable[selectablePrices.Length];
+
+            for (int i = 0; i < selectablePrices.Length; i++)
+            {
+                selectables[i] = selectablePrices[i].transform.root.GetComponentInChildren<Selectable>();
+            }
+
+            // Group names by object size + name
+            concatedStrBoomObjectsName = string.Join(", ", selectablePrices
+                .Where(sp => sp.isBoomObject && sp.objectPricingData != null)
+                .OrderBy(sp => GetHierarchyPath(sp.transform))
+                .Select(sp => string.IsNullOrEmpty(sp.objectPricingData.ObjectSize)
+                    ? sp.objectPricingData.ObjectName
+                    : $"{sp.objectPricingData.ObjectSize} {sp.objectPricingData.ObjectName}".Trim()));
+
+            concatedStrNonBoomObjectsName = string.Join(", ", selectablePrices
+                .Where(sp => !sp.isBoomObject)
+                .Select(sp => sp.objectPricingData.ObjectName));
+
+            // Count
+            boomObjectsCount = selectablePrices.Count(sp => sp.isBoomObject && UINameToExcelKey.IsBoomBaseModelFromExcel(sp.pricingObjectName));
+            nonBoomObjectsCount = selectablePrices.Count(sp => !sp.isBoomObject);
+
+            // Pricing
+            boomTotalPrice = selectablePrices.Where(sp => sp.isBoomObject)
+                .Sum(sp => sp.objectPricingData.ListPrice + (sp.objectPricingData.isSimFlexArmAvailable ? sp.objectPricingData.SimFlexPrice : 0));
+
+            nonBoomTotalPrice = selectablePrices.Where(sp => !sp.isBoomObject)
+                .Sum(sp => sp.objectPricingData.ListPrice + (sp.objectPricingData.isSimFlexArmAvailable ? sp.objectPricingData.SimFlexPrice : 0));
+
+            (concatedStrBoomObjectsName, boomTotalPriceDd, concatedStrNonBoomObjectsName, nonBoomTotalPriceDd) = GetSelectedBoomAndNonBoomData();
+
+/*            concatedStrNonBoomObjectsPartName = string.Join(", ", selectablePrices
+                .Where(sp => !sp.isBoomObject)
+                .Select(sp => ConcatenateBtNamesFromSelectablePrice(sp))
+                .Where(bt => !string.IsNullOrEmpty(bt)));*/
         }
-
-        // Group names by object size + name
-        concatedStrBoomObjectsName = string.Join(", ", selectablePrices
-            .Where(sp => sp.isBoomObject && sp.objectPricingData != null)
-            .OrderBy(sp => GetHierarchyPath(sp.transform))
-            .Select(sp => string.IsNullOrEmpty(sp.objectPricingData.ObjectSize)
-                ? sp.objectPricingData.ObjectName
-                : $"{sp.objectPricingData.ObjectSize} {sp.objectPricingData.ObjectName}".Trim()));
-
-        concatedStrNonBoomObjectsName = string.Join(", ", selectablePrices
-            .Where(sp => !sp.isBoomObject)
-            .Select(sp => sp.objectPricingData.ObjectName));
-
-        // Count
-        boomObjectsCount = selectablePrices.Count(sp => sp.isBoomObject && UINameToExcelKey.IsBoomBaseModelFromExcel(sp.pricingObjectName));
-        nonBoomObjectsCount = selectablePrices.Count(sp => !sp.isBoomObject);
-
-        // Pricing
-        boomTotalPrice = selectablePrices.Where(sp => sp.isBoomObject)
-            .Sum(sp => sp.objectPricingData.ListPrice + (sp.objectPricingData.isSimFlexArmAvailable ? sp.objectPricingData.SimFlexPrice : 0));
-
-        nonBoomTotalPrice = selectablePrices.Where(sp => !sp.isBoomObject)
-            .Sum(sp => sp.objectPricingData.ListPrice + (sp.objectPricingData.isSimFlexArmAvailable ? sp.objectPricingData.SimFlexPrice : 0));
-
-        (concatedStrBoomObjectsName, boomTotalPriceDd, concatedStrNonBoomObjectsName, nonBoomTotalPriceDd) = GetSelectedBoomAndNonBoomData();
-
-        concatedStrNonBoomObjectsPartName = string.Join(", ", selectablePrices
-            .Where(sp => !sp.isBoomObject)
-            .Select(sp => ConcatenateBtNamesFromSelectablePrice(sp))
-            .Where(bt => !string.IsNullOrEmpty(bt)));
+        catch (Exception e)
+        {
+            Debug.LogError($"Error preparing quote data: {e.Message}");
+            throw;
+        }
     }
 
 
@@ -226,70 +448,6 @@ public class ProposalPDFGenerator : MonoBehaviour
 
         return (boomObjects, boomTotalPrice, nonBoomObjects, nonBoomTotalPrice);
     }
-    private string ConcatenateBtNamesFromSelectablePrice(SelectablePrice selectablePrice)
-    {
-        // Get the root parent of the SelectablePrice
-        GameObject rootObject = selectablePrice.transform.root.gameObject;
-
-        // Check if the root has the RecordHirarcheySelectables component
-        RecordHirarcheySelectables hierarchyScript = rootObject.GetComponent<RecordHirarcheySelectables>();
-        if (hierarchyScript == null)
-        {
-            Debug.LogError("RecordHirarcheySelectables script not found on root object.");
-            return string.Empty;
-        }
-
-        // Determine which list the SelectablePrice belongs to
-        var attachedList = hierarchyScript.AttachedSelectables
-            .FirstOrDefault(a => a.GameObject == selectablePrice.gameObject) != null
-            ? hierarchyScript.AttachedSelectables
-            : hierarchyScript.AttachedSelectables2;
-
-        // Concatenate the btName values from the selected list
-        string concatenatedNames = string.Join(", ", attachedList.Select(a =>
-        {
-            string btName = a.BtName;
-
-            // Ensure object and GameObject are not destroyed
-            if (a == null || a.Equals(null) || a.GameObject == null || a.GameObject.Equals(null))
-            {
-                return btName;
-            }
-
-            // Get the Selectable component safely
-            Selectable selectable = a.GameObject.GetComponent<Selectable>();
-            if (selectable == null || selectable.Equals(null))
-            {
-                return btName;
-            }
-
-            float size = selectable.CurrentPreviewScaleLevel?.Size ?? 0f;
-            if (size > 0)
-            {
-                return $"{btName} ({size * 1000}mm)"; // Assuming Size is the property for scale
-            }
-            // Check the relatedSelectable list for scale levels
-            string scaleLevel = string.Empty;
-            foreach (var related in selectable.RelatedSelectables)
-            {
-                if (related.ScaleLevels != null && related.ScaleLevels.Count > 0)
-                {
-                    // Find the selected scale level (assuming a property like IsSelected exists)
-                    var selectedScale = related.ScaleLevels.FirstOrDefault(scale => scale.Selected);
-                    if (selectedScale != null)
-                    {
-                        scaleLevel = (selectedScale.Size * 1000) + "mm"; // Assuming Size is the property for scale
-                        break;
-                    }
-                }
-            }
-
-            // Concatenate btName with scale level if found
-            return string.IsNullOrEmpty(scaleLevel) ? btName : $"{btName} {scaleLevel}";
-        }));
-
-        return concatenatedNames;
-    }
 
     private Dictionary<string, List<string>> GetBtNamesGroupedByType(List<SelectablePrice> selectables)
     {
@@ -299,64 +457,51 @@ public class ProposalPDFGenerator : MonoBehaviour
         { "Boom", new List<string>() }
     };
 
-        foreach (var sp in selectables)
+        // Sort selectables by hierarchy order first
+        var sortedSelectables = selectables
+            .Where(s => s != null && !s.Equals(null) && s.gameObject != null && !s.gameObject.Equals(null))
+            .OrderBy(s => GetHierarchyPath(s.transform))
+            .ToList();
+
+        foreach (var a in sortedSelectables)
         {
-            GameObject rootObject = sp.transform.root.gameObject;
-            var hierarchyScript = rootObject.GetComponent<RecordHirarcheySelectables>();
-            if (hierarchyScript == null) continue;
+            GameObject go = a.gameObject;
+            string btName = a.pricingObjectName;
+            var selectable = go.GetComponent<Selectable>();
+            string sizeStr = "";
 
-            var attachedList = hierarchyScript.AttachedSelectables
-                .FirstOrDefault(a => a.GameObject == sp.gameObject) != null
-                ? hierarchyScript.AttachedSelectables
-                : hierarchyScript.AttachedSelectables2;
-
-            foreach (var a in attachedList)
+            if (selectable != null && !selectable.Equals(null))
             {
-                if (a == null || a.Equals(null)) continue; // Unity-safe null check
-
-                // Guard against destroyed GameObject
-                GameObject go = a.GameObject;
-                if (go == null || go.Equals(null)) continue;
-
-                string btName = a.BtName;
-                var selectable = go.GetComponent<Selectable>();
-                string sizeStr = "";
-
-                if (selectable != null && !selectable.Equals(null))
+                float size = selectable.CurrentPreviewScaleLevel?.Size ?? 0f;
+                if (size > 0)
                 {
-                    float size = selectable.CurrentPreviewScaleLevel?.Size ?? 0f;
-                    if (size > 0)
+                    sizeStr = $" ({size * 1000}mm)";
+                }
+                else
+                {
+                    foreach (var related in selectable.RelatedSelectables)
                     {
-                        sizeStr = $" ({size * 1000}mm)";
-                    }
-                    else
-                    {
-                        foreach (var related in selectable.RelatedSelectables)
+                        var selectedScale = related.ScaleLevels?.FirstOrDefault(s => s.Selected);
+                        if (selectedScale != null)
                         {
-                            var selectedScale = related.ScaleLevels?.FirstOrDefault(s => s.Selected);
-                            if (selectedScale != null)
-                            {
-                                sizeStr = $" ({selectedScale.Size * 1000}mm)";
-                                break;
-                            }
+                            sizeStr = $" ({selectedScale.Size * 1000}mm)";
+                            break;
                         }
                     }
                 }
-
-                string fullName = btName + sizeStr;
-
-                // Classify by keyword
-                if (btName.ToLower().Contains("light") || btName.ToLower().Contains("spring arm"))
-                    result["Light"].Add(fullName);
-                else
-                    result["Boom"].Add(fullName);
             }
 
+            string fullName = btName + sizeStr;
+
+            // Classify by keyword
+            if (btName.ToLower().Contains("light") || btName.ToLower().Contains("spring arm"))
+                result["Light"].Add(fullName);
+            else
+                result["Boom"].Add(fullName);
         }
 
         return result;
     }
-
     private string GetHierarchyPath(Transform transform)
     {
         string path = transform.name;
@@ -372,7 +517,6 @@ public class ProposalPDFGenerator : MonoBehaviour
     private void GenerateFirstPage(Document document)
     {
         AddCompanyHeader(document);
-        document.Add(Chunk.NEWLINE);
 
         var rootGroups = selectablePrices
             .Where(sp => sp.objectPricingData != null)
@@ -384,12 +528,25 @@ public class ProposalPDFGenerator : MonoBehaviour
         foreach (var group in rootGroups)
         {
             var first = group.Last();
-            string configTitle = $"Configuration {configCount++}: {first.objectPricingData.ObjectName}";
-            AddTableTitle(document, configTitle);
+         //   string configTitle = $"Configuration {configCount++}: {first.objectPricingData.ObjectName}";
+
 
             var lights = group.Where(sp => !sp.isBoomObject).ToList();
             var booms = group.Where(sp => sp.isBoomObject).ToList();
+            string configTitle;
 
+            if (lights.Count > 0 && booms.Count > 0)
+                configTitle = "\tConfiguration Name: Tandem Equipment Boom with Light";
+            else if (lights.Count > 0)
+                configTitle = "\tConfiguration Name: Tandem Equipment Light";
+            else if (booms.Count > 0)
+                configTitle = "\tConfiguration Name: Tandem Equipment Boom";
+            else
+                configTitle = $"\tConfiguration Name:  {first.objectPricingData.ObjectName} ";
+
+         
+            document.Add(Chunk.NEWLINE);
+            AddTableTitle(document, configTitle);
             if (lights.Count > 0)
             {
                 PdfPTable lightTable = CreateModelTable("MODEL DESCRIPTION", "QTY", "LIGHT", lights.Count.ToString());
@@ -398,13 +555,27 @@ public class ProposalPDFGenerator : MonoBehaviour
 
                 AddSectionHeader(document, "OPTION/ACCESSORY DESCRIPTION");
 
-                // Light-related options only
-                var btNamesGrouped = GetBtNamesGroupedByType(lights);
-                string lightOptionsText = string.Join(", ", btNamesGrouped["Light"]);
+                // 1. Get all current dropdown states
+                var allStates =DropdownPopulator.GetAllCurrentStates();
+
+                // 2. Filter by lights
+                var lightStates = allStates
+                    .Select(state => new
+                    {
+                        Key = state.Item1.name, // Or use a custom identifier
+                        Value = state.Item2.ObjectName // Use the actual property from PriceExcelData
+                    })
+                    .ToList();
+
+                // 3. Format key-value pairs
+                string lightOptionsText = string.Join(", ", lightStates.Select(kv => $"{kv.Key}: {kv.Value}"));
+
+                // 4. Create PDF table
                 PdfPTable lightOptions = CreateOptionTable(lightOptionsText);
 
 
-                document.Add(lightOptions);
+                AddDropdownItems(lightOptions, false);
+              //  document.Add(lightOptions);
                 document.Add(Chunk.NEWLINE);
             }
 
@@ -420,14 +591,26 @@ public class ProposalPDFGenerator : MonoBehaviour
                 var btNamesGroupedBoom = GetBtNamesGroupedByType(booms);
                 string boomOptionsText = string.Join(", ", btNamesGroupedBoom["Boom"].Distinct());
                 PdfPTable boomOptions = CreateOptionTable(boomOptionsText);
-
+                AddDropdownItems(boomOptions, true);
                 document.Add(boomOptions);
                 AddHorizontalLine(document);
             }
 
-            double configTotal = group
-            .Where(sp => sp.UIRefPricingRowDataFill != null)
-            .Sum(sp => sp.UIRefPricingRowDataFill.Price); ;
+            double configTotal = 0;
+
+            // Calculate total from the group, handling both UI and non-UI cases
+            foreach (var sp in group)
+            {
+                if (sp.UIRefPricingRowDataFill != null)
+                {
+                    configTotal += sp.UIRefPricingRowDataFill.Price;
+                }
+                else if (sp.objectPricingData != null)
+                {
+                    configTotal += sp.objectPricingData.ListPrice +
+                        (sp.objectPricingData.isSimFlexArmAvailable ? sp.objectPricingData.SimFlexPrice : 0);
+                }
+            }
 
             PdfPTable totalTable = CreateTotalTable("EQUIPMENT TOTAL LIST PRICE", configTotal.ToString("C"));
             document.Add(totalTable);
@@ -442,7 +625,7 @@ public class ProposalPDFGenerator : MonoBehaviour
 
         HashSet<Selectable> processedRoots = new HashSet<Selectable>();
         float availableHeight = document.PageSize.Height - document.TopMargin - document.BottomMargin - 125f;
-        float imageHeight = availableHeight / 2.5f;
+        float imageHeight = availableHeight / 3f;
 
         for (int i = 0; i < selectables.Length; i++)
         {
@@ -497,28 +680,42 @@ public class ProposalPDFGenerator : MonoBehaviour
                     sp.objectPricingData.PartNumber,
                     Name = string.IsNullOrEmpty(sp.objectPricingData.ObjectSize)
                         ? sp.objectPricingData.ObjectName
-                        : $"{sp.objectPricingData.ObjectSize} {sp.objectPricingData.ObjectName}"
+                        : $"{sp.objectPricingData.ObjectSize} {sp.objectPricingData.ObjectName}",
+                    UnitPrice = sp.objectPricingData.ListPrice +
+                               (sp.objectPricingData.isSimFlexArmAvailable ? sp.objectPricingData.SimFlexPrice : 0)
                 });
 
             // Add lights as aggregated rows
             foreach (var lightGroup in lightGroups)
             {
                 int quantity = lightGroup.Count();
-                var sample = lightGroup.Last();
-                double unitPrice = sample.objectPricingData.ListPrice +
-                                   (sample.objectPricingData.isSimFlexArmAvailable ? sample.objectPricingData.SimFlexPrice : 0);
-                Debug.LogError(sample.name, gameObject);
-                PricingRowDataFill pricingRowDataFill = sample?.UIRefPricingRowDataFill;
+                double unitPrice = lightGroup.Key.UnitPrice;
+                double extPrice = unitPrice * quantity;
 
+                // Try to get UI data from any item in the group that has it
+                var itemWithUI = lightGroup.FirstOrDefault(sp => sp.UIRefPricingRowDataFill != null);
 
-
-                configTable.AddCell(CreateLeftAlignedCell(pricingRowDataFill.partNo.text ?? "N/A", normalFont));
-                configTable.AddCell(CreateLeftAlignedCell(lightGroup.Key.Name, normalFont));
-                configTable.AddCell(CreateCenteredCell(pricingRowDataFill.quantity.text, normalFont));
-                configTable.AddCell(CreateRightAlignedCell(unitPrice.ToString("C"), normalFont));
-                configTable.AddCell(CreateRightAlignedCell(pricingRowDataFill.Price.ToString("C"), normalFont));
-
-                subtotal += pricingRowDataFill.Price;
+                if (itemWithUI?.UIRefPricingRowDataFill != null)
+                {
+                    // Use UI data if available
+                    var pricingRowDataFill = itemWithUI.UIRefPricingRowDataFill;
+                    configTable.AddCell(CreateLeftAlignedCell(pricingRowDataFill.partNo.text ?? "N/A", normalFont));
+                    configTable.AddCell(CreateLeftAlignedCell(lightGroup.Key.Name, normalFont));
+                    configTable.AddCell(CreateCenteredCell(quantity.ToString(), normalFont));
+                    configTable.AddCell(CreateRightAlignedCell(unitPrice.ToString("C"), normalFont));
+                    configTable.AddCell(CreateRightAlignedCell(pricingRowDataFill.Price.ToString("C"), normalFont));
+                    subtotal += pricingRowDataFill.Price;
+                }
+                else
+                {
+                    // Fallback to pricing data if UI not available
+                    configTable.AddCell(CreateLeftAlignedCell(lightGroup.Key.PartNumber ?? "N/A", normalFont));
+                    configTable.AddCell(CreateLeftAlignedCell(lightGroup.Key.Name, normalFont));
+                    configTable.AddCell(CreateCenteredCell(quantity.ToString(), normalFont));
+                    configTable.AddCell(CreateRightAlignedCell(unitPrice.ToString("C"), normalFont));
+                    configTable.AddCell(CreateRightAlignedCell(extPrice.ToString("C"), normalFont));
+                    subtotal += extPrice;
+                }
             }
 
             // Add all non-light components as individual rows
@@ -535,16 +732,29 @@ public class ProposalPDFGenerator : MonoBehaviour
                 string objectName = string.IsNullOrEmpty(data.ObjectSize)
                     ? data.ObjectName
                     : $"{data.ObjectSize} {data.ObjectName}";
-                PricingRowDataFill pricingRowDataFill = sp?.UIRefPricingRowDataFill;
+                double price = data.ListPrice + (data.isSimFlexArmAvailable ? data.SimFlexPrice : 0);
 
-
-                configTable.AddCell(CreateLeftAlignedCell(pricingRowDataFill.partNo.text, normalFont));
-                configTable.AddCell(CreateLeftAlignedCell(pricingRowDataFill.modelName.text, normalFont));
-                configTable.AddCell(CreateCenteredCell("1", normalFont));
-                configTable.AddCell(CreateRightAlignedCell(pricingRowDataFill.listPrice.text, normalFont));
-                configTable.AddCell(CreateRightAlignedCell(pricingRowDataFill.Price.ToString("C"), normalFont));
-
-                subtotal += pricingRowDataFill.Price;
+                if (sp.UIRefPricingRowDataFill != null)
+                {
+                    // Use UI data if available
+                    var pricingRowDataFill = sp.UIRefPricingRowDataFill;
+                    configTable.AddCell(CreateLeftAlignedCell(pricingRowDataFill.partNo.text, normalFont));
+                    configTable.AddCell(CreateLeftAlignedCell(pricingRowDataFill.modelName.text, normalFont));
+                    configTable.AddCell(CreateCenteredCell("1", normalFont));
+                    configTable.AddCell(CreateRightAlignedCell(pricingRowDataFill.listPrice.text, normalFont));
+                    configTable.AddCell(CreateRightAlignedCell(pricingRowDataFill.Price.ToString("C"), normalFont));
+                    subtotal += pricingRowDataFill.Price;
+                }
+                else
+                {
+                    // Fallback to pricing data if UI not available
+                    configTable.AddCell(CreateLeftAlignedCell(partNumber, normalFont));
+                    configTable.AddCell(CreateLeftAlignedCell(objectName, normalFont));
+                    configTable.AddCell(CreateCenteredCell("1", normalFont));
+                    configTable.AddCell(CreateRightAlignedCell(price.ToString("C"), normalFont));
+                    configTable.AddCell(CreateRightAlignedCell(price.ToString("C"), normalFont));
+                    subtotal += price;
+                }
             }
 
             // Add subtotal row
@@ -622,17 +832,34 @@ public class ProposalPDFGenerator : MonoBehaviour
         // Left
         PdfPCell leftCell = new PdfPCell { Border = Rectangle.NO_BORDER };
         leftCell.AddElement(new Paragraph("Proposal", titleFont));
-        leftCell.AddElement(new Paragraph($"Sales Rep: {salesRepName}\n{salesRepEmail}", normalFont));
-        leftCell.AddElement(new Paragraph(companyName, headerFont));
+        leftCell.AddElement(new Paragraph("\n", normalFont));
+        leftCell.AddElement(new Paragraph($"Sales Rep: {salesRepName}",titleFont));
+        leftCell.AddElement(new Paragraph($"{salesRepEmail}",normalFont));
+        leftCell.AddElement(new Paragraph("\n", normalFont));
+        leftCell.AddElement(new Paragraph(companyName, normalFont));
         leftCell.AddElement(new Paragraph(companyAddress, normalFont));
         leftCell.AddElement(new Paragraph(companyCity, normalFont));
+        leftCell.AddElement(new Paragraph(companyPhone, normalFont));
+        leftCell.AddElement(new Paragraph("\n", normalFont));
+
         headerTable.AddCell(leftCell);
 
         // Right
         PdfPCell rightCell = new PdfPCell { Border = Rectangle.NO_BORDER, HorizontalAlignment = Element.ALIGN_RIGHT };
-        Image logo = Image.GetInstance(Application.streamingAssetsPath + "/Data/quotes/UImagineUnlimited-logo.png");
-        logo.ScaleAbsolute(150, 75);
-        rightCell.AddElement(logo);
+        try
+        {
+            string logoPath = Path.Combine(Application.streamingAssetsPath, "Data/quotes/IMAGINE-UNLIMITED_FullLogo_orange.png");
+            if (File.Exists(logoPath))
+            {
+                Image logo = Image.GetInstance(logoPath);
+                logo.ScaleAbsolute(150, 75);
+                rightCell.AddElement(logo);
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"Failed to load logo: {e.Message}");
+        }
         headerTable.AddCell(rightCell);
 
         document.Add(headerTable);
@@ -642,13 +869,13 @@ public class ProposalPDFGenerator : MonoBehaviour
         clientTable.WidthPercentage = 100;
         clientTable.AddCell(new PdfPCell(new Phrase($"Submitted To: {clientName}", boldFont)) { BackgroundColor = BaseColor.LIGHT_GRAY, Border = Rectangle.NO_BORDER, Padding = 5 });
         document.Add(clientTable);
-        document.Add(new Paragraph($"Project: {projectName}", new Font(normalFont.BaseFont, normalFont.Size, Font.UNDERLINE)));
-        document.Add(Chunk.NEWLINE);
+        document.Add(new Paragraph("\n",normalFont));
+        document.Add(new Paragraph($"Project: {projectName}", new Font(titleFont.BaseFont, titleFont.Size, Font.UNDERLINE)));
     }
 
     private void AddTableTitle(Document doc, string text)
     {
-        Paragraph tableTitle = new Paragraph(text, tableTitleFont);
+        Paragraph tableTitle = new Paragraph("\t"+text, headerFont);
         tableTitle.Alignment = Element.ALIGN_LEFT;
         tableTitle.SpacingAfter = 10;
         doc.Add(tableTitle);
@@ -669,6 +896,7 @@ public class ProposalPDFGenerator : MonoBehaviour
 
     private PdfPTable CreateOptionTable(string content)
     {
+        Debug.LogError("++"+content);
         PdfPTable table = new PdfPTable(2);
         table.WidthPercentage = 100;
         table.SetWidths(new float[] { 8, 1 });
@@ -793,7 +1021,7 @@ public class ProposalPDFGenerator : MonoBehaviour
         double discounted = total - (total * discountPercentage / 100);
 
         AddTotalLine("TOTAL EQUIPMENT LIST PRICE", total.ToString("C"), table);
-        AddTotalLine("DISCOUNT %", discountPercentage.ToString("F1"), table);
+        AddTotalLine("DISCOUNT %", discountPercentage.ToString("F1") + "%", table);
         AddTotalLine("GRAND TOTAL PRICE", discounted.ToString("C"), table);
 
         doc.Add(table);
@@ -830,18 +1058,44 @@ public class ProposalPDFGenerator : MonoBehaviour
         PdfPTable inner = new PdfPTable(1);
         inner.WidthPercentage = 100;
 
-        AddRowWithBottomBorder(inner, "Account Name: " + UI_ClientMetaData.AccountName, normalFont);
-        AddRowWithBottomBorder(inner, "Account Address: " + UI_ClientMetaData.AccountAddressLine1, normalFont);
-        AddRowWithBottomBorder(inner, " " + UI_ClientMetaData.AccountAddressLine2, normalFont);
-        AddRowWithBottomBorder(inner, "Project Name: " + UI_ClientMetaData.ProjectName, normalFont);
-        AddRowWithBottomBorder(inner, "Project Number: " + UI_ClientMetaData.ProjectNumber, normalFont);
-        AddRowWithBottomBorder(inner, "Order Reference #: " + UI_ClientMetaData.OrderReferenceNumber, normalFont, false);
+        // Safe access to UI_ClientMetaData
+        string accountName = GetClientMetaDataSafely("AccountName");
+        string addressLine1 = GetClientMetaDataSafely("AccountAddressLine1");
+        string addressLine2 = GetClientMetaDataSafely("AccountAddressLine2");
+        string projectName = GetClientMetaDataSafely("ProjectName");
+        string projectNumber = GetClientMetaDataSafely("ProjectNumber");
+        string orderRef = GetClientMetaDataSafely("OrderReferenceNumber");
+
+        AddRowWithBottomBorder(inner, "Account Name: " + accountName, normalFont);
+        AddRowWithBottomBorder(inner, "Account Address: " + addressLine1, normalFont);
+        AddRowWithBottomBorder(inner, " " + addressLine2, normalFont);
+        AddRowWithBottomBorder(inner, "Project Name: " + projectName, normalFont);
+        AddRowWithBottomBorder(inner, "Project Number: " + projectNumber, normalFont);
+        AddRowWithBottomBorder(inner, "Order Reference #: " + orderRef, normalFont, false);
 
         left.AddElement(inner);
 
         table.AddCell(right);
         table.AddCell(left);
         doc.Add(table);
+    }
+
+    private string GetClientMetaDataSafely(string propertyName)
+    {
+        try
+        {
+            var type = typeof(UI_ClientMetaData);
+            var property = type.GetProperty(propertyName, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+            if (property != null)
+            {
+                return property.GetValue(null)?.ToString() ?? "";
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"Error accessing UI_ClientMetaData.{propertyName}: {e.Message}");
+        }
+        return "";
     }
 
     private void AddRowWithBottomBorder(PdfPTable table, string text, Font font, bool border = true)
@@ -869,12 +1123,28 @@ public class ProposalPDFGenerator : MonoBehaviour
 
     private double CalculateTotalPrice()
     {
-        double selectablesPrice = selectablePrices.Where(sp => sp.UIRefPricingRowDataFill != null).Sum(sp =>
-          sp.UIRefPricingRowDataFill.Price);
+        double selectablesPrice = 0;
 
+        // Calculate price from selectables, handling both UI and non-UI cases
+        foreach (var sp in selectablePrices)
+        {
+            if (sp == null) continue;
 
+            if (sp.UIRefPricingRowDataFill != null)
+            {
+                // Use UI price if available
+                selectablesPrice += sp.UIRefPricingRowDataFill.Price;
+            }
+            else if (sp.objectPricingData != null)
+            {
+                // Fallback to pricing data
+                selectablesPrice += sp.objectPricingData.ListPrice +
+                    (sp.objectPricingData.isSimFlexArmAvailable ? sp.objectPricingData.SimFlexPrice : 0);
+            }
+        }
 
         double dropdownTotal = DropdownPopulator.GetAllCurrentStates().Sum(state => state.Item2.ListPrice);
+        Debug.LogError("+++dropdownTotal" + dropdownTotal);
         double install = FindObjectOfType<ExcelReader>()?.GetInstallationLightsCharges()?.ListPrice ?? 0;
         double ship = FindObjectOfType<ExcelReader>()?.GetShippingLightsCharges()?.ListPrice ?? 0;
 
@@ -890,10 +1160,20 @@ public class ProposalPDFGenerator : MonoBehaviour
 
     private void AddImageToPDF(Document doc, string imgPath, PdfWriter writer, float maxHeight)
     {
-        Image img = Image.GetInstance(imgPath);
-        img.ScaleToFit(doc.PageSize.Width - doc.LeftMargin - doc.RightMargin, maxHeight);
-        img.Alignment = Image.ALIGN_CENTER;
-        doc.Add(img);
+        try
+        {
+            if (!string.IsNullOrEmpty(imgPath) && File.Exists(imgPath))
+            {
+                Image img = Image.GetInstance(imgPath);
+                img.ScaleToFit(doc.PageSize.Width - doc.LeftMargin - doc.RightMargin, maxHeight);
+                img.Alignment = Image.ALIGN_CENTER;
+                doc.Add(img);
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Failed to add image to PDF: {e.Message}");
+        }
     }
 
     #endregion

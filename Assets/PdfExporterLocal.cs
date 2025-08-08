@@ -59,22 +59,45 @@ public class PdfExporterLocal
         public List<PdfField> Fields { get; set; } = new List<PdfField>();
     }
 
-    // Memory optimization: Get cached font to prevent repeated font loading
     private static BaseFont GetCachedBaseFont(string fontPath)
     {
         if (!FontCache.ContainsKey(fontPath))
         {
             try
             {
+                if (!File.Exists(fontPath))
+                    throw new FileNotFoundException("Font file not found: " + fontPath);
+
+                // Always use Unicode encoding with embedded font
                 FontCache[fontPath] = BaseFont.CreateFont(fontPath, BaseFont.IDENTITY_H, BaseFont.EMBEDDED);
             }
             catch (Exception ex)
             {
-                UnityEngine.Debug.LogError($"Failed to load font {fontPath}: {ex.Message}");
-                // Fallback to Helvetica
-                FontCache[fontPath] = BaseFont.CreateFont(BaseFont.HELVETICA, BaseFont.CP1252, BaseFont.NOT_EMBEDDED);
+                UnityEngine.Debug.LogError($"Font loading failed for {fontPath}: {ex.Message}. Using embedded fallback.");
+
+                try
+                {
+                    // Use a fallback font that you know works well with IDENTITY_H
+                    string fallbackFontPath = Path.Combine(Application.streamingAssetsPath, "Fonts", "Arial.ttf");
+
+                    if (File.Exists(fallbackFontPath))
+                    {
+                        FontCache[fontPath] = BaseFont.CreateFont(fallbackFontPath, BaseFont.IDENTITY_H, BaseFont.EMBEDDED);
+                    }
+                    else
+                    {
+                        // Use iTextSharp's built-in Helvetica (very limited range)
+                        FontCache[fontPath] = BaseFont.CreateFont(BaseFont.HELVETICA, BaseFont.WINANSI, BaseFont.NOT_EMBEDDED);
+                    }
+                }
+                catch (Exception fallbackEx)
+                {
+                    UnityEngine.Debug.LogError($"All font loading attempts failed: {fallbackEx.Message}");
+                    throw;
+                }
             }
         }
+
         return FontCache[fontPath];
     }
 
@@ -212,7 +235,8 @@ public class PdfExporterLocal
     // Memory optimized title creation
     private static void AddTitleOptimized(Document doc, string title, string subtitle)
     {
-        BaseFont tekoLight = GetCachedBaseFont(@"Assets/_DevWIP/Faizan/Fonts/Teko/Teko-Light.ttf");
+        var fontPath = Path.Combine(Application.streamingAssetsPath, "Data/Fonts/Teko/Teko-Light.ttf");
+        BaseFont tekoLight = GetCachedBaseFont(fontPath);
         
         Font prefixFont = new Font(tekoLight, 36, Font.NORMAL, BaseColor.WHITE);
         Font subtitleFont = GetCachedFont("subtitle", "Arial", 15, Font.NORMAL, BaseColor.WHITE);
@@ -532,8 +556,9 @@ public class PdfExporterLocal
         float inch = Mathf.Round((meters.ToFeet() - ft) * 12f * 10f) / 10f;
         Distance = $"{ft}' {inch}\"";
 
+        var fontPath = Path.Combine(Application.streamingAssetsPath, "Data/Fonts/Teko/Teko-Regular.ttf");
         // Draw the text with cached font
-        BaseFont teko = GetCachedBaseFont(@"Assets/_DevWIP/Faizan/Fonts/Teko/Teko-Light.ttf");
+        BaseFont teko = GetCachedBaseFont(fontPath);
 
         tpl.BeginText();
         tpl.SetFontAndSize(teko, 36);

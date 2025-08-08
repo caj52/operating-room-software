@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.EventSystems;
 
 public class RoomBoundary : MonoBehaviour
 {
@@ -145,8 +146,10 @@ public class RoomBoundary : MonoBehaviour
                 _transposer.m_FollowOffset.y -= mouseMovement.y;
                 break;
         }
-
-        VirtualCamera.m_Lens.OrthographicSize = Mathf.Max(1f, VirtualCamera.m_Lens.OrthographicSize + scroll);
+        if (!EventSystem.current.IsPointerOverGameObject())
+        {
+            VirtualCamera.m_Lens.OrthographicSize = Mathf.Max(1f, VirtualCamera.m_Lens.OrthographicSize + scroll);
+        }
     }
 
     private float GetScrollWheel()

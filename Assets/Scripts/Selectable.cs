@@ -605,6 +605,10 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         {
             SelectionChanged?.Invoke();
         }
+
+        ToggleMeasurableActiveStatesWhilePlacing(false);
+        FindObjectOfType<UI_MeasurementButton>(true)._toggle.isOn = false;
+
     }
 
     public void Select()
@@ -656,6 +660,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         });
 
         SelectionChanged?.Invoke();
+        FindObjectOfType<UI_MeasurementButton>(true)._toggle.isOn =true;
+        ToggleMeasurableActiveStatesWhilePlacing(true);
     }
 
     #region Gizmos
@@ -1354,8 +1360,9 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             }
         }
     }
-    void ToggleMeasurableActiveStatesWhilePlacing(bool enable)
+   public void ToggleMeasurableActiveStatesWhilePlacing(bool enable)
     {
+      
         //Debug.LogError("ToggleMeasurableActiveStatesWhilePlacing");
         if (Measurables.Count > 0)
         {

@@ -46,7 +46,7 @@ public class WallCutter : MonoBehaviour
         UpdateCuts();
     }
 
-    private void UpdateCuts()
+    public void UpdateCuts()
     {
         if (_wallCuttersOnSelectable[0] == this)
             Cuttable.UpdateCuts();

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using UnityEngine.Rendering.VirtualTexturing;
 
 public class TrackedObject : MonoBehaviour
 {
@@ -24,6 +25,7 @@ public class TrackedObject : MonoBehaviour
         public string sheetName;
         public string UIObjectName;
         public string size;
+        public string priceObjectName;
     }
 
     private void Awake()
@@ -55,7 +57,7 @@ public class TrackedObject : MonoBehaviour
 
         GetGUIDs();
 
-        data.pos = transform.localPosition;
+        data.pos = transform.position;
         data.rot = transform.rotation;
         data.scale = transform.localScale;
 
@@ -84,6 +86,7 @@ public class TrackedObject : MonoBehaviour
             data.sheetName = sp.sheetName;
             data.UIObjectName = sp.UIObjectName;
             data.size = sp.Size;
+            data.priceObjectName = sp.pricingObjectName;
         }
 
         return data;
@@ -139,6 +142,7 @@ public class TrackedObject : MonoBehaviour
             sp.sheetName = d.sheetName;
             sp.UIObjectName = d.UIObjectName;
             sp.Size = d.size;
+            sp.pricingObjectName = d.priceObjectName;
         }
     }
 

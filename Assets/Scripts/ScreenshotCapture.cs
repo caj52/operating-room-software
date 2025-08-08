@@ -85,7 +85,6 @@ public class ScreenshotCapture : MonoBehaviour
         }
 
         rooms = FindObjectOfType<DuplicateRoom>();
-        captureCamera.enabled = false;
     }
 
     Vector3[] roomCorners;
@@ -108,11 +107,12 @@ public class ScreenshotCapture : MonoBehaviour
         // Assign ceiling position if available or calculate it
         if (ceilingPosition != null)
         {
-            cameraPositions[4] = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.Ceiling).transform;
+            cameraPositions[4] = ceilingPosition;
         }
         else
         {
-            // If no ceiling transform is provided, we'll calculate a ceiling point later
+            var ceilingRB = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.Ceiling);
+            if (ceilingRB != null) cameraPositions[4] = ceilingRB.transform;
         }
 
         GetRoomCorners(cameraPositions, out roomCorners, buffer, rooms.currentRoom.transform);
@@ -200,8 +200,7 @@ public class ScreenshotCapture : MonoBehaviour
 
             // Capture screenshot
             TakeScreenshot(i + 1);
-
-            yield return new WaitForSeconds(0.5f); // Short delay for smooth capturing
+            yield return new WaitUntil(() => screenshotCompleted); // Short delay for smooth capturing
         }
 
         RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling).MeshRenderer.enabled = false;
@@ -214,8 +213,7 @@ public class ScreenshotCapture : MonoBehaviour
 
         // Capture ceiling screenshot
         TakeScreenshot(roomCorners.Length + 1);
-
-        yield return new WaitForSeconds(0.5f);
+        yield return new WaitUntil(() => screenshotCompleted);
 
         // Restore original camera settings and exposure settings
         originalState.Restore(captureCamera, urpCameraData);
@@ -232,7 +230,7 @@ public class ScreenshotCapture : MonoBehaviour
             new ButtonAction("Done"));
         if (OperatingRoomCamera.LiveCamera.CameraType == OperatingRoomCameraType.FreeLook)
         {
-        RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling).MeshRenderer.enabled = true;
+            RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling).MeshRenderer.enabled = true;
         }
     }
 
@@ -286,7 +284,6 @@ public class ScreenshotCapture : MonoBehaviour
         // Play Shutter Sound (if assigned)
         if (shutterSound != null)
             shutterSound.Play();
-        captureCamera.enabled = false;
         return filePath;
     }
 
@@ -346,7 +343,7 @@ public class ScreenshotCapture : MonoBehaviour
     // Modified CaptureCeilingOnly method
     public IEnumerator CaptureCeilingOnly(Vector3 position, Quaternion? rotation, Action<string> onComplete)
     {
-    
+
         if (uiCanvas != null)
             ToggleUI(false);
         captureCamera.enabled = true;
@@ -373,7 +370,7 @@ public class ScreenshotCapture : MonoBehaviour
         originalState.Restore(captureCamera, urpCameraData);
         if (uiCanvas != null)
             ToggleUI(true);
- 
+
         Debug.Log("Custom ceiling shot captured.");
         onComplete?.Invoke(filePath);
     }
@@ -418,7 +415,12 @@ public class ScreenshotCapture : MonoBehaviour
 
     // Helper class to store and restore camera state
     private class CameraCaptureState
-    {
+    {// Added stored camera projection/transform
+        public bool orthographic;
+        public float fieldOfView;
+        public float orthographicSize;
+        public Vector3 position;
+        public Quaternion rotation;
         public RenderTexture targetTexture;
         public bool postProcessingEnabled;
         public CameraOverrideOption requiresColorOption;
@@ -433,7 +435,13 @@ public class ScreenshotCapture : MonoBehaviour
                 postProcessingEnabled = urpData.renderPostProcessing;
                 requiresColorOption = urpData.requiresColorOption;
                 requiresDepthOption = urpData.requiresDepthOption;
-            }
+            }// Store camera projection/transform
+            orthographic = camera.orthographic;
+            fieldOfView = camera.fieldOfView;
+            orthographicSize = camera.orthographicSize;
+            position = camera.transform.position;
+            rotation = camera.transform.rotation;
+
         }
 
         public void Restore(Camera camera, UniversalAdditionalCameraData urpData)
@@ -446,6 +454,12 @@ public class ScreenshotCapture : MonoBehaviour
                 urpData.requiresColorOption = requiresColorOption;
                 urpData.requiresDepthOption = requiresDepthOption;
             }
+
+            // Restore camera projection/transform
+            camera.orthographic = orthographic;
+            camera.fieldOfView = fieldOfView;
+            camera.orthographicSize = orthographicSize;
+            camera.transform.SetPositionAndRotation(position, rotation);
         }
     }
 }

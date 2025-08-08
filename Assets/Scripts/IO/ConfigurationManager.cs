@@ -10,7 +10,7 @@ using UnityEngine.Events;
 using RTG;
 using SplenSoft.AssetBundles;
 using UnityEditor;
-using TMPro;
+using UnityEngine.UI;
 
 public class ConfigurationManager : MonoBehaviour
 {
@@ -63,7 +63,7 @@ public class ConfigurationManager : MonoBehaviour
 
     private void Start()
     {
-         duplicateRoom = FindObjectOfType<DuplicateRoom>();
+        duplicateRoom = FindObjectOfType<DuplicateRoom>();
     }
     private void HandleBackwardsCompatibility()
     {
@@ -189,7 +189,8 @@ public class ConfigurationManager : MonoBehaviour
         //====== SAVING JSON =======
         string json = JsonConvert.SerializeObject(_tracker, new JsonSerializerSettings
         {
-            ReferenceLoopHandling = ReferenceLoopHandling.Ignore // allows Newtonsoft to go through the loop to serialize entire Position and Quaternion Rotation
+            ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
+            Formatting = Formatting.Indented// allows Newtonsoft to go through the loop to serialize entire Position and Quaternion Rotation
         });
         string folder = Application.persistentDataPath + $"/Saved/Configs/";
         //string folder = Path.Combine(FullRoomSave.GetRoomPath() , $"Saved/Configs");
@@ -259,7 +260,7 @@ public class ConfigurationManager : MonoBehaviour
         token.SetProgress(0.33f);
 
         // We need to go through each object
-        foreach (TrackedObject obj in foundObjects) 
+        foreach (TrackedObject obj in foundObjects)
         {
             // Get the top-most parent transform of this object
             Transform topParent = obj.transform;
@@ -270,19 +271,19 @@ public class ConfigurationManager : MonoBehaviour
             if (obj.transform == obj.transform.root || topParent.name == "Room1")
             {
                 // creating trackers as we go
-                CreateTracker(); 
+                CreateTracker();
 
                 // and finding all embedded/attached selectables along with attachment points
-                TrackedObject[] temps = obj.transform.GetComponentsInChildren<TrackedObject>(); 
+                TrackedObject[] temps = obj.transform.GetComponentsInChildren<TrackedObject>();
 
                 foreach (TrackedObject to in temps)
                 {
                     // add them to their respective tracker
-                    _tracker.objects.Add(to.GetData()); 
+                    _tracker.objects.Add(to.GetData());
                 }
 
                 // and add them to the room tracker collection
-                _roomConfiguration.collections.Add(_tracker); 
+                _roomConfiguration.collections.Add(_tracker);
             }
         }
 
@@ -292,7 +293,8 @@ public class ConfigurationManager : MonoBehaviour
         // ======SAVING JSON=========
         string json = JsonConvert.SerializeObject(_roomConfiguration, new JsonSerializerSettings
         {
-            ReferenceLoopHandling = ReferenceLoopHandling.Ignore
+            ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
+            Formatting = Formatting.Indented,
         });
         string folder = Application.persistentDataPath + $"/Saved/";
         string configName = title.Replace(" ", "_") + ".json";
@@ -318,7 +320,7 @@ public class ConfigurationManager : MonoBehaviour
 
         await Task.Delay(1000);
         token.SetProgress(1);
-        
+
         RoomConfigLoader.Instance.GenerateRoomItem(path);
 
         foreach (TrackedObject obj in foundObjects) // We need to go through each object
@@ -336,7 +338,7 @@ public class ConfigurationManager : MonoBehaviour
 
 
     }
- 
+
     public async Task<GameObject> LoadArmAssembly(string file)
     {
         Debug.Log($"Loading config file at {file}");
@@ -370,8 +372,8 @@ public class ConfigurationManager : MonoBehaviour
                 return null;
             }
         }
-        finally 
-        { 
+        finally
+        {
             IsLoading = false;
         }
     }
@@ -379,11 +381,11 @@ public class ConfigurationManager : MonoBehaviour
     public void LoadRoom(string file)
     {
 
-      
+
         Debug.Log($"Clearing default room objects");
 
-         //we need to clear the current room (default objects in scene) to load our new one
-        List<TrackedObject> existingObjects = FindObjectsOfType<TrackedObject>().ToList(); 
+        //we need to clear the current room (default objects in scene) to load our new one
+        List<TrackedObject> existingObjects = FindObjectsOfType<TrackedObject>().ToList();
 
         foreach (TrackedObject to in existingObjects)
         {
@@ -406,18 +408,16 @@ public class ConfigurationManager : MonoBehaviour
         {
             CreateTracker();
             string json = File.ReadAllText(file);
-            
+
             _roomConfiguration = JsonConvert
                 .DeserializeObject<RoomConfiguration>(json);
 
-            LoadRoom(); 
+            LoadRoom();
         }
     }
 
-
     private async void LoadRoom()
     {
-       
         IsLoading = true;
         var token = Loading.GetLoadingToken();
 
@@ -445,14 +445,12 @@ public class ConfigurationManager : MonoBehaviour
             }
 
 
-          
-
             OnRoomLoadComplete?.Invoke();
 
         }
-        catch(Exception e) { Debug.LogError(e); }
-        finally 
-        { 
+        catch { throw; }
+        finally
+        {
             IsLoading = false;
             token.SetProgress(1f);
         }
@@ -559,24 +557,12 @@ public class ConfigurationManager : MonoBehaviour
                     }
                 }
             }
+
+
+
             duplicateRoom.onObjectPlaced?.Invoke(go);
         }
 
-        GameObject root = _newObjects.FirstOrDefault(o => o.transform == o.transform.root)?.gameObject;
-        if (root != null && root.GetComponent<RecordHirarcheySelectables>() == null)
-        {
-            var recordHierarchy = root.AddComponent<RecordHirarcheySelectables>();
-
-            // Get all Selectables under root including the root itself
-            SelectablePrice[] allSelectables = root.GetComponentsInChildren<SelectablePrice>(includeInactive: true);
-            foreach (var selectable in allSelectables)
-            {
-                if (selectable == null) continue;
-
-                string uiName = selectable.UIObjectName;
-                recordHierarchy.AddAttachedSelectables(selectable.selectable, uiName);
-            }
-        }
 
     }
     /// <summary>
@@ -586,7 +572,7 @@ public class ConfigurationManager : MonoBehaviour
     {
         foreach (TrackedObject.Data to in trackedObjects)
         {
-            if (IsRoomBoundary(to) || IsBaseboard(to) || 
+            if (IsRoomBoundary(to) || IsBaseboard(to) ||
                 IsWallProtector(to))
             {
                 continue;
@@ -643,73 +629,23 @@ public class ConfigurationManager : MonoBehaviour
 
         if (!string.IsNullOrEmpty(trackedObject.instance_guid))
             go.name = trackedObject.instance_guid;
-
-        go.GetComponent<Selectable>().guid = trackedObject.instance_guid;
-        go.GetComponent<Selectable>().UIButtonName= trackedObject.UIButtonname;
+        Selectable selectable = go.GetComponent<Selectable>();
+        selectable.guid = trackedObject.instance_guid;
+        selectable.UIButtonName = trackedObject.UIButtonname;
         LogData(go.GetComponent<Selectable>(), trackedObject);
-        HandleOutletAndPricing(go, trackedObject.UIButtonname);
+
+        if (selectable.SpecialTypes.Count>0)
+        {
+
+            if (selectable.SpecialTypes[0]==SpecialSelectableType.Door)
+            {
+                selectable.GetComponentInChildren<WallCutter>().UpdateCuts();
+            }
+        }
+        ObjectMenu.Instance.HandleOutletAndPricing(go, trackedObject.UIButtonname);
         return go;
     }
 
-    public void HandleOutletAndPricing(GameObject obj, string uiBtnName)
-    {
-        string name = uiBtnName;
-        bool isHVOutlet = name.Equals("Outlet_HV_Power(Clone)");
-        bool isKnownGasOutlet = name.Contains("GasOutlet") || name.Equals("EthernetOutlet") || name.Equals("BlankOutlet(Clone)");
-
-        if (isHVOutlet || isKnownGasOutlet)
-        {
-            var outletParent = obj.transform.parent?.parent?.gameObject;
-            var grandParent = outletParent?.transform.parent?.parent?.gameObject;
-            if (grandParent != null)
-                obj.GetComponentInParent<BoomOutletValidator>()?.ValidateBoomConfiguration(grandParent);
-        }
-
-        string excelName = uiBtnName;
-        if (excelName.ToLower().Contains("boom"))
-        {
-            if (isHVOutlet)
-            {
-                var outletParent = obj.transform.parent?.parent?.gameObject;
-                int duplexCount = outletParent?.GetComponentsInChildren<Selectable>().Count(s => s.MetaData.Name == "HV Power Outlet") ?? 0;
-
-                if (duplexCount == 2)
-                    excelName = "Electrical (2 Duplex)";
-                else if (duplexCount == 3)
-                {
-                    excelName = "Electrical (3 Duplex)";
-                    var priceComp = outletParent?.GetComponentInChildren<SelectablePrice>();
-                    if (priceComp != null) GameObject.Destroy(priceComp);
-                }
-                else
-                    excelName = "";
-
-                if (!string.IsNullOrEmpty(excelName))
-                {
-                   ObjectMenu.Instance.AddSelectablePrice(obj, true, excelName, uiBtnName, DataFilePaths.sheetNameBoomIndividual);
-                    if (outletParent?.GetComponent<DuplexWatcher>() == null)
-                    {
-                        var watcher = outletParent?.AddComponent<DuplexWatcher>();
-                        if (watcher != null) watcher.UIObjectName = uiBtnName;
-                    }
-                }
-            }
-            else
-            {
-                ObjectMenu.Instance.AddSelectablePrice(obj, true, excelName, uiBtnName, DataFilePaths.sheetNameBoomIndividual);
-            }
-        }
-        else
-        {
-            bool hasAttachments = obj.GetComponentsInChildren<AttachmentPoint>().Any();
-            if (!hasAttachments)
-            {
-                string excelFileName = DataFilePaths.sheetNameLight;
-                string label =uiBtnName;
-                ObjectMenu.Instance.AddSelectablePrice(obj, false, label, label, excelFileName);
-            }
-        }
-    }
 
     /// <summary>
     /// Finds and applies the tracked AttachmentPoint information to the prefab included version
@@ -796,6 +732,8 @@ public class ConfigurationManager : MonoBehaviour
                 // Add fallback handling here - e.g., set to default parent
             }
         }
+
+
     }
 
     /// <summary>
@@ -809,11 +747,10 @@ public class ConfigurationManager : MonoBehaviour
         {
             //Debug.Log(obj.gameObject.name);
             ResetScaleLevels(obj);
-
         }
 
         // Allow time for scaling values to be applied in Selectable
-        await Task.Yield(); 
+        await Task.Yield();
         if (!Application.isPlaying)
             throw new AppQuitInTaskException();
 
@@ -830,7 +767,7 @@ public class ConfigurationManager : MonoBehaviour
                 Debug.LogWarning("Attempted to reset a missing Attachment Point reference.");
                 return;
             }
-            ap.gameObject.transform.localPosition = ap.GetComponent<TrackedObject>().GetPosition();
+            ap.gameObject.transform.position = ap.GetComponent<TrackedObject>().GetPosition();
         }
     }
 
@@ -861,7 +798,7 @@ public class ConfigurationManager : MonoBehaviour
             var selectable = obj.GetComponent<Selectable>();
             //selectable.ScaleLevels.ForEach((item) => item.Selected = false);
             //storedScaleLevel.Selected = true;
-            
+
             obj.transform.localScale = new Vector3(
                 obj.GetScale().x,
                 obj.GetScale().y,
@@ -888,7 +825,7 @@ public class ConfigurationManager : MonoBehaviour
             return;
         }
 
-        if(obj.IsDecal())
+        if (obj.IsDecal())
         {
             return;
         }
@@ -949,28 +886,28 @@ public class ConfigurationManager : MonoBehaviour
             guid == "Floor";
     }
 
-    public static bool IsBaseboard(string guid) 
+    public static bool IsBaseboard(string guid)
         => guid.StartsWith("Baseboard");
 
-    public static bool IsWallProtector(string guid) 
+    public static bool IsWallProtector(string guid)
         => guid.StartsWith("WallProtector");
 
-    private static bool IsBaseboard(TrackedObject.Data to) 
+    private static bool IsBaseboard(TrackedObject.Data to)
         => IsBaseboard(to.global_guid);
 
-    public static bool IsWallProtector(TrackedObject.Data to) 
+    public static bool IsWallProtector(TrackedObject.Data to)
         => IsWallProtector(to.global_guid);
 
-    public static bool IsRoomBoundary(TrackedObject.Data to) 
+    public static bool IsRoomBoundary(TrackedObject.Data to)
         => IsRoomBoundary(to.global_guid);
 
-    private static GameObject GetRoomBoundary(TrackedObject.Data to) 
+    private static GameObject GetRoomBoundary(TrackedObject.Data to)
         => GameObject.Find("RoomBoundary_" + to.global_guid);
 
     /// <returns>A permanent scene <see cref="GameObject"/> with 
     /// <see cref="UnityEngine.Object.name"/> == 
     /// <see cref="TrackedObject.Data.global_guid"/></returns>
-    private static GameObject GetGameObjectWithGuidName(TrackedObject.Data to) 
+    private static GameObject GetGameObjectWithGuidName(TrackedObject.Data to)
         => GameObject.Find(to.global_guid);
 
     /// <summary>

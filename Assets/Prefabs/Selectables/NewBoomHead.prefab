@@ -416,8 +416,8 @@ MonoBehaviour:
     <AllowedSelectableAssetBundleNames>k__BackingField: []
   <MoveUpOnAttach>k__BackingField: 0
   <TreatAsTopMost>k__BackingField: 0
-  <MultiAttach>k__BackingField: 0
-  <MultiLimit>k__BackingField: 3
+  <MultiAttach>k__BackingField: 1
+  <MultiLimit>k__BackingField: 1
   <_originalParent>k__BackingField: {fileID: 0}
   <Renderer>k__BackingField: {fileID: 2688391028876694482}
 --- !u!114 &477840139158347197
@@ -1238,6 +1238,10 @@ PrefabInstance:
   m_Modification:
     m_TransformParent: {fileID: 77486103945529810}
     m_Modifications:
+    - target: {fileID: 6511510544982680584, guid: c9f6aee74b8a5974f9da9db7dbcc7a49, type: 3}
+      propertyPath: m_Materials.Array.data[0]
+      value: 
+      objectReference: {fileID: 2100000, guid: 7bec4e898352a774b8711af6af5013d2, type: 2}
     - target: {fileID: 7126403934356442674, guid: c9f6aee74b8a5974f9da9db7dbcc7a49, type: 3}
       propertyPath: m_Name
       value: BoomHeadBottomPosts
@@ -1260,7 +1264,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8287565106208851723, guid: c9f6aee74b8a5974f9da9db7dbcc7a49, type: 3}
       propertyPath: m_LocalPosition.y
-      value: -0.181
+      value: -0.16
       objectReference: {fileID: 0}
     - target: {fileID: 8287565106208851723, guid: c9f6aee74b8a5974f9da9db7dbcc7a49, type: 3}
       propertyPath: m_LocalPosition.z
@@ -1314,6 +1318,14 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   attachmentPoint: {fileID: 4460034532636006353}
+  blackMat: {fileID: 2100000, guid: 7bec4e898352a774b8711af6af5013d2, type: 2}
+  whiteMat: {fileID: 2100000, guid: 70440ee40a1ccf5489fb8f7ac0a93446, type: 2}
+  mat: {fileID: 8162658020210453071}
+--- !u!23 &8162658020210453071 stripped
+MeshRenderer:
+  m_CorrespondingSourceObject: {fileID: 6511510544982680584, guid: c9f6aee74b8a5974f9da9db7dbcc7a49, type: 3}
+  m_PrefabInstance: {fileID: 3105828357754064455}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1001 &3355884042471820486
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -2642,26 +2654,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   Target: {fileID: 0}
   joints: []
---- !u!114 &8730165539022225314
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 8013771317938095565}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f68425babe0141945b7bb62bfa707421, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  _lineRenderer: {fileID: 0}
-  <IncludeChildrenInMeasurement>k__BackingField: 1
-  <DoorHinge>k__BackingField: {fileID: 0}
-  <DoorStrike>k__BackingField: {fileID: 0}
-  <DoorSwingAngle>k__BackingField: 90
-  <Type>k__BackingField: 0
-  epsilon: 0.00001
-  renderMaterialColor: {fileID: 0}
 --- !u!1001 &3657081356003985799
 PrefabInstance:
   m_ObjectHideFlags: 0

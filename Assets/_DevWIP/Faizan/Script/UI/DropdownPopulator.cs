@@ -51,7 +51,7 @@ public class DropdownPopulator : MonoBehaviour
         {
             sheetName = DataFilePaths.sheetNameLight;
         }
-       // excelReader.SetExceFileName(sheetName);
+        excelReader.SetExcelFileName();
         PriceExcelData[] columnData = excelReader.GetColumnData(priceColumnNumber, minRowNumber, maxRowNumber, sheetName);
 
         if (columnData == null || columnData.Length == 0)
