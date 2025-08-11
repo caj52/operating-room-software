@@ -24,6 +24,9 @@ public class PDFGeneratorUIHandler : MonoBehaviour
 
     public TMP_InputField inputDiscountPercentage;
 
+
+
+    public TMP_InputField configurationName;
     private void Start()
     {
         pdfGenerator = FindAnyObjectByType<ProposalPDFGenerator>();
@@ -47,6 +50,7 @@ public class PDFGeneratorUIHandler : MonoBehaviour
     private void OnGeneratePdfButtonClicked()
     {
         // Set the input values to the ProposalPDFGenerator instance
+        pdfGenerator.configName = "Configuration Name : \t" +configurationName.text;
         pdfGenerator.clientName = inputClientName.text;
         pdfGenerator.projectName = inputProjectName.text;
         pdfGenerator.salesRepName = inputSaleRepName.text;

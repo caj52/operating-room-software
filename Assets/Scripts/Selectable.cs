@@ -660,8 +660,12 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         });
 
         SelectionChanged?.Invoke();
-        FindObjectOfType<UI_MeasurementButton>(true)._toggle.isOn =true;
-        ToggleMeasurableActiveStatesWhilePlacing(true);
+        if (UI_ToggleClearanceLines.IsActive)
+        {
+            FindObjectOfType<UI_MeasurementButton>(true)._toggle.isOn = true;
+            ToggleMeasurableActiveStatesWhilePlacing(true);
+        }
+
     }
 
     #region Gizmos
