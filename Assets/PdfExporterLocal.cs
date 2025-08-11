@@ -21,14 +21,14 @@ public class PdfExporterLocal
     // Memory optimization: Static font cache to prevent repeated font loading
     private static readonly Dictionary<string, BaseFont> FontCache = new Dictionary<string, BaseFont>();
     private static readonly Dictionary<string, Font> CachedFonts = new Dictionary<string, Font>();
-    
+
     // Memory optimization: Template cache for reuse
     private static readonly Dictionary<string, PdfTemplate> TemplateCache = new Dictionary<string, PdfTemplate>();
-    
+
     // Memory monitoring
     private static long InitialMemory;
     private static long PeakMemory;
-    
+
     public class PdfImageData
     {
         public string Path { get; set; }
@@ -132,7 +132,7 @@ public class PdfExporterLocal
         // Memory optimization: Initialize memory monitoring
         InitialMemory = GC.GetTotalMemory(true); // Force GC before starting
         PeakMemory = InitialMemory;
-        
+
         UI_GeneralLoadingScreen.instance.ShowLoadingScreen();
 
         string outputPath = Path.Combine(FullRoomSave.GetRoomPath(), "pdf");
@@ -150,7 +150,7 @@ public class PdfExporterLocal
             {
                 writer = PdfWriter.GetInstance(document, bufferedStream);
                 writer.CloseStream = false; // Prevent premature stream disposal
-                
+
                 document.Open();
                 MonitorMemory("Document opened");
 
@@ -159,7 +159,7 @@ public class PdfExporterLocal
 
                 // Memory optimization: Process in smaller chunks and trigger GC between operations
                 AddMainContentOptimized(document, writer, assemblies, imageData);
-                
+
                 // Force garbage collection before final operations
                 GC.Collect();
                 GC.WaitForPendingFinalizers();
@@ -167,7 +167,7 @@ public class PdfExporterLocal
 
                 AddCompanyLogoOptimized(document);
                 AddCustomerAcceptanceSectionOptimized(document, metaData);
-                
+
                 document.Close();
                 MonitorMemory("Document closed");
             }
@@ -221,11 +221,11 @@ public class PdfExporterLocal
 
         PdfPCell imageCell = CreateImageCellOptimized(imageData, doc, writer, GetCeilingHeight());
         imageCell.PaddingRight = 50;
-        
+
         mainTable.AddCell(assembliesCell);
         mainTable.AddCell(imageCell);
         doc.Add(mainTable);
-        
+
         // Clear references immediately
         mainTable = null;
         assembliesCell = null;
@@ -235,31 +235,40 @@ public class PdfExporterLocal
     // Memory optimized title creation
     private static void AddTitleOptimized(Document doc, string title, string subtitle)
     {
+        // Fonts
         var fontPath = Path.Combine(Application.streamingAssetsPath, "Data/Fonts/Teko/Teko-Light.ttf");
         BaseFont tekoLight = GetCachedBaseFont(fontPath);
-        
+
         Font prefixFont = new Font(tekoLight, 36, Font.NORMAL, BaseColor.WHITE);
         Font subtitleFont = GetCachedFont("subtitle", "Arial", 15, Font.NORMAL, BaseColor.WHITE);
 
-        Phrase titlePhrase = new Phrase();
-        titlePhrase.Add(new Chunk(title, prefixFont));
-        titlePhrase.Add(new Chunk("\n"));
-        titlePhrase.Add(new Chunk(subtitle, subtitleFont));
+        // Paragraphs (title + subtitle)
+        Paragraph pTitle = new Paragraph(title, prefixFont);
+        pTitle.SpacingAfter = 6f;              // gap between title and subtitle
+        pTitle.SetLeading(0f, 1.0f);           // normal line height for multi-line titles
 
-        PdfPCell titleCell = new PdfPCell(titlePhrase)
+        Paragraph pSubtitle = new Paragraph(subtitle, subtitleFont);
+
+        // Cell with both paragraphs
+        PdfPCell titleCell = new PdfPCell
         {
             BackgroundColor = WebColors.GetRGBColor("#001236"),
             Border = Rectangle.NO_BORDER,
-            Padding = 10,
+            Padding = 10f
         };
+        titleCell.AddElement(pTitle);
+        titleCell.AddElement(pSubtitle);
 
-        PdfPTable tbl = new PdfPTable(1) { WidthPercentage = 100 };
+        // Single-column table wrapper
+        PdfPTable tbl = new PdfPTable(1) { WidthPercentage = 100f };
         tbl.AddCell(titleCell);
-        tbl.SpacingAfter = 20;
+        tbl.SpacingAfter = 20f;
+
         doc.Add(tbl);
-        
-        // Clear references
-        titlePhrase = null;
+
+        // Clear references (optional)
+        pTitle = null;
+        pSubtitle = null;
         titleCell = null;
         tbl = null;
     }
@@ -288,13 +297,13 @@ public class PdfExporterLocal
         for (int batchStart = 0; batchStart < assemblies.Count; batchStart += batchSize)
         {
             int batchEnd = Math.Min(batchStart + batchSize, assemblies.Count);
-            
+
             for (int i = batchStart; i < batchEnd; i++)
             {
                 var asm = assemblies[i];
                 ProcessSingleAssembly(container, asm, headerFont, serviceheaderFont, itemFont, valueFont, rowH, gray, white);
             }
-            
+
             // Force garbage collection between batches if memory is getting high
             long currentMemory = GC.GetTotalMemory(false);
             if (currentMemory > InitialMemory * 2) // If memory doubled
@@ -304,6 +313,50 @@ public class PdfExporterLocal
             }
         }
 
+
+        // === Single global footer row: "Cieling Height" (once after all tables) ===
+        try
+        {
+            float metersCH = GetCeilingHeight();
+            float feetWholeCH = Mathf.Floor(metersCH.ToFeet());
+            float inchesCH = Mathf.Round((metersCH.ToFeet() - feetWholeCH) * 12f * 10f) / 10f;
+            string ceilingTextCH = $"{metersCH:F2} m ({feetWholeCH}' {inchesCH}\")";
+
+            var chTable = new PdfPTable(2)
+            {
+                WidthPercentage = 60f,
+                SpacingBefore = 0f,
+                SpacingAfter = 8f,
+                HorizontalAlignment = Element.ALIGN_LEFT,
+            };
+            chTable.SetWidths(new float[] { 60, 40 });
+
+            var chLabelCell = new PdfPCell(new Phrase("Cieling Height", itemFont))
+            {
+                BackgroundColor = white,
+                FixedHeight = rowH,
+                Border = Rectangle.BOX,
+                HorizontalAlignment = Element.ALIGN_LEFT,
+                Padding = 4
+            };
+            var chValueCell = new PdfPCell(new Phrase(ceilingTextCH, valueFont))
+            {
+                BackgroundColor = white,
+                FixedHeight = rowH,
+                Border = Rectangle.BOX,
+                HorizontalAlignment = Element.ALIGN_LEFT,
+                Padding = 4
+            };
+
+            chTable.AddCell(chLabelCell);
+            chTable.AddCell(chValueCell);
+
+            container.AddElement(chTable);
+        }
+        catch (System.Exception ex)
+        {
+            UnityEngine.Debug.LogWarning($"Failed adding Cieling Height footer: {ex.Message}");
+        }
         return container;
     }
 
@@ -360,7 +413,6 @@ public class PdfExporterLocal
 
         // Add conditional rows based on table name
         AddConditionalRows(fldTbl, asm.TableName, rowH, gray, white, itemFont, ref stripe);
-
         container.AddElement(fldTbl);
 
         // Process service attachments if any
@@ -370,7 +422,7 @@ public class PdfExporterLocal
         }
 
         container.AddElement(new Paragraph(" "));
-        
+
         // Clear local references
         hdrPara = null;
         hdrCell = null;
@@ -388,7 +440,7 @@ public class PdfExporterLocal
             AddAdditionalRow(fldTbl, "Vertical Force Nm", "", rowH, stripe ? gray : white, itemFont);
         }
 
-        if (tableName == "Boom Service Head")
+        if (tableName.Contains("Boom - Service Head"))
         {
             AddAdditionalRow(fldTbl, "Med-Gas Connection Type", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
             AddAdditionalRow(fldTbl, "Overall Weight", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
@@ -465,11 +517,12 @@ public class PdfExporterLocal
     public static string Distance { get; private set; } = string.Empty;
 
     // Memory optimized image cell creation
+
     private static PdfPCell CreateImageCellOptimized(
-        List<PdfImageData> imageData,
-        Document doc,
-        PdfWriter writer,
-        float roomHeight = 300f)
+            List<PdfImageData> imageData,
+            Document doc,
+            PdfWriter writer,
+            float roomHeight = 300f)
     {
         float pageWidth = doc.PageSize.Width;
         float usablePageWidth = pageWidth - (doc.LeftMargin + doc.RightMargin);
@@ -477,8 +530,6 @@ public class PdfExporterLocal
         float paddingBetweenImages = 10f;
         float availableImageWidth = (imageColumnWidth - paddingBetweenImages) / 2f;
         float maxTargetHeight = 300f;
-        float scale1 = 100f;
-        float visualHeight = GetCeilingHeight() * scale1;
 
         PdfPCell imageCell = new PdfPCell
         {
@@ -488,22 +539,54 @@ public class PdfExporterLocal
             PaddingLeft = 20f
         };
 
-        var cb = writer.DirectContent;
-        
-        // Memory optimization: Use cached templates when possible
-        Image heightImg = BuildHeightImageOptimized(cb, visualHeight, maxTargetHeight);
-        PdfPTable content = BuildContentTableOptimized(heightImg, imageData, availableImageWidth, maxTargetHeight);
-        Image beamImg = BuildBeamImageOptimized(cb, usablePageWidth, 10);
+        // Only show main images (no side height ruler)
+        PdfPTable imgs = new PdfPTable(2) { WidthPercentage = 100f };
+        for (int i = 0; i < 2; i++)
+        {
+            PdfPCell cell = new PdfPCell
+            {
+                Border = Rectangle.NO_BORDER,
+                HorizontalAlignment = Element.ALIGN_CENTER,
+                VerticalAlignment = Element.ALIGN_BOTTOM,
+                Padding = 0f
+            };
 
-        PdfPTable outer = new PdfPTable(1) { WidthPercentage = 100f };
+            if (imageData.Count > i && File.Exists(imageData[i].Path))
+            {
+                try
+                {
+                    Image img = Image.GetInstance(imageData[i].Path);
+                    img.Alignment = Element.ALIGN_BOTTOM;
+
+                    float scale = Math.Min(availableImageWidth / img.Width, maxTargetHeight / img.Height);
+                    img.ScaleAbsolute(img.Width * scale, img.Height * scale);
+
+                    cell.AddElement(img);
+                    img = null;
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.LogError($"Failed to load image {imageData[i].Path}: {ex.Message}\"");
+                }
+            }
+
+            imgs.AddCell(cell);
+        }
+
+        // Wrap images + beam in an outer single-column table
+        var outer = new PdfPTable(1) { WidthPercentage = 100f };
         outer.DefaultCell.Border = Rectangle.NO_BORDER;
         outer.DefaultCell.Padding = 0f;
 
-        outer.AddCell(new PdfPCell(content)
+        outer.AddCell(new PdfPCell(imgs)
         {
             Border = Rectangle.NO_BORDER,
             Padding = 0f
         });
+
+        // Add the bottom beam back
+        var cb = writer.DirectContent;
+        Image beamImg = BuildBeamImageOptimized(cb, usablePageWidth, 10f);
 
         outer.AddCell(new PdfPCell(beamImg)
         {
@@ -514,19 +597,12 @@ public class PdfExporterLocal
         });
 
         imageCell.AddElement(outer);
-        
-        // Clear references
-        content = null;
-        outer = null;
-        
         return imageCell;
     }
-
-    // Memory optimized height image building
     private static Image BuildHeightImageOptimized(PdfContentByte cb, float visualHeight, float maxTargetHeight)
     {
         string cacheKey = $"height_{visualHeight}_{maxTargetHeight}";
-        
+
         if (TemplateCache.ContainsKey(cacheKey))
         {
             return Image.GetInstance(TemplateCache[cacheKey]);
@@ -616,7 +692,7 @@ public class PdfExporterLocal
                     img.ScaleAbsolute(img.Width * scale, img.Height * scale);
 
                     cell.AddElement(img);
-                    
+
                     // Clear image reference immediately
                     img = null;
                 }
@@ -643,7 +719,7 @@ public class PdfExporterLocal
     private static Image BuildBeamImageOptimized(PdfContentByte cb, float usablePageWidth, float leftMargin)
     {
         string cacheKey = $"beam_{usablePageWidth}_{leftMargin}";
-        
+
         if (TemplateCache.ContainsKey(cacheKey))
         {
             return Image.GetInstance(TemplateCache[cacheKey]);
@@ -696,13 +772,13 @@ public class PdfExporterLocal
 
             PdfPTable logoTable = new PdfPTable(1) { TotalWidth = 300, HorizontalAlignment = Element.ALIGN_RIGHT, LockedWidth = true };
             PdfPCell logoCell = new PdfPCell { Border = Rectangle.NO_BORDER, HorizontalAlignment = Element.ALIGN_LEFT, PaddingBottom = 10f };
-            
+
             Image logo = Image.GetInstance(logoPath);
             logo.ScaleToFit(300, 300);
             logoCell.AddElement(logo);
             logoTable.AddCell(logoCell);
             doc.Add(logoTable);
-            
+
             // Clear references
             logo = null;
             logoCell = null;
@@ -783,7 +859,7 @@ public class PdfExporterLocal
 
         acceptanceTable.AddCell(rightCell);
         doc.Add(acceptanceTable);
-        
+
         // Clear references
         leftCell = null;
         rightCell = null;
@@ -823,16 +899,16 @@ public class PdfExporterLocal
         {
             // Clear template cache
             TemplateCache.Clear();
-            
+
             // Clear font caches
             FontCache.Clear();
             CachedFonts.Clear();
-            
+
             // Force garbage collection
             GC.Collect();
             GC.WaitForPendingFinalizers();
             GC.Collect();
-            
+
             UnityEngine.Debug.Log($"Memory cleaned. Final memory: {GC.GetTotalMemory(false) / 1024 / 1024}MB");
         }
         catch (Exception ex)
@@ -876,14 +952,14 @@ public class PdfExporterLocal
         for (int batchStart = 0; batchStart < assemblyDatas.Count; batchStart += batchSize)
         {
             int batchEnd = Math.Min(batchStart + batchSize, assemblyDatas.Count);
-            
+
             for (int i = batchStart; i < batchEnd; i++)
             {
                 var assemblyData = assemblyDatas[i];
                 var assembly = ProcessSingleAssemblyData(assemblyData, assId++);
                 allTables.Add(assembly);
             }
-            
+
             // Force GC between batches if memory is getting high
             long currentMemory = GC.GetTotalMemory(false);
             if (currentMemory > InitialMemory * 1.5f)
@@ -1042,7 +1118,7 @@ public class PdfExporterLocal
         // Force GC before starting
         GC.Collect();
         GC.WaitForPendingFinalizers();
-        
+
         AddTitleOptimized(doc, title, subtitle);
 
         PdfPTable mainTable = new PdfPTable(2) { WidthPercentage = 100 };
@@ -1062,7 +1138,7 @@ public class PdfExporterLocal
 
         AddCompanyLogoOptimized(doc);
         AddCustomerAcceptanceSectionOptimized(doc, metadata);
-        
+
         // Force GC after completion
         GC.Collect();
         GC.WaitForPendingFinalizers();
