@@ -3,7 +3,6 @@ using SplenSoft.UnityUtilities;
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Drawing;
 using System.Threading.Tasks;
 using Unity.VisualScripting;
 using UnityEngine;
@@ -126,7 +125,7 @@ public class GizmoHandler : MonoBehaviour
     // 3) Called whenever the UI moves the object
     private void OnExternalUIChange()
     {
-        // only if we’re actually showing a gizmo for this object
+        // only if we?re actually showing a gizmo for this object
         if (!_selectable.IsSelected) return;
         // reuse our existing logic (plus the new scale line)
         UpdatePositionAndRotation();
@@ -219,7 +218,7 @@ private IEnumerator Start()
         _scaleGizmo.Gizmo.ScaleGizmo._xySlider.SetBorderVisible(xEnabled && yEnabled);
 
         _scaleGizmo.Gizmo.ScaleGizmo._yzSlider.SetVisible(zEnabled && yEnabled);
-        _scaleGizmo.Gizmo.ScaleGizmo._yzSlider.SetBorderVisible(zEnabled && yEnabled);
+        _scaleGizmo.Gizmo.ScaleGizmo._yzSlider.SetBorderVisible(xEnabled && yEnabled);
 
         _scaleGizmo.Gizmo.ScaleGizmo._zxSlider.SetVisible(xEnabled && zEnabled);
         _scaleGizmo.Gizmo.ScaleGizmo._zxSlider.SetBorderVisible(xEnabled && zEnabled);
@@ -420,7 +419,7 @@ private IEnumerator Start()
     private int FindCircleCircleIntersections(
         float cx0, float cy0, float radius0,
         float cx1, float cy1, float radius1,
-        out PointF intersection1, out PointF intersection2)
+        out Vector2 intersection1, out Vector2 intersection2)
     {
         // Find the distance between the centers.
         float dx = cx0 - cx1;
@@ -431,28 +430,28 @@ private IEnumerator Start()
         if (dist > radius0 + radius1)
         {
             // No solutions, the circles are too far apart.
-            intersection1 = new PointF(float.NaN, float.NaN);
-            intersection2 = new PointF(float.NaN, float.NaN);
+            intersection1 = new Vector2(float.NaN, float.NaN);
+            intersection2 = new Vector2(float.NaN, float.NaN);
             return 0;
         }
         else if (dist < Math.Abs(radius0 - radius1))
         {
             // No solutions, one circle contains the other.
-            intersection1 = new PointF(float.NaN, float.NaN);
-            intersection2 = new PointF(float.NaN, float.NaN);
+            intersection1 = new Vector2(float.NaN, float.NaN);
+            intersection2 = new Vector2(float.NaN, float.NaN);
             return 0;
         }
         else if ((dist == 0) && (radius0 == radius1))
         {
             // No solutions, the circles coincide.
-            intersection1 = new PointF(float.NaN, float.NaN);
-            intersection2 = new PointF(float.NaN, float.NaN);
+            intersection1 = new Vector2(float.NaN, float.NaN);
+            intersection2 = new Vector2(float.NaN, float.NaN);
             return 0;
         }
         else
         {
             // Find a and h.
-            double a = (radius0 * radius0 -
+            double a = (radius0 * radius0 - 
                 radius1 * radius1 + dist * dist) / (2 * dist);
             double h = Math.Sqrt(radius0 * radius0 - a * a);
 
@@ -461,10 +460,10 @@ private IEnumerator Start()
             double cy2 = cy0 + a * (cy1 - cy0) / dist;
 
             // Get the points P3.
-            intersection1 = new PointF(
+            intersection1 = new Vector2(
                 (float)(cx2 + h * (cy1 - cy0) / dist),
                 (float)(cy2 - h * (cx1 - cx0) / dist));
-            intersection2 = new PointF(
+            intersection2 = new Vector2(
                 (float)(cx2 - h * (cy1 - cy0) / dist),
                 (float)(cy2 + h * (cx1 - cx0) / dist));
 
@@ -591,16 +590,16 @@ private IEnumerator Start()
             //Debug.Log(thisTransformXZ);
             float circle1Radius = Vector3.Distance(farthestBoneXZ, closestBoneXZ);
             float circle2Radius = Vector3.Distance(closestBoneXZ, new Vector3(transform.position.x, 0, transform.position.z));
-            int intersects = FindCircleCircleIntersections(farthestBoneXZ.x, farthestBoneXZ.z, circle1Radius, thisTransformXZ.x, thisTransformXZ.z, circle2Radius, out PointF intersection1, out PointF intersection2);
+            int intersects = FindCircleCircleIntersections(farthestBoneXZ.x, farthestBoneXZ.z, circle1Radius, thisTransformXZ.x, thisTransformXZ.z, circle2Radius, out Vector2 intersection1, out Vector2 intersection2);
 
             if (intersects > 0)
             {
 
-                Vector3 intersect1 = new Vector3(intersection1.X, 0, intersection1.Y);
+                Vector3 intersect1 = new Vector3(intersection1.x, 0, intersection1.y);
                 Vector3 intersect = intersect1;
                 if (intersects > 1)
                 {
-                    Vector3 intersect2 = new Vector3(intersection2.X, 0, intersection2.Y);
+                    Vector3 intersect2 = new Vector3(intersection2.x, 0, intersection2.y);
                     float distance1, distance2;
                     if (_lastCircleIntersectPoint == default)
                     {

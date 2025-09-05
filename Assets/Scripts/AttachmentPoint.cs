@@ -76,9 +76,15 @@ public partial class AttachmentPoint : MonoBehaviour
     [field: SerializeField, ReadOnly] 
     public Transform _originalParent { get; private set; }
 
+    [field: SerializeField] private bool _hasNormalizedParent = false;
     [field: SerializeField] private MeshRenderer Renderer { get; set; }
     private Collider _collider; 
     private bool _isDestroyed;
+
+    // Add new fields to track state
+    [field: SerializeField] private Vector3 _originalLocalPosition;
+    [field: SerializeField] private Quaternion _originalLocalRotation;
+    [field: SerializeField] private bool _hasBeenInitialized;
 
     private bool AreAnyParentSelectablesSelected => 
         ParentSelectables.Any(x => Selectable.SelectedSelectables.Contains(x));
@@ -174,6 +180,11 @@ public partial class AttachmentPoint : MonoBehaviour
     private void OnMouseUpAsButton()
     {
         if (GizmoHandler.GizmoBeingUsed || InputHandler.IsPointerOverUIElement()) return;
+        // Prevent click if not MultiAttach and already has an attached object
+        if (!MultiAttach && AttachedSelectable.Count > 0)
+        {
+            return;
+        }
         AttachmentPointClicked?.Invoke(this, EventArgs.Empty);
         SelectedAttachmentPoint = this;
         SelectedAttachmentPointChanged?.Invoke();
@@ -190,6 +201,7 @@ public partial class AttachmentPoint : MonoBehaviour
         EndHoverStateIfHovered();
         UpdateComponentStatus();
     }
+    public void MarkParentNormalized() => _hasNormalizedParent = true;
 
     public void DetachSelectable(Selectable selectable)
     {
@@ -199,36 +211,77 @@ public partial class AttachmentPoint : MonoBehaviour
         SetToOriginalParent();
         UpdateComponentStatus();
     }
-
+    //Anwar Edits
     public void SetToOriginalParent()
     {
-        if (MoveUpOnAttach)
+        if (!MoveUpOnAttach || _originalParent == null) return;
+
+        // Store current world pose
+        Vector3 worldPos = transform.position;
+        Quaternion worldRot = transform.rotation;
+
+        // Set parent while preserving world position
+        transform.SetParent(_originalParent, false);
+        
+        // Restore world pose
+        transform.position = worldPos;
+        transform.rotation = worldRot;
+
+        // Store original local transform if not initialized
+        if (!_hasBeenInitialized)
         {
-            transform.parent = _originalParent;
+            _originalLocalPosition = transform.localPosition;
+            _originalLocalRotation = transform.localRotation;
+            _hasBeenInitialized = true;
         }
     }
-
+    //Anwar Edits
     public async void SetToProperParent()
     {
-        while (ConfigurationManager.IsLoading) 
+        while (ConfigurationManager.IsLoading)
         {
             await Task.Yield();
-            if (!Application.isPlaying)
-                throw new AppQuitInTaskException();
+            if (!Application.isPlaying) throw new AppQuitInTaskException();
         }
 
-        if (MoveUpOnAttach)
+        if (!MoveUpOnAttach || _hasNormalizedParent) return;
+
+        // Find parent attachment point
+        Transform current = transform.parent;
+        AttachmentPoint parentAP = null;
+        
+        while (current != null && parentAP == null)
         {
-            Transform parent = transform.parent;
-            AttachmentPoint attachmentPoint = parent.GetComponent<AttachmentPoint>();
-            while (attachmentPoint == null)
-            {
-                parent = parent.parent;
-                attachmentPoint = parent.GetComponent<AttachmentPoint>();
-            }
-
-            transform.parent = attachmentPoint.transform.parent;
+            parentAP = current.GetComponent<AttachmentPoint>();
+            if (parentAP == null) current = current.parent;
         }
+
+        if (parentAP == null) return;
+
+        Transform targetParent = parentAP.transform.parent;
+        if (targetParent == null) return;
+
+        // Store current world pose
+        Vector3 worldPos = transform.position;
+        Quaternion worldRot = transform.rotation;
+
+        // Change parent
+        transform.SetParent(targetParent, false);
+
+        // Restore world pose
+        transform.position = worldPos;
+        transform.rotation = worldRot;
+
+        _hasNormalizedParent = true;
+    }
+
+    // Add method to reset to original local transform
+    public void ResetToOriginalTransform()
+    {
+        if (!_hasBeenInitialized) return;
+        
+        transform.localPosition = _originalLocalPosition;
+        transform.localRotation = _originalLocalRotation;
     }
 
     private void EndHoverState()
@@ -287,6 +340,12 @@ public partial class AttachmentPoint : MonoBehaviour
                 AttachedSelectable.TrimExcess();
             }
         }
+    }
+
+    // Call this after loading to ensure correct collider/highlight state
+    public void RefreshStatusForLoad()
+    {
+        UpdateComponentStatus();
     }
 }
 

@@ -13,14 +13,26 @@ public class TrackedObject : MonoBehaviour
         public string UIButtonname;
         public string instance_guid;
         public string global_guid;
-        public Vector3 pos;
-        public Quaternion rot;
-        public Vector3 scale;
         public string parent;
         public string attachedTo;
         public Selectable.ScaleLevel scaleLevel;
         public List<string> materialNames;
         public string keepRelativePositionParentName;
+
+        // Add separate local and world transforms
+        public Vector3 localPosition;    // New
+        public Quaternion localRotation; // New
+        public Vector3 worldPosition;    // New
+        public Quaternion worldRotation; // New
+        public Vector3 localScale;
+        
+        // Add parent tracking
+        public string parentGuid;        // New
+        public string parentPath;        // New
+        public bool isAttachmentPoint;   // New
+        public Vector3 originalLocalPosition; // New - for attachment points
+        public Quaternion originalLocalRotation; // New - for attachment points
+
         // Price data
         public string sheetName;
         public string UIObjectName;
@@ -47,6 +59,10 @@ public class TrackedObject : MonoBehaviour
 
     [NonSerialized]
     public Data data;
+    
+    private Vector3 _originalLocalPosition;    // New
+    private Quaternion _originalLocalRotation; // New
+    private bool _hasStoredOriginalTransform;  // New
 
     /// <summary>
     /// Used when saving
@@ -54,13 +70,41 @@ public class TrackedObject : MonoBehaviour
     public Data GetData()
     {
         data.objectName = gameObject.name;
-
         GetGUIDs();
 
-        data.pos = transform.position;
-        data.rot = transform.rotation;
-        data.scale = transform.localScale;
+        // Store both local and world transforms
+        data.localPosition = transform.localPosition;
+        data.localRotation = transform.localRotation;
+        data.worldPosition = transform.position;
+        data.worldRotation = transform.rotation;
+        data.localScale = transform.localScale;
 
+        // Store parent info
+        if (transform.parent != null)
+        {
+            data.parentPath = ConfigurationManager.GetGameObjectPath(transform.parent.gameObject);
+            var parentTracked = transform.parent.GetComponent<TrackedObject>();
+            if (parentTracked != null)
+            {
+                data.parentGuid = parentTracked.data.instance_guid;
+            }
+        }
+
+        // Handle attachment points
+        if (gameObject.TryGetComponent<AttachmentPoint>(out var ap))
+        {
+            data.isAttachmentPoint = true;
+            if (!_hasStoredOriginalTransform)
+            {
+                _originalLocalPosition = transform.localPosition;
+                _originalLocalRotation = transform.localRotation;
+                _hasStoredOriginalTransform = true;
+            }
+            data.originalLocalPosition = _originalLocalPosition;
+            data.originalLocalRotation = _originalLocalRotation;
+        }
+
+        // Store component data
         if (gameObject.TryGetComponent(out Selectable s))
         {
             data.UIButtonname = s.UIButtonName;
@@ -103,17 +147,17 @@ public class TrackedObject : MonoBehaviour
 
     public Vector3 GetPosition()
     {
-        return data.pos;
+        return data.localPosition;
     }
 
     public Quaternion GetRotation()
     {
-        return data.rot;
+        return data.localRotation ;
     }
 
     public Vector3 GetScale()
     {
-        return data.scale;
+        return data.localScale;
     }
 
     public List<string> GetMaterials()
@@ -123,26 +167,49 @@ public class TrackedObject : MonoBehaviour
 
     public void StoreValues(TrackedObject.Data d)
     {
-        if (d.scaleLevel != null)
-            data.scaleLevel = d.scaleLevel;
+        data = d;
 
-        if (d.materialNames != null)
+        // Store original transform for attachment points
+        if (data.isAttachmentPoint && !_hasStoredOriginalTransform)
         {
-            data.materialNames = d.materialNames;
+            _originalLocalPosition = data.originalLocalPosition;
+            _originalLocalRotation = data.originalLocalRotation;
+            _hasStoredOriginalTransform = true;
         }
 
-        data.pos = d.pos;
-        data.rot = d.rot;
-        data.scale = d.scale;
-        data.attachedTo = d.attachedTo;
-
-        // Restore price data
+        // Handle price data
         if (!string.IsNullOrEmpty(d.sheetName) && gameObject.TryGetComponent(out SelectablePrice sp))
         {
             sp.sheetName = d.sheetName;
             sp.UIObjectName = d.UIObjectName;
             sp.Size = d.size;
             sp.pricingObjectName = d.priceObjectName;
+        }
+    }
+
+    public void RestoreTransform(bool isRoot = false)
+    {
+        if (isRoot)
+        {
+            transform.position = data.worldPosition;
+            transform.rotation = data.worldRotation;
+        }
+        else
+        {
+            transform.localPosition = data.localPosition;
+            transform.localRotation = data.localRotation;
+        }
+        transform.localScale = data.localScale;
+
+        // Special handling for attachment points
+        if (data.isAttachmentPoint && gameObject.TryGetComponent<AttachmentPoint>(out var ap))
+        {
+            if (ap.MoveUpOnAttach)
+            {
+                // Use original transforms when moving up
+                transform.localPosition = _originalLocalPosition;
+                transform.localRotation = _originalLocalRotation;
+            }
         }
     }
 

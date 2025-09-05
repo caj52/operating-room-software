@@ -31,6 +31,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         [field: SerializeField] public string key { get; private set; }
         [field: SerializeField] public string value { get; private set; }
 
+
+
         public Metadata(string k = "", string v = "")
         {
             key = "";
@@ -39,6 +41,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     }
 
     #region Fields and Properties
+    [field: SerializeField] private bool _initialOffsetApplied = false;
     public static List<Selectable> ActiveSelectables { get; } = new List<Selectable>();
 
     public static Action SelectionChanged;
@@ -431,13 +434,17 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         //OriginalLocalRotation = transform.localEulerAngles;
 
-        Vector3 adjustedOffsetVector = new Vector3
-            (InitialLocalPositionOffset.x * transform.localScale.x,
-            InitialLocalPositionOffset.y * transform.localScale.y,
-            InitialLocalPositionOffset.z * transform.localScale.z);
-
-        transform.localPosition += adjustedOffsetVector;
-        Started = true;
+        if (!_initialOffsetApplied && !isDuplicated)
+        {
+            Vector3 adjustedOffsetVector = new Vector3(
+                InitialLocalPositionOffset.x * transform.localScale.x,
+                InitialLocalPositionOffset.y * transform.localScale.y,
+                InitialLocalPositionOffset.z * transform.localScale.z
+            );
+            transform.localPosition += adjustedOffsetVector;
+            _initialOffsetApplied = true;    // survives into duplicates
+        }
+            Started = true;
         ToggleMeasurableActiveStates(true);
         //Storing Reference for the Measurers
         Measurers.AddRange(Measurables

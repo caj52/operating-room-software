@@ -456,16 +456,28 @@ public class ConfigurationManager : MonoBehaviour
         }
     }
 
+    private Dictionary<string, GameObject> _guidToGameObject = new();
+    private Queue<(GameObject obj, TrackedObject.Data data)> _pendingSetup = new();
+    private List<TrackedObject.Data> _pendingEmbedded = new();
+    private List<TrackedObject.Data> _pendingAttachmentPoints = new();
+
     private async Task ProcessTrackedObjects(List<TrackedObject.Data> trackedObjects)
     {
+        _guidToGameObject.Clear();
+        _pendingSetup.Clear();
+        _pendingEmbedded.Clear();
+        _pendingAttachmentPoints.Clear();
+        _newObjects = new List<TrackedObject>();
+        _newPoints = new List<AttachmentPoint>();
+
+        // Pass 1: instantiate prefabs and register GUIDs
         foreach (TrackedObject.Data data in trackedObjects)
         {
             GameObject go = null;
+
             if (IsRoomBoundary(data) || IsBaseboard(data) || IsWallProtector(data))
             {
-                go = IsRoomBoundary(data) ?
-                    GetRoomBoundary(data) :
-                    GetGameObjectWithGuidName(data);
+                go = IsRoomBoundary(data) ? GetRoomBoundary(data) : GetGameObjectWithGuidName(data);
                 if (go != null && go.GetComponent<Selectable>() != null)
                 {
                     LogData(go.GetComponent<Selectable>(), data);
@@ -479,127 +491,143 @@ public class ConfigurationManager : MonoBehaviour
                 continue;
             }
 
-            // if it is not an AttachPoint, we need to place the Selectable
-            if (data.global_guid != _attachPointGUID &&
-                !string.IsNullOrEmpty(data.global_guid))
+            // Attachment points deferred until after parents exist
+            if (data.global_guid == _attachPointGUID)
             {
-                var task = InstantiateObject(data);
-                await task;
-                if (!Application.isPlaying)
-                    throw new AppQuitInTaskException();
-
-                go = task.Result;
-                if (go == null)
-                {
-                    Debug.LogError($"Failed to instantiate object with guid: {data.global_guid}");
-                    continue; // Skip this iteration if go is null
-                }
-
-                if (!string.IsNullOrEmpty(data.keepRelativePositionParentName))
-                {
-                    if (go.TryGetComponent<KeepRelativePosition>(out var comp))
-                    {
-                        comp.ParentName = data.keepRelativePositionParentName;
-                    }
-                }
-
-                var trackedObj = go.GetComponent<TrackedObject>();
-                if (trackedObj != null)
-                {
-                    _newObjects.Add(trackedObj);
-                }
-            }
-
-            if (data.parent != null)
-            {
-                if (string.IsNullOrEmpty(data.global_guid))
-                {
-                    // embedded selectable component
-                    go = ProcessEmbeddedSelectable(data);
-                    if (go != null)
-                    {
-                        var trackedObj = go.GetComponent<TrackedObject>();
-                        if (trackedObj != null)
-                        {
-                            _newObjects.Add(trackedObj);
-                        }
-                    }
-                }
-                else if (data.global_guid == _attachPointGUID)
-                {
-                    // attachment point component
-                    ProcessAttachmentPoint(data);
-                }
-                else if (go != null) // Make sure go is not null before processing
-                {
-                    // selectable attached to an attachment point
-                    ProcessAttachedSelectable(go, data);
-                    var trackedObj = go.GetComponent<TrackedObject>();
-                    if (trackedObj != null)
-                    {
-                        _newObjects.Add(trackedObj);
-                    }
-                }
-            }
-            else
-            {
-                if (string.IsNullOrEmpty(data.global_guid))
-                {
-                    // embedded selectable component
-                    go = ProcessEmbeddedSelectable(data);
-                    if (go != null)
-                    {
-                        var trackedObj = go.GetComponent<TrackedObject>();
-                        if (trackedObj != null)
-                        {
-                            _newObjects.Add(trackedObj);
-                        }
-                    }
-                }
-            }
-
-
-
-            duplicateRoom.onObjectPlaced?.Invoke(go);
-        }
-
-
-    }
-    /// <summary>
-    /// Loads all objects into cache so they are easily handled by the loading process
-    /// </summary>
-    private async Task LoadAllObjectsIntoCache(List<TrackedObject.Data> trackedObjects)
-    {
-        foreach (TrackedObject.Data to in trackedObjects)
-        {
-            if (IsRoomBoundary(to) || IsBaseboard(to) ||
-                IsWallProtector(to))
-            {
+                _pendingAttachmentPoints.Add(data);
                 continue;
             }
 
-            // if it is not an AttachPoint, we need to place the Selectable
-            if (to.global_guid != _attachPointGUID &&
-            !string.IsNullOrEmpty(to.global_guid))
+            // Embedded selectable (no global guid) - resolve after instantiation
+            if (string.IsNullOrEmpty(data.global_guid))
             {
-                if (!SelectableAssetBundles.TryGetSelectableData
-                (to.global_guid, out SelectableData data))
-                {
-                    Debug.LogError($"Could not find selectable data for {to.objectName} with guid {to.global_guid}");
-                    return;
-                }
-
-                await AssetBundleManager.GetAsset
-                    <GameObject>(data.AssetBundleName);
+                _pendingEmbedded.Add(data);
+                continue;
             }
+
+            // Instantiate selectable prefab (do not set final transform yet)
+            var task = InstantiateObject(data);
+            await task;
+            if (!Application.isPlaying) throw new AppQuitInTaskException();
+
+            go = task.Result;
+            if (go == null)
+            {
+                Debug.LogError($"Failed to instantiate object with guid: {data.global_guid}");
+                continue;
+            }
+
+            // Register GUIDs: root instance_guid and all child selectables
+            if (!string.IsNullOrEmpty(data.instance_guid))
+                _guidToGameObject[data.instance_guid] = go;
+
+            var childSelectables = go.GetComponentsInChildren<Selectable>(true);
+            foreach (var sel in childSelectables)
+            {
+                if (!string.IsNullOrEmpty(sel.guid))
+                    _guidToGameObject[sel.guid] = sel.gameObject;
+            }
+
+            _pendingSetup.Enqueue((go, data));
+
+            var trackedObj = go.GetComponent<TrackedObject>();
+            if (trackedObj != null)
+            {
+                _newObjects.Add(trackedObj);
+            }
+        }
+
+        // Pass 2: establish hierarchy and restore transforms
+        while (_pendingSetup.Count > 0)
+        {
+            var (go, data) = _pendingSetup.Dequeue();
+
+            var trackedObj = go.GetComponent<TrackedObject>();
+            if (trackedObj != null)
+            {
+                trackedObj.StoreValues(data);
+            }
+
+            // Resolve parent by GUID first, then by path
+            Transform parent = null;
+            if (!string.IsNullOrEmpty(data.parentGuid))
+            {
+                if (_guidToGameObject.TryGetValue(data.parentGuid, out var parentGO))
+                    parent = parentGO.transform;
+            }
+
+            if (parent == null && !string.IsNullOrEmpty(data.parentPath))
+            {
+                var parentGO = GameObject.Find(data.parentPath);
+                if (parentGO != null) parent = parentGO.transform;
+            }
+
+            if (parent != null)
+            {
+                go.transform.SetParent(parent, false);
+                // Restore local transform
+                trackedObj?.RestoreTransform(isRoot: false);
+            }
+            else
+            {
+                // root object - restore world transform
+                trackedObj?.RestoreTransform(isRoot: true);
+            }
+
+            if (!string.IsNullOrEmpty(data.keepRelativePositionParentName))
+            {
+                if (go.TryGetComponent<KeepRelativePosition>(out var comp))
+                    comp.ParentName = data.keepRelativePositionParentName;
+            }
+
+            // If this object contains attachment points that need normalization, defer to SetObjectProperties which will reposition them
+        }
+
+        // Resolve embedded selectables (now that parents exist)
+        foreach (var emb in _pendingEmbedded)
+        {
+            GameObject parentGO = null;
+            if (!string.IsNullOrEmpty(emb.parentGuid))
+            {
+                _guidToGameObject.TryGetValue(emb.parentGuid, out parentGO);
+            }
+            if (parentGO == null && !string.IsNullOrEmpty(emb.parentPath))
+            {
+                parentGO = GameObject.Find(emb.parentPath);
+            }
+
+            if (parentGO == null)
+            {
+                Debug.LogWarning($"Could not resolve embedded selectable parent for {emb.parentPath} (GUID: {emb.instance_guid})");
+                continue;
+            }
+
+            var sel = parentGO.GetComponent<Selectable>();
+            if (sel != null)
+            {
+                LogData(sel, emb);
+                // apply local rotation if present
+                parentGO.transform.localRotation = emb.localRotation;
+            }
+            else
+            {
+                // maybe the embedded selectable is a child object; try find by path suffix
+                var candidates = parentGO.GetComponentsInChildren<Selectable>(true);
+                var match = candidates.FirstOrDefault(c => GetGameObjectPath(c.gameObject).EndsWith(emb.parentPath, StringComparison.Ordinal));
+                if (match != null) LogData(match, emb);
+            }
+
+            var trackedObj = parentGO.GetComponent<TrackedObject>();
+            if (trackedObj != null && !_newObjects.Contains(trackedObj)) _newObjects.Add(trackedObj);
+        }
+
+        // Resolve attachment points now (they depend on parents and children being created)
+        foreach (var apData in _pendingAttachmentPoints)
+        {
+            ProcessAttachmentPoint(apData);
         }
     }
 
-    /// <summary>
-    /// Instantiates a object, applies position, rotation, guid, and logs the scale for use later.
-    /// </summary>
-    /// <param name="trackedObject">The JSON structure of this object</param>
-    /// <returns>The gameobject of our newly instantiated and setup logic applied</returns>
     private async Task<GameObject> InstantiateObject(TrackedObject.Data trackedObject)
     {
         if (!SelectableAssetBundles.TryGetSelectableData(trackedObject.global_guid, out SelectableData data))
@@ -614,126 +642,104 @@ public class ConfigurationManager : MonoBehaviour
         if (!Application.isPlaying)
             throw new AppQuitInTaskException();
 
+        if (task.Result == null)
+        {
+            Debug.LogError($"AssetBundle returned null prefab for guid {trackedObject.global_guid}");
+            return null;
+        }
+
         GameObject go = Instantiate(task.Result);
 
-        // Check for DestroyOnLoad components
+        // Remove DestroyOnLoad children
         var dolComps = go.GetComponentsInChildren<DestroyOnLoad>();
-        Array.ForEach(dolComps, comp => Destroy(comp.gameObject));
+        Array.ForEach(dolComps, comp => { if (comp != null) Destroy(comp.gameObject); });
 
-        go.transform.SetPositionAndRotation(trackedObject.pos, trackedObject.rot);
-
-        if (go.TryGetComponent<RestorePositionOnLoad>(out var comp))
+        // Do NOT set final transform here. We'll set transforms in second pass after parenting.
+        // But set PositionToRestore if component exists to worldPosition as fallback
+        if (go.TryGetComponent<RestorePositionOnLoad>(out var compRestore))
         {
-            comp.PositionToRestore = trackedObject.pos;
+            compRestore.PositionToRestore = trackedObject.worldPosition;
         }
 
+        // Assign instance GUID/name onto selectable if present
         if (!string.IsNullOrEmpty(trackedObject.instance_guid))
             go.name = trackedObject.instance_guid;
-        Selectable selectable = go.GetComponent<Selectable>();
-        selectable.guid = trackedObject.instance_guid;
-        selectable.UIButtonName = trackedObject.UIButtonname;
-        LogData(go.GetComponent<Selectable>(), trackedObject);
 
-        if (selectable.SpecialTypes.Count>0)
+        var selectable = go.GetComponent<Selectable>();
+        if (selectable != null)
         {
+            selectable.guid = trackedObject.instance_guid;
+            selectable.UIButtonName = trackedObject.UIButtonname;
+            LogData(selectable, trackedObject);
 
-            if (selectable.SpecialTypes[0]==SpecialSelectableType.Door)
+            if (selectable.SpecialTypes != null && selectable.SpecialTypes.Count > 0 && selectable.SpecialTypes[0] == SpecialSelectableType.Door)
             {
-                selectable.GetComponentInChildren<WallCutter>().UpdateCuts();
+                var wc = selectable.GetComponentInChildren<WallCutter>(); if (wc != null) wc.UpdateCuts();
             }
+
+            ObjectMenu.Instance.HandleOutletAndPricing(go, trackedObject.UIButtonname);
         }
-        ObjectMenu.Instance.HandleOutletAndPricing(go, trackedObject.UIButtonname);
+
+        // Register child selectables will be done by caller after instantiation
         return go;
     }
 
-
-    /// <summary>
-    /// Finds and applies the tracked AttachmentPoint information to the prefab included version
-    /// </summary>
-    /// <param name="to">The JSON structure of this object</param>
     private void ProcessAttachmentPoint(TrackedObject.Data to)
     {
-        GameObject myself = GameObject.Find(to.parent);
-        //Debug.Log($"Logging attachment point path - {to.parent}");
+        GameObject apGO = null;
+        if (!string.IsNullOrEmpty(to.instance_guid))
+            _guidToGameObject.TryGetValue(to.instance_guid, out apGO);
 
-        if (myself == null)
+        if (apGO == null && !string.IsNullOrEmpty(to.parentPath))
+            apGO = GameObject.Find(to.parentPath);
+
+        if (apGO == null)
         {
-            Debug.LogError($"Could not find game object at {to.parent}");
+            Debug.LogError($"Could not find attachment point for {to.parentPath} (GUID: {to.instance_guid})");
             return;
         }
 
-        if (!myself.TryGetComponent<TrackedObject>(out var trackedObject))
+        if (!apGO.TryGetComponent<TrackedObject>(out var trackedObject))
         {
-            Debug.LogError($"GameObject at {to.parent} did not have TrackedObject component");
+            Debug.LogError($"GameObject at {to.parentPath} did not have TrackedObject component");
             return;
         }
+
         trackedObject.StoreValues(to);
-        var attPoint = myself.GetComponent<AttachmentPoint>();
-        //Debug.Log($"AP actual path is {GetGameObjectPath(attPoint.gameObject)}");
+
+        var attPoint = apGO.GetComponent<AttachmentPoint>();
+        if (attPoint == null)
+        {
+            Debug.LogError($"Expected AttachmentPoint on {to.parentPath} but none found.");
+            return;
+        }
+
         _newPoints.Add(attPoint);
     }
 
-    /// <summary>
-    /// Finds and applies the tracked EmbeddedSelectable (non-root selectable of a prefab) to the prefab included version
-    /// </summary>
-    /// <param name="to">The JSON structure of this object</param>
-    /// <returns>The populated selectable's gameobject is returned</returns>
     private GameObject ProcessEmbeddedSelectable(TrackedObject.Data to)
     {
-        try
+        // Try GUID lookup first
+        if (!string.IsNullOrEmpty(to.instance_guid) && _guidToGameObject.TryGetValue(to.instance_guid, out var go))
         {
-            GameObject go = GameObject.Find(to.parent);
-            LogData(go.GetComponent<Selectable>(), to);
-            go.transform.rotation = to.rot;
+            var sel = go.GetComponent<Selectable>();
+            if (sel != null) LogData(sel, to);
+            go.transform.localRotation = to.localRotation;
             return go;
         }
-        catch (NullReferenceException nullException)
-        {
-            Debug.LogError($"ProcessEmbeddedSelectable failed to find {to.parent}");
-            Debug.LogError(nullException);
-            return null;
-        }
-    }
 
-    /// <summary>
-    /// Finds and applies the tracked AttachedSelectable (root
-    /// selectable of a prefab attached to another Selectable 
-    /// without attachment points [decals]) and sets it's parent transform
-    /// </summary>
-    /// <param name="go">Reference to the gameObject being applied data</param>
-    /// <param name="to">The JSON structure of this object</param>
-    private void ProcessAttachedSelectable(GameObject go, TrackedObject.Data to)
-    {
-        if (!string.IsNullOrEmpty(to.attachedTo))
+        // Fallback to path
+        var fallback = GameObject.Find(to.parentPath);
+        if (fallback != null)
         {
-            GameObject parentGO = GameObject.Find(to.attachedTo);
-            go.transform.SetParent(parentGO.transform);
-            go.GetComponent<Selectable>().AttachedTo = parentGO.GetComponent<Selectable>();
-            LogData(go.GetComponent<Selectable>(), to);
-        }
-        else
-        {
-            //Debug.Log($"Attachment point parent - to.parent = {to.parent}");
-
-            // Use SingleOrDefault instead of Single to avoid exception
-            AttachmentPoint ap = _newPoints
-                .SingleOrDefault(s => GetGameObjectPath(s.gameObject) == to.parent);
-
-            if (ap != null)
-            {
-                ap.SetAttachedSelectable(go.GetComponent<Selectable>());
-                go.transform.SetParent(ap.gameObject.transform);
-                go.GetComponent<Selectable>().ParentAttachmentPoint = ap;
-                LogData(go.GetComponent<Selectable>(), to);
-            }
-            else
-            {
-                Debug.LogWarning($"Could not find attachment point with path {to.parent} for object {go.name}");
-                // Add fallback handling here - e.g., set to default parent
-            }
+            var sel = fallback.GetComponent<Selectable>();
+            if (sel != null) LogData(sel, to);
+            fallback.transform.localRotation = to.localRotation;
+            return fallback;
         }
 
-
+        Debug.LogError($"ProcessEmbeddedSelectable failed to find {to.parentPath} (GUID: {to.instance_guid})");
+        return null;
     }
 
     /// <summary>
@@ -768,6 +774,17 @@ public class ConfigurationManager : MonoBehaviour
                 return;
             }
             ap.gameObject.transform.position = ap.GetComponent<TrackedObject>().GetPosition();
+            ap.AttachedSelectable.Clear();
+            var selectables = ap.GetComponentsInChildren<Selectable>(true);
+            foreach (var sel in selectables)
+            {
+                if (sel.transform.parent == ap.transform)
+                {
+                    sel.ParentAttachmentPoint = ap;
+                    ap.AttachedSelectable.Add(sel);
+                }
+            }
+            ap.RefreshStatusForLoad(); // Ensure collider/highlight state is correct after load
         }
     }
 
@@ -926,4 +943,33 @@ public class ConfigurationManager : MonoBehaviour
         return path;
     }
 
+    /// <summary>
+    /// Loads all referenced selectable prefabs' asset bundles so instantiation is fast and reliable.
+    /// </summary>
+    private async Task LoadAllObjectsIntoCache(List<TrackedObject.Data> trackedObjects)
+    {
+        var missingGuids = new List<string>();
+        foreach (TrackedObject.Data to in trackedObjects)
+        {
+            if (IsRoomBoundary(to) || IsBaseboard(to) || IsWallProtector(to))
+                continue;
+
+            // Skip attachment points
+            if (to.global_guid == _attachPointGUID || string.IsNullOrEmpty(to.global_guid))
+                continue;
+
+            if (!SelectableAssetBundles.TryGetSelectableData(to.global_guid, out SelectableData data))
+            {
+                Debug.LogError($"Could not find selectable data for {to.objectName} with guid {to.global_guid}");
+                missingGuids.Add(to.global_guid);
+                continue;
+            }
+
+            await AssetBundleManager.GetAsset<GameObject>(data.AssetBundleName);
+            if (!Application.isPlaying) throw new AppQuitInTaskException();
+        }
+
+        if (missingGuids.Count > 0)
+            Debug.LogWarning($"Load cache completed with missing selectable data for {missingGuids.Count} GUID(s).\nFirst missing: {missingGuids.First()}");
+    }
 }

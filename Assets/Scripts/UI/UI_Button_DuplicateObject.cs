@@ -62,18 +62,40 @@ public class UI_Button_DuplicateObject : MonoBehaviour
         );
     }
 
+    //Anwar Edits
     public async Task DuplicateObjectAsync(GameObject obj)
     {
-        if (obj == null)
-        {
-            Debug.LogWarning("DuplicateObject: The object to duplicate is null.");
-            return;
-        }
+        //if (obj == null)
+        //{
+        //    Debug.LogWarning("DuplicateObject: The object to duplicate is null.");
+        //    return;
+        //}
+
+        //try
+        //{
+        //    PrepareObjectForDuplication(obj);
+        //    GameObject duplicatedObj = CreateDuplicate(obj);
+        //    DisableHighlighting(duplicatedObj);
+        //    await DuplicatePricingComponentsAsync(obj, duplicatedObj);
+        //    NotifyDuplication(duplicatedObj);
+
+        //    Debug.Log($"Successfully duplicated {obj.name}");
+        //}
+        //catch (Exception e)
+        //{
+        //    Debug.LogError($"Error duplicating object: {e.Message}");
+        //}
+        if (obj == null) { Debug.LogWarning("DuplicateObject: The object to duplicate is null."); return; }
 
         try
         {
-            PrepareObjectForDuplication(obj);
+            // DO NOT mark the original
             GameObject duplicatedObj = CreateDuplicate(obj);
+            MarkDuplicateStateAndResetBaselines(duplicatedObj);
+            // Mark the duplicate's Selectables so Start() doesn't recalc divergent ScaleZ
+            foreach (var selectable in duplicatedObj.GetComponentsInChildren<Selectable>(true))
+                selectable.isDuplicated = true;
+
             DisableHighlighting(duplicatedObj);
             await DuplicatePricingComponentsAsync(obj, duplicatedObj);
             NotifyDuplication(duplicatedObj);
@@ -93,13 +115,31 @@ public class UI_Button_DuplicateObject : MonoBehaviour
         duplicate.transform.localScale = original.transform.localScale;
         return duplicate;
     }
+    /// <summary>
+    /// On the clone: mark all Selectables as duplicated and reset their
+    /// constraint baselines so they don't drift/snap.
+    /// </summary>
+    private void MarkDuplicateStateAndResetBaselines(GameObject duplicatedObj)
+    {
+        var selectables = duplicatedObj.GetComponentsInChildren<Selectable>(true);
+        foreach (var sel in selectables)
+        {
+            sel.isDuplicated = true;                               // the clone is the duplicated one
+            sel.OriginalLocalPosition = sel.transform.localPosition; // reset translation baseline
 
+            // If you cache other “originals” in your Selectable (e.g., local rotation or child scales),
+            // reset them here as well. Example:
+            // sel.StoreChildScales(); // if you want to refresh child scale cache on the clone
+            // (Only if your logic relies on it.)
+        }
+    }
     private void PrepareObjectForDuplication(GameObject obj)
     {
-        var selectables = obj.GetComponentsInChildren<Selectable>(true);
-        foreach (var selectable in selectables)
+        // Do NOT mark the source Selectables as duplicated.
+        // We only pre-mark APs so clones won’t “climb” again (Fix #3 uses this).
+        foreach (var ap in obj.GetComponentsInChildren<AttachmentPoint>(true))
         {
-            selectable.isDuplicated = true;
+            ap.MarkParentNormalized(); // method added in AttachmentPoint.cs below
         }
     }
 
