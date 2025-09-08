@@ -110,7 +110,7 @@ MeshCollider:
   m_IsTrigger: 0
   m_Enabled: 1
   serializedVersion: 4
-  m_Convex: 1
+  m_Convex: 0
   m_CookingOptions: 30
   m_Mesh: {fileID: 7692978956907719288, guid: 07855af5dace34b45b2b4a1f2425a175, type: 3}
 --- !u!114 &4471830203356892875
@@ -419,7 +419,11 @@ MonoBehaviour:
   <MultiAttach>k__BackingField: 1
   <MultiLimit>k__BackingField: 1
   <_originalParent>k__BackingField: {fileID: 0}
+  _hasNormalizedParent: 0
   <Renderer>k__BackingField: {fileID: 2688391028876694482}
+  _originalLocalPosition: {x: 0, y: 0, z: 0}
+  _originalLocalRotation: {x: 0, y: 0, z: 0, w: 0}
+  _hasBeenInitialized: 0
 --- !u!114 &477840139158347197
 MonoBehaviour:
   m_ObjectHideFlags: 0

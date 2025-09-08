@@ -687,6 +687,7 @@ public class ConfigurationManager : MonoBehaviour
     private void ProcessAttachmentPoint(TrackedObject.Data to)
     {
         GameObject apGO = null;
+        Selectable child = null;
         if (!string.IsNullOrEmpty(to.instance_guid))
             _guidToGameObject.TryGetValue(to.instance_guid, out apGO);
 
@@ -707,14 +708,24 @@ public class ConfigurationManager : MonoBehaviour
 
         trackedObject.StoreValues(to);
 
-        var attPoint = apGO.GetComponent<AttachmentPoint>();
-        if (attPoint == null)
+        var attachmentPoints = apGO.GetComponentsInChildren<AttachmentPoint>(true);
+        if (attachmentPoints == null || attachmentPoints.Length == 0)
         {
             Debug.LogError($"Expected AttachmentPoint on {to.parentPath} but none found.");
             return;
         }
 
-        _newPoints.Add(attPoint);
+        foreach (var attPoint in attachmentPoints)
+        {
+            if (attPoint == null) continue;
+
+            var childSelectable = attPoint.GetComponentInChildren<Selectable>();
+            if (childSelectable != null)
+            {
+                attPoint.AttachedSelectable.Add(childSelectable);
+            }
+            _newPoints.Add(attPoint);
+        }
     }
 
     private GameObject ProcessEmbeddedSelectable(TrackedObject.Data to)
@@ -766,26 +777,7 @@ public class ConfigurationManager : MonoBehaviour
             ResetMaterialPalettes(obj);
         }
 
-        foreach (AttachmentPoint ap in _newPoints)
-        {
-            if (ap == null)
-            {
-                Debug.LogWarning("Attempted to reset a missing Attachment Point reference.");
-                return;
-            }
-            ap.gameObject.transform.position = ap.GetComponent<TrackedObject>().GetPosition();
-            ap.AttachedSelectable.Clear();
-            var selectables = ap.GetComponentsInChildren<Selectable>(true);
-            foreach (var sel in selectables)
-            {
-                if (sel.transform.parent == ap.transform)
-                {
-                    sel.ParentAttachmentPoint = ap;
-                    ap.AttachedSelectable.Add(sel);
-                }
-            }
-            ap.RefreshStatusForLoad(); // Ensure collider/highlight state is correct after load
-        }
+      
     }
 
     /// <summary>

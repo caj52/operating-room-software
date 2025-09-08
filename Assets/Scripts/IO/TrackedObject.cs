@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering.VirtualTexturing;
 
@@ -32,7 +33,7 @@ public class TrackedObject : MonoBehaviour
         public bool isAttachmentPoint;   // New
         public Vector3 originalLocalPosition; // New - for attachment points
         public Quaternion originalLocalRotation; // New - for attachment points
-
+        public string attachedObject;
         // Price data
         public string sheetName;
         public string UIObjectName;
@@ -102,6 +103,7 @@ public class TrackedObject : MonoBehaviour
             }
             data.originalLocalPosition = _originalLocalPosition;
             data.originalLocalRotation = _originalLocalRotation;
+ 
         }
 
         // Store component data
@@ -251,7 +253,10 @@ public class TrackedObject : MonoBehaviour
         {
             AttachmentPoint ap = gameObject.GetComponent<AttachmentPoint>();
             data.global_guid = ap.GUID;
-
+            if (ap.AttachedSelectable.Count>0)
+            {
+                data.attachedObject = ap.AttachedSelectable.FirstOrDefault().name;
+            }
             data.parent = ConfigurationManager.GetGameObjectPath(gameObject);
         }
     }
