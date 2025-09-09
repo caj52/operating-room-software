@@ -65,37 +65,79 @@ public class UI_Button_DuplicateObject : MonoBehaviour
     //Anwar Edits
     public async Task DuplicateObjectAsync(GameObject obj)
     {
-        //if (obj == null)
-        //{
-        //    Debug.LogWarning("DuplicateObject: The object to duplicate is null.");
-        //    return;
-        //}
-
-        //try
-        //{
-        //    PrepareObjectForDuplication(obj);
-        //    GameObject duplicatedObj = CreateDuplicate(obj);
-        //    DisableHighlighting(duplicatedObj);
-        //    await DuplicatePricingComponentsAsync(obj, duplicatedObj);
-        //    NotifyDuplication(duplicatedObj);
-
-        //    Debug.Log($"Successfully duplicated {obj.name}");
-        //}
-        //catch (Exception e)
-        //{
-        //    Debug.LogError($"Error duplicating object: {e.Message}");
-        //}
         if (obj == null) { Debug.LogWarning("DuplicateObject: The object to duplicate is null."); return; }
 
         try
         {
-            // DO NOT mark the original
+            // Step 1: Get original object components and states
+            var originalSelectables = obj.GetComponentsInChildren<Selectable>(true);
+            var originalCCDIKs = obj.GetComponentsInChildren<CCDIK>(true);
+            var originalAPs = obj.GetComponentsInChildren<AttachmentPoint>(true);
+            
+            // Store original transforms and states
+            var selectableTransforms = new Dictionary<Selectable, (Vector3 pos, Quaternion rot, Vector3 scale)>();
+            foreach (var sel in originalSelectables)
+            {
+                selectableTransforms[sel] = (sel.transform.localPosition, sel.transform.localRotation, sel.transform.localScale);
+            }
+
+            // Step 2: Create duplicate with proper positioning
             GameObject duplicatedObj = CreateDuplicate(obj);
             MarkDuplicateStateAndResetBaselines(duplicatedObj);
-            // Mark the duplicate's Selectables so Start() doesn't recalc divergent ScaleZ
-            foreach (var selectable in duplicatedObj.GetComponentsInChildren<Selectable>(true))
-                selectable.isDuplicated = true;
 
+            // Step 3: Handle Selectables in duplicate
+            var duplicatedSelectables = duplicatedObj.GetComponentsInChildren<Selectable>(true);
+            foreach (var sel in duplicatedSelectables)
+            {
+                sel.isDuplicated = true;
+                
+                // Store original transform data
+                sel.OriginalLocalPosition = sel.transform.localPosition;
+                
+                // Reset any cached rotations/scales
+                if (sel.ScaleLevels.Count > 0)
+                {
+                    sel.StoreChildScales();
+                }
+            }
+
+            // Step 4: Handle Attachment Points in duplicate
+            var duplicatedAPs = duplicatedObj.GetComponentsInChildren<AttachmentPoint>(true);
+            foreach (var ap in duplicatedAPs)
+            {
+                // Reset normalized parent state for fresh initialization
+                var oldParent = ap.transform.parent;
+                ap.transform.localScale = new Vector3(1, 1, ap.transform.localScale.z);
+                
+                // Force attachment point to reinitialize
+                if (ap.gameObject.activeSelf)
+                {
+                    ap.gameObject.SetActive(false);
+                    ap.gameObject.SetActive(true);
+                }
+                
+                // Ensure proper parent is set
+                ap.SetToOriginalParent();
+                await Task.Delay(1); // Give Unity a frame to process parent changes
+            }
+
+            // Step 5: Handle CCDIK components in duplicate
+            var duplicatedCCDIKs = duplicatedObj.GetComponentsInChildren<CCDIK>(true);
+            foreach (var ik in duplicatedCCDIKs)
+            {
+                if (ik != null)
+                {
+                    // Force CCDIK to reinitialize
+                    ik.enabled = false;
+                    await Task.Delay(1); // Give Unity a frame to process
+                    ik.enabled = true;
+                    
+                    // Make sure target is properly recentered
+                    ik.RecenterTarget();
+                }
+            }
+
+            // Step 6: Handle other components
             DisableHighlighting(duplicatedObj);
             await DuplicatePricingComponentsAsync(obj, duplicatedObj);
             NotifyDuplication(duplicatedObj);

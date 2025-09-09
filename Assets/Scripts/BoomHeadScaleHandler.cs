@@ -40,7 +40,7 @@ public class BoomHeadScaleHandler : MonoBehaviour
     {
         ReassembleRows(scale);
     }
-    void ReassembleRows(Selectable.ScaleLevel scaleLevel)
+   public void ReassembleRows(Selectable.ScaleLevel scaleLevel)
     {
         if (scaleLevel.TryGetValue("rows", out string s_rowCount))
         {
