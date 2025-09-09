@@ -39,6 +39,11 @@ public class TrackedObject : MonoBehaviour
         public string UIObjectName;
         public string size;
         public string priceObjectName;
+
+        // New: lifecycle & components state
+        public bool activeSelf; // New - GameObject active state
+        public List<SaveUtility.ComponentEnabledState> componentEnabledStates; // New - enabled flags for components
+        public List<SaveUtility.SerializedComponentState> componentStates; // New - custom component snapshots
     }
 
     private void Awake()
@@ -72,6 +77,20 @@ public class TrackedObject : MonoBehaviour
     {
         data.objectName = gameObject.name;
         GetGUIDs();
+
+        // Allow hooks to prepare before capture
+        try
+        {
+            foreach (var hook in GetComponents<MonoBehaviour>().OfType<SaveUtility.ISaveHooks>())
+            {
+                try { hook.OnBeforeSave(); }
+                catch (Exception ex) { Debug.LogWarning($"[TrackedObject] OnBeforeSave threw on {name}: {ex.Message}"); }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[TrackedObject] Failed iterating save hooks on {name}: {ex.Message}");
+        }
 
         // Store both local and world transforms
         data.localPosition = transform.localPosition;
@@ -133,6 +152,27 @@ public class TrackedObject : MonoBehaviour
             data.UIObjectName = sp.UIObjectName;
             data.size = sp.Size;
             data.priceObjectName = sp.pricingObjectName;
+        }
+
+        // New: capture GameObject active state and component enabled state
+        data.activeSelf = gameObject.activeSelf;
+        try
+        {
+            data.componentEnabledStates = SaveUtility.CaptureEnabledStates(gameObject);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[TrackedObject] Failed to capture enabled states on {name}: {ex.Message}");
+        }
+
+        // New: capture custom component snapshots (if any)
+        try
+        {
+            data.componentStates = SaveUtility.CaptureCustomComponentStates(gameObject);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[TrackedObject] Failed to capture custom component states on {name}: {ex.Message}");
         }
 
         return data;
@@ -206,12 +246,66 @@ public class TrackedObject : MonoBehaviour
         // Special handling for attachment points
         if (data.isAttachmentPoint && gameObject.TryGetComponent<AttachmentPoint>(out var ap))
         {
-            if (ap.MoveUpOnAttach)
+            // When loading from file, preserve exact saved transform; only apply original pose in runtime adjustments
+            if (ap.MoveUpOnAttach && !ConfigurationManager.IsLoading)
             {
-                // Use original transforms when moving up
                 transform.localPosition = _originalLocalPosition;
                 transform.localRotation = _originalLocalRotation;
             }
+        }
+    }
+
+    /// <summary>
+    /// Apply saved active/enabled states and any custom component snapshots.
+    /// Call this after parenting and transform restoration.
+    /// </summary>
+    public void ApplySavedState()
+    {
+        // GameObject active state
+        try
+        {
+            if (data.activeSelf)
+                gameObject.SetActive(true); // ensure activation sequence
+            else
+                gameObject.SetActive(false);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[TrackedObject] Failed to set active state on {name}: {ex.Message}");
+        }
+
+        // Enabled flags
+        try
+        {
+            SaveUtility.RestoreEnabledStates(gameObject, data.componentEnabledStates);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[TrackedObject] Failed to restore enabled states on {name}: {ex.Message}");
+        }
+
+        // Custom component data
+        try
+        {
+            SaveUtility.RestoreCustomComponentStates(gameObject, data.componentStates);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[TrackedObject] Failed to restore custom component states on {name}: {ex.Message}");
+        }
+
+        // Hooks
+        try
+        {
+            foreach (var hook in GetComponents<MonoBehaviour>().OfType<SaveUtility.ISaveHooks>())
+            {
+                try { hook.OnAfterLoad(); }
+                catch (Exception ex) { Debug.LogWarning($"[TrackedObject] OnAfterLoad threw on {name}: {ex.Message}"); }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[TrackedObject] Failed iterating load hooks on {name}: {ex.Message}");
         }
     }
 

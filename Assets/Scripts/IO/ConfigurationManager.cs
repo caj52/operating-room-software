@@ -162,6 +162,46 @@ public class ConfigurationManager : MonoBehaviour
     }
 
     /// <summary>
+    /// Public, clearer API for saving a full scenario (room)
+    /// </summary>
+    public async Task<bool> SaveScenario(string title, IProgress<float> progress = null)
+    {
+        try
+        {
+            progress?.Report(0f);
+            await Task.Yield();
+            SaveRoom(title);
+            progress?.Report(1f);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[SaveScenario] Failed: {ex.Message}\n{ex.StackTrace}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Public, clearer API for loading a full scenario (room)
+    /// </summary>
+    public async Task<bool> LoadScenario(string path, IProgress<float> progress = null)
+    {
+        try
+        {
+            progress?.Report(0f);
+            await Task.Yield();
+            LoadRoom(path);
+            progress?.Report(1f);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[LoadScenario] Failed: {ex.Message}\n{ex.StackTrace}");
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Saves a configuration (collection of selectable objects from the transform.root).
     /// </summary>
     /// <param name="title">The title/fileName for this grouping</param>
@@ -362,6 +402,14 @@ public class ConfigurationManager : MonoBehaviour
                 await Task.Yield();
                 RandomizeInstanceGUIDs();
                 var gameObject = GetRoot();
+
+                // Apply saved active/enabled/component states after transforms
+                foreach (var to in _newObjects)
+                {
+                    try { to.ApplySavedState(); }
+                    catch (Exception ex) { Debug.LogWarning($"[LoadArmAssembly] ApplySavedState failed on {to.name}: {ex.Message}"); }
+                }
+
                 OnConfigurationLoadComplete?.Invoke(gameObject);
                 return gameObject;
             }
@@ -439,6 +487,14 @@ public class ConfigurationManager : MonoBehaviour
                 await Task.Yield();
                 await SetObjectProperties(_newObjects);
                 await Task.Yield();
+
+                // Apply saved active/enabled/component states after transforms
+                foreach (var to in _newObjects)
+                {
+                    try { to.ApplySavedState(); }
+                    catch (Exception ex) { Debug.LogWarning($"[LoadRoom] ApplySavedState failed on {to.name}: {ex.Message}"); }
+                }
+
                 RandomizeInstanceGUIDs();
                 progression += progressionTicks;
                 token.SetProgress(progression);
@@ -484,8 +540,8 @@ public class ConfigurationManager : MonoBehaviour
                     var existingTrackedObj = go.GetComponent<TrackedObject>();
                     if (existingTrackedObj != null)
                     {
-                        ResetScaleLevels(existingTrackedObj);
-                        ResetMaterialPalettes(existingTrackedObj);
+                        //ResetScaleLevels(existingTrackedObj);
+                       // ResetMaterialPalettes(existingTrackedObj);
                     }
                 }
                 continue;
@@ -586,39 +642,45 @@ public class ConfigurationManager : MonoBehaviour
         // Resolve embedded selectables (now that parents exist)
         foreach (var emb in _pendingEmbedded)
         {
-            GameObject parentGO = null;
+            GameObject containerGO = null;
             if (!string.IsNullOrEmpty(emb.parentGuid))
             {
-                _guidToGameObject.TryGetValue(emb.parentGuid, out parentGO);
+                _guidToGameObject.TryGetValue(emb.parentGuid, out containerGO);
             }
-            if (parentGO == null && !string.IsNullOrEmpty(emb.parentPath))
+            if (containerGO == null && !string.IsNullOrEmpty(emb.parentPath))
             {
-                parentGO = GameObject.Find(emb.parentPath);
+                containerGO = GameObject.Find(emb.parentPath);
             }
 
-            if (parentGO == null)
+            if (containerGO == null)
             {
                 Debug.LogWarning($"Could not resolve embedded selectable parent for {emb.parentPath} (GUID: {emb.instance_guid})");
                 continue;
             }
 
-            var sel = parentGO.GetComponent<Selectable>();
+            // Find the embedded selectable under the container
+            Selectable sel = containerGO.GetComponent<Selectable>();
+            if (sel == null)
+            {
+                // maybe the embedded selectable is a child object; try find by path suffix
+                var candidates = containerGO.GetComponentsInChildren<Selectable>(true);
+                sel = candidates.FirstOrDefault(c => GetGameObjectPath(c.gameObject).EndsWith(emb.parentPath, StringComparison.Ordinal));
+            }
+
             if (sel != null)
             {
                 LogData(sel, emb);
-                // apply local rotation if present
-                parentGO.transform.localRotation = emb.localRotation;
+                // Only apply local rotation for embedded selectable to avoid breaking prefab internal layout
+                var t = sel.transform;
+                t.localRotation = emb.localRotation;
+
+                var trackedObj = sel.GetComponent<TrackedObject>();
+                if (trackedObj != null && !_newObjects.Contains(trackedObj)) _newObjects.Add(trackedObj);
             }
             else
             {
-                // maybe the embedded selectable is a child object; try find by path suffix
-                var candidates = parentGO.GetComponentsInChildren<Selectable>(true);
-                var match = candidates.FirstOrDefault(c => GetGameObjectPath(c.gameObject).EndsWith(emb.parentPath, StringComparison.Ordinal));
-                if (match != null) LogData(match, emb);
+                Debug.LogWarning($"Embedded selectable not found under container {containerGO.name} for path {emb.parentPath}");
             }
-
-            var trackedObj = parentGO.GetComponent<TrackedObject>();
-            if (trackedObj != null && !_newObjects.Contains(trackedObj)) _newObjects.Add(trackedObj);
         }
 
         // Resolve attachment points now (they depend on parents and children being created)
@@ -763,7 +825,7 @@ public class ConfigurationManager : MonoBehaviour
         foreach (TrackedObject obj in newObjects)
         {
             //Debug.Log(obj.gameObject.name);
-            ResetScaleLevels(obj);
+            //ResetScaleLevels(obj);
         }
 
         // Allow time for scaling values to be applied in Selectable
@@ -773,8 +835,8 @@ public class ConfigurationManager : MonoBehaviour
 
         foreach (TrackedObject obj in newObjects)
         {
-            ResetLocalPosition(obj);
-            ResetMaterialPalettes(obj);
+          //  ResetLocalPosition(obj);
+           // ResetMaterialPalettes(obj);
         }
 
       
@@ -811,7 +873,7 @@ public class ConfigurationManager : MonoBehaviour
             obj.transform.localScale = new Vector3(
                 obj.GetScale().x,
                 obj.GetScale().y,
-                obj.transform.localScale.z
+                obj.GetScale().z
             );
             selectable.SetScaleLevel(storedScaleLevel, true);
         }
