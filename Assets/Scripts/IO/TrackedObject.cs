@@ -78,6 +78,14 @@ public class TrackedObject : MonoBehaviour
         data.objectName = gameObject.name;
         GetGUIDs();
 
+        // DEBUG: Track data capture for ArmLightMount.001
+        if (gameObject.name.Contains("ArmLightMount.001"))
+        {
+            Debug.LogError($"[DEBUG] TrackedObject.GetData() called for {gameObject.name}");
+            Debug.LogError($"[DEBUG] Current localRotation: {transform.localRotation}");
+            Debug.LogError($"[DEBUG] Current worldRotation: {transform.rotation}");
+        }
+
         // Allow hooks to prepare before capture
         try
         {
@@ -98,6 +106,13 @@ public class TrackedObject : MonoBehaviour
         data.worldPosition = transform.position;
         data.worldRotation = transform.rotation;
         data.localScale = transform.localScale;
+
+        // DEBUG: Track what was stored
+        if (gameObject.name.Contains("ArmLightMount.001"))
+        {
+            Debug.LogError($"[DEBUG] Stored localRotation: {data.localRotation}");
+            Debug.LogError($"[DEBUG] Stored worldRotation: {data.worldRotation}");
+        }
 
         // Store parent info
         if (transform.parent != null)
@@ -231,6 +246,16 @@ public class TrackedObject : MonoBehaviour
 
     public void RestoreTransform(bool isRoot = false)
     {
+        // DEBUG: Track rotation restore for ArmLightMount.001
+        if (gameObject.name.Contains("ArmLightMount.001"))
+        {
+            Debug.LogError($"[DEBUG] TrackedObject.RestoreTransform called for {gameObject.name}");
+            Debug.LogError($"[DEBUG] isRoot: {isRoot}");
+            Debug.LogError($"[DEBUG] Current rotation: {transform.localRotation}");
+            Debug.LogError($"[DEBUG] Data localRotation: {data.localRotation}");
+            Debug.LogError($"[DEBUG] Data worldRotation: {data.worldRotation}");
+        }
+
         if (isRoot)
         {
             transform.position = data.worldPosition;
@@ -242,6 +267,13 @@ public class TrackedObject : MonoBehaviour
             transform.localRotation = data.localRotation;
         }
         transform.localScale = data.localScale;
+
+        // DEBUG: Track rotation after assignment
+        if (gameObject.name.Contains("ArmLightMount.001"))
+        {
+            Debug.LogError($"[DEBUG] TrackedObject.RestoreTransform AFTER assignment for {gameObject.name}");
+            Debug.LogError($"[DEBUG] Final localRotation: {transform.localRotation}");
+        }
 
         // Special handling for attachment points
         if (data.isAttachmentPoint && gameObject.TryGetComponent<AttachmentPoint>(out var ap))
