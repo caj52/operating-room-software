@@ -232,7 +232,6 @@ public class ConfigurationManager : MonoBehaviour
             ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
             Formatting = Formatting.Indented// allows Newtonsoft to go through the loop to serialize entire Position and Quaternion Rotation
         });
-
         string folder = Application.persistentDataPath + $"/Saved/Configs/";
         //string folder = Path.Combine(FullRoomSave.GetRoomPath() , $"Saved/Configs");
         string configName = title.Replace(" ", "_") + ".json"; // remove spaces and replace with underscores
@@ -582,10 +581,7 @@ public class ConfigurationManager : MonoBehaviour
             foreach (var sel in childSelectables)
             {
                 if (!string.IsNullOrEmpty(sel.guid))
-                {
                     _guidToGameObject[sel.guid] = sel.gameObject;
-
-                }
             }
 
             _pendingSetup.Enqueue((go, data));
@@ -624,17 +620,14 @@ public class ConfigurationManager : MonoBehaviour
 
             if (parent != null)
             {
-
                 go.transform.SetParent(parent, false);
                 // Restore local transform
                 trackedObj?.RestoreTransform(isRoot: false);
-
             }
             else
             {
                 // root object - restore world transform
                 trackedObj?.RestoreTransform(isRoot: true);
-
             }
 
             if (!string.IsNullOrEmpty(data.keepRelativePositionParentName))
@@ -677,17 +670,9 @@ public class ConfigurationManager : MonoBehaviour
             if (sel != null)
             {
                 LogData(sel, emb);
-
+                // Only apply local rotation for embedded selectable to avoid breaking prefab internal layout
                 var t = sel.transform;
-
-   
-
-                // ✅ Don't parse strings; use the actual vector and wrap it
-                Vector3 raw = emb.localRotation.eulerAngles;       // e.g. (0, 324, 0)
-                Vector3 signed = Angle180.Signed(raw);             // -> (0, -36, 0)
-
-                t.localRotation = Quaternion.Euler(raw.x,-raw.y,raw.z);
-
+                t.localRotation = emb.localRotation;
 
                 var trackedObj = sel.GetComponent<TrackedObject>();
                 if (trackedObj != null && !_newObjects.Contains(trackedObj)) _newObjects.Add(trackedObj);
@@ -703,7 +688,6 @@ public class ConfigurationManager : MonoBehaviour
         {
             ProcessAttachmentPoint(apData);
         }
-
     }
 
     private async Task<GameObject> InstantiateObject(TrackedObject.Data trackedObject)
@@ -851,8 +835,8 @@ public class ConfigurationManager : MonoBehaviour
 
         foreach (TrackedObject obj in newObjects)
         {
-         //  ResetLocalPosition(obj);
-         //  ResetMaterialPalettes(obj);
+          //  ResetLocalPosition(obj);
+           // ResetMaterialPalettes(obj);
         }
 
       
@@ -1042,14 +1026,4 @@ public class ConfigurationManager : MonoBehaviour
         if (missingGuids.Count > 0)
             Debug.LogWarning($"Load cache completed with missing selectable data for {missingGuids.Count} GUID(s).\nFirst missing: {missingGuids.First()}");
     }
-}
-
-// 1) Keep this utility somewhere (robust wrap using Mathf.DeltaAngle)
-public static class Angle180
-{
-    // Wrap any degree value into (-180, 180]
-    public static float Signed(float deg) => Mathf.DeltaAngle(0f, deg);
-
-    public static Vector3 Signed(Vector3 eulerDeg)
-        => new Vector3(Signed(eulerDeg.x), Signed(eulerDeg.y), Signed(eulerDeg.z));
 }
