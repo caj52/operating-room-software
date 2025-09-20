@@ -19,33 +19,24 @@ public class ConfigurationManager : MonoBehaviour
     public static UnityEvent OnRoomLoadComplete { get; } = new();
     public static UnityEvent<GameObject> OnConfigurationLoadComplete { get; } = new();
 
-    [Tooltip("Contextual display of GUIDs in hierarchy for easier debugging")]
-    public bool isDebug = false;
+    [Tooltip("Contextual display of GUIDs in hierarchy for easier debugging")] public bool isDebug = false;
 
     private List<TrackedObject> _newObjects;
-
     private List<AttachmentPoint> _newPoints;
     DuplicateRoom duplicateRoom;
     public static bool IsLoading { get; private set; }
 
-    /// <summary>
-    /// This is the prefab GUID for ALL attachment points. DO NOT CHANGE.
-    /// </summary>
-    private const string _attachPointGUID = "_AP";
+    private const string _attachPointGUID = "_AP"; // legacy
 
-    /// <summary>
-    /// The tracker for individual configurations
-    /// </summary>
     private Tracker _tracker;
-
-    /// <summary>
-    /// overall room configuration, contains collection of trackers
-    /// </summary>
     private RoomConfiguration _roomConfiguration;
 
     private readonly string _lastNukedSavesPlayerPrefsKey = "lastNukedSaves";
-
     private readonly string _nukeBelowVersion = "1.0.0";
+
+    // Helper to normalize stored path (leading '/') for GameObject.Find
+    private static string NormalizeFindPath(string raw)
+        => string.IsNullOrEmpty(raw) ? raw : (raw[0] == '/' ? raw.Substring(1) : raw);
 
     private void Awake()
     {
@@ -53,22 +44,16 @@ public class ConfigurationManager : MonoBehaviour
             Destroy(this.gameObject);
 
         Instance = this;
-
         CreateTracker();
         NewRoomSave();
         HandleBackwardsCompatibility();
-
-
     }
 
-    private void Start()
-    {
-        duplicateRoom = FindObjectOfType<DuplicateRoom>();
-    }
+    private void Start() => duplicateRoom = FindObjectOfType<DuplicateRoom>();
+
     private void HandleBackwardsCompatibility()
     {
         Version nukeBelowVersion = Version.Parse(_nukeBelowVersion);
-
         if (!PlayerPrefs.HasKey(_lastNukedSavesPlayerPrefsKey))
         {
             DeleteAllSaves();
@@ -77,28 +62,13 @@ public class ConfigurationManager : MonoBehaviour
         {
             string lastNukedString = PlayerPrefs.GetString(_lastNukedSavesPlayerPrefsKey);
             Version lastNukedVersion = Version.Parse(lastNukedString);
-
             if (lastNukedVersion.Major < nukeBelowVersion.Major)
             {
                 DeleteAllSaves();
             }
         }
-
-        //future use
-        //string[] files = Directory.GetFiles(path);
-        //foreach (string file in files.Where(x => x.EndsWith(".json")))
-        //{
-        //    if (File.Exists(file))
-        //    {
-        //        string json = File.ReadAllText(file);
-        //        var roomConfiguration = JsonConvert.DeserializeObject<RoomConfiguration>(json);
-        //    }
-        //}
     }
 
-    /// <summary>
-    /// Replace later with a system that checks indiviudal serialized json versions, and even when that happens we should move the deprecated versions into a folder called "Deprecated" just in case
-    /// </summary>
     private void DeleteAllSaves()
     {
         string path = Application.persistentDataPath + "/Saved/";
@@ -119,51 +89,26 @@ public class ConfigurationManager : MonoBehaviour
             {
                 if (File.Exists(file))
                 {
-                    try
-                    {
-                        File.Delete(file);
-                    }
-                    catch (IOException ex) // file is in use, or theres an open handle on the file
-                    {
-                        Debug.LogException(ex);
-                    }
-                    catch
-                    {
-                        throw;
-                    }
+                    try { File.Delete(file); }
+                    catch (IOException ex) { Debug.LogException(ex); }
+                    catch { throw; }
                 }
             }
         }
     }
 
-    /// <summary>
-    /// Creates a new tracker to be used with a fresh configuration load
-    /// </summary>
     private Tracker CreateTracker()
     {
-        _tracker = new Tracker
-        {
-            objects = new List<TrackedObject.Data>()
-        };
+        _tracker = new Tracker { objects = new List<TrackedObject.Data>() };
         return _tracker;
     }
 
-    /// <summary>
-    /// Create a new room configuration to be used with a fresh room load
-    /// </summary>
     private RoomConfiguration NewRoomSave()
     {
-        _roomConfiguration = new RoomConfiguration()
-        {
-            collections = new List<Tracker>(),
-            version = Application.version
-        };
+        _roomConfiguration = new RoomConfiguration() { collections = new List<Tracker>(), version = Application.version };
         return _roomConfiguration;
     }
 
-    /// <summary>
-    /// Public, clearer API for saving a full scenario (room)
-    /// </summary>
     public async Task<bool> SaveScenario(string title, IProgress<float> progress = null)
     {
         try
@@ -181,9 +126,6 @@ public class ConfigurationManager : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Public, clearer API for loading a full scenario (room)
-    /// </summary>
     public async Task<bool> LoadScenario(string path, IProgress<float> progress = null)
     {
         try
@@ -201,59 +143,40 @@ public class ConfigurationManager : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Saves a configuration (collection of selectable objects from the transform.root).
-    /// </summary>
-    /// <param name="title">The title/fileName for this grouping</param>
     public void SaveConfiguration(string title)
     {
         CreateTracker();
-
-        // finds all the Selectable & AttachmentPoints for this object
         TrackedObject[] foundObjects = Selectable.SelectedSelectables[0]
             .transform.root.GetComponentsInChildren<TrackedObject>();
 
         foreach (TrackedObject obj in foundObjects)
         {
             if (obj.TryGetComponent(out AttachmentPoint attachmentPoint))
-            {
-                attachmentPoint.SetToOriginalParent(); // for multi-arm configurations
-            }
+                attachmentPoint.SetToOriginalParent();
         }
 
         foreach (TrackedObject obj in foundObjects)
-        {
-            _tracker.objects.Add(obj.GetData()); // Add each tracked object, add to our local tracker instance
-        }
+            _tracker.objects.Add(obj.GetData());
 
-        //====== SAVING JSON =======
         string json = JsonConvert.SerializeObject(_tracker, new JsonSerializerSettings
         {
             ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
-            Formatting = Formatting.Indented// allows Newtonsoft to go through the loop to serialize entire Position and Quaternion Rotation
+            Formatting = Formatting.Indented
         });
         string folder = Application.persistentDataPath + $"/Saved/Configs/";
-        //string folder = Path.Combine(FullRoomSave.GetRoomPath() , $"Saved/Configs");
-        string configName = title.Replace(" ", "_") + ".json"; // remove spaces and replace with underscores
+        string configName = title.Replace(" ", "_") + ".json";
         configName = ReplaceInvalidChars(configName);
 
         if (!Directory.Exists(folder))
-        {
             Directory.CreateDirectory(folder);
-        }
 
-        string path = Path.Combine(folder, configName); // ensure proper pathing
-
-        //Overwrite data
-        if (File.Exists(path))
-        {
-            File.Delete(path);
-        }
+        string path = Path.Combine(folder, configName);
+        if (File.Exists(path)) File.Delete(path);
 
         File.WriteAllText(path, json);
         Debug.Log($"Saved Config: {path}");
 
-        ObjectMenu.Instance.AddCustomMenuItem(path); // add this configuration to the ObjectMenu
+        ObjectMenu.Instance.AddCustomMenuItem(path);
         foreach (TrackedObject obj in foundObjects)
         {
             if (obj.TryGetComponent(out Selectable selectable))
@@ -264,11 +187,8 @@ public class ConfigurationManager : MonoBehaviour
                     selectable.name = selectable.guid;
                 }
             }
-
             if (obj.TryGetComponent(out AttachmentPoint attachmentPoint))
-            {
-                attachmentPoint.SetToProperParent(); // for multi-arm configurations
-            }
+                attachmentPoint.SetToProperParent();
         }
     }
 
@@ -277,52 +197,33 @@ public class ConfigurationManager : MonoBehaviour
         return string.Join("_", filename.Split(Path.GetInvalidFileNameChars()));
     }
 
-
     public async void SaveRoom(string title)
     {
         CreateTracker();
         NewRoomSave();
         var token = Loading.GetLoadingToken();
 
-        _roomConfiguration.roomDimension = RoomSize.Instance.CurrentDimensions; // grabs the current dimensions of the RoomSize to be applied on load
-
+        _roomConfiguration.roomDimension = RoomSize.Instance.CurrentDimensions;
         TrackedObject[] foundObjects = FindObjectsOfType<TrackedObject>();
 
-        foreach (TrackedObject obj in foundObjects) // We need to go through each object
+        foreach (TrackedObject obj in foundObjects)
         {
             if (obj.TryGetComponent(out AttachmentPoint attachmentPoint))
-            {
-                attachmentPoint.SetToOriginalParent(); // for multi-arm configurations
-            }
+                attachmentPoint.SetToOriginalParent();
         }
 
         await Task.Delay(1000);
         token.SetProgress(0.33f);
 
-        // We need to go through each object
         foreach (TrackedObject obj in foundObjects)
         {
-            // Get the top-most parent transform of this object
             Transform topParent = obj.transform;
-            while (topParent.parent != null)
-            {
-                topParent = topParent.parent;
-            }
+            while (topParent.parent != null) topParent = topParent.parent;
             if (obj.transform == obj.transform.root || topParent.name == "Room1")
             {
-                // creating trackers as we go
                 CreateTracker();
-
-                // and finding all embedded/attached selectables along with attachment points
                 TrackedObject[] temps = obj.transform.GetComponentsInChildren<TrackedObject>();
-
-                foreach (TrackedObject to in temps)
-                {
-                    // add them to their respective tracker
-                    _tracker.objects.Add(to.GetData());
-                }
-
-                // and add them to the room tracker collection
+                foreach (TrackedObject to in temps) _tracker.objects.Add(to.GetData());
                 _roomConfiguration.collections.Add(_tracker);
             }
         }
@@ -330,7 +231,6 @@ public class ConfigurationManager : MonoBehaviour
         await Task.Delay(1000);
         token.SetProgress(0.66f);
 
-        // ======SAVING JSON=========
         string json = JsonConvert.SerializeObject(_roomConfiguration, new JsonSerializerSettings
         {
             ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
@@ -341,42 +241,29 @@ public class ConfigurationManager : MonoBehaviour
         configName = ReplaceInvalidChars(configName);
 
         if (!Directory.Exists(folder))
-        {
             Directory.CreateDirectory(folder);
-        }
 
         string path = Path.Combine(folder, configName);
-
-        //Overwrite data
-        if (File.Exists(path))
-        {
-            File.Delete(path);
-        }
+        if (File.Exists(path)) File.Delete(path);
 
         File.WriteAllText(path, json);
         Debug.Log($"Saved Room: {path}");
-
-
 
         await Task.Delay(1000);
         token.SetProgress(1);
 
         RoomConfigLoader.Instance.GenerateRoomItem(path);
 
-        foreach (TrackedObject obj in foundObjects) // We need to go through each object
+        foreach (TrackedObject obj in foundObjects)
         {
             if (obj.TryGetComponent(out AttachmentPoint attachmentPoint))
-            {
-                attachmentPoint.SetToProperParent(); // for multi-arm configurations
-            }
+                attachmentPoint.SetToProperParent();
         }
 
         UI_DialogPrompt.Open(
           $"Success! Enhanced screenshots saved to {folder}",
-     new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = folder),
-    new ButtonAction("Done"));
-
-
+          new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = folder),
+          new ButtonAction("Done"));
     }
 
     public async Task<GameObject> LoadArmAssembly(string file)
@@ -403,7 +290,6 @@ public class ConfigurationManager : MonoBehaviour
                 RandomizeInstanceGUIDs();
                 var gameObject = GetRoot();
 
-                // Apply saved active/enabled/component states after transforms
                 foreach (var to in _newObjects)
                 {
                     try { to.ApplySavedState(); }
@@ -428,22 +314,15 @@ public class ConfigurationManager : MonoBehaviour
 
     public void LoadRoom(string file)
     {
-
-
         Debug.Log($"Clearing default room objects");
-
-        //we need to clear the current room (default objects in scene) to load our new one
         List<TrackedObject> existingObjects = FindObjectsOfType<TrackedObject>().ToList();
 
         foreach (TrackedObject to in existingObjects)
         {
-            Transform topParent = to.transform;
-            while (topParent.parent != null)
-            {
-                topParent = topParent.parent;
-            }
+            Transform topParent = to.transform; while (topParent.parent != null) topParent = topParent.parent;
             if (to == null) continue;
-            if (to.transform == to.transform.root || topParent.name == duplicateRoom.currentRoom.name && !IsBaseboard(to.GetData()) && !IsWallProtector(to.GetData()) && !IsRoomBoundary(to.GetData())) Destroy(to.gameObject);
+            if (to.transform == to.transform.root || topParent.name == duplicateRoom.currentRoom.name && !IsBaseboard(to.GetData()) && !IsWallProtector(to.GetData()) && !IsRoomBoundary(to.GetData()))
+                Destroy(to.gameObject);
         }
         existingObjects.Clear();
         existingObjects.TrimExcess();
@@ -471,13 +350,11 @@ public class ConfigurationManager : MonoBehaviour
 
         try
         {
-            // apply the saved room dimensions from the json to the RoomSize
-            //RoomSize.RoomSizeChanged?.Invoke(_roomConfiguration.roomDimension); 
             RoomSize.SetDimensions(_roomConfiguration.roomDimension);
 
             float progressionTicks = 1f / _roomConfiguration.collections.Count;
             float progression = 0;
-            foreach (Tracker t in _roomConfiguration.collections) // iterate though each tracker in the collection creating new objects. 
+            foreach (Tracker t in _roomConfiguration.collections)
             {
                 _newPoints = new List<AttachmentPoint>();
                 _newObjects = new List<TrackedObject>();
@@ -488,7 +365,6 @@ public class ConfigurationManager : MonoBehaviour
                 await SetObjectProperties(_newObjects);
                 await Task.Yield();
 
-                // Apply saved active/enabled/component states after transforms
                 foreach (var to in _newObjects)
                 {
                     try { to.ApplySavedState(); }
@@ -500,9 +376,7 @@ public class ConfigurationManager : MonoBehaviour
                 token.SetProgress(progression);
             }
 
-
             OnRoomLoadComplete?.Invoke();
-
         }
         catch { throw; }
         finally
@@ -512,6 +386,7 @@ public class ConfigurationManager : MonoBehaviour
         }
     }
 
+    // --- Multi pass state ---
     private Dictionary<string, GameObject> _guidToGameObject = new();
     private Queue<(GameObject obj, TrackedObject.Data data)> _pendingSetup = new();
     private List<TrackedObject.Data> _pendingEmbedded = new();
@@ -526,7 +401,7 @@ public class ConfigurationManager : MonoBehaviour
         _newObjects = new List<TrackedObject>();
         _newPoints = new List<AttachmentPoint>();
 
-        // Pass 1: instantiate prefabs and register GUIDs
+        // Pass 1: instantiate selectables (skip embedded & attachment points & room boundaries)
         foreach (TrackedObject.Data data in trackedObjects)
         {
             GameObject go = null;
@@ -535,37 +410,27 @@ public class ConfigurationManager : MonoBehaviour
             {
                 go = IsRoomBoundary(data) ? GetRoomBoundary(data) : GetGameObjectWithGuidName(data);
                 if (go != null && go.GetComponent<Selectable>() != null)
-                {
                     LogData(go.GetComponent<Selectable>(), data);
-                    var existingTrackedObj = go.GetComponent<TrackedObject>();
-                    if (existingTrackedObj != null)
-                    {
-                        //ResetScaleLevels(existingTrackedObj);
-                       // ResetMaterialPalettes(existingTrackedObj);
-                    }
-                }
                 continue;
             }
 
-            // Attachment points deferred until after parents exist
-            if (data.global_guid == _attachPointGUID)
+            if (data.isAttachmentPoint || data.global_guid == _attachPointGUID)
             {
                 _pendingAttachmentPoints.Add(data);
                 continue;
             }
 
-            // Embedded selectable (no global guid) - resolve after instantiation
+            // Embedded selectable (no global guid) - resolve later
             if (string.IsNullOrEmpty(data.global_guid))
             {
                 _pendingEmbedded.Add(data);
                 continue;
             }
 
-            // Instantiate selectable prefab (do not set final transform yet)
+            // Instantiate selectable prefab
             var task = InstantiateObject(data);
             await task;
             if (!Application.isPlaying) throw new AppQuitInTaskException();
-
             go = task.Result;
             if (go == null)
             {
@@ -573,7 +438,7 @@ public class ConfigurationManager : MonoBehaviour
                 continue;
             }
 
-            // Register GUIDs: root instance_guid and all child selectables
+            // Register root instance and all child selectables by their instance_guid (guid field)
             if (!string.IsNullOrEmpty(data.instance_guid))
                 _guidToGameObject[data.instance_guid] = go;
 
@@ -588,106 +453,98 @@ public class ConfigurationManager : MonoBehaviour
 
             var trackedObj = go.GetComponent<TrackedObject>();
             if (trackedObj != null)
-            {
                 _newObjects.Add(trackedObj);
-            }
         }
 
-        // Pass 2: establish hierarchy and restore transforms
+        // Pass 2: establish hierarchy & apply transforms
         while (_pendingSetup.Count > 0)
         {
             var (go, data) = _pendingSetup.Dequeue();
 
             var trackedObj = go.GetComponent<TrackedObject>();
             if (trackedObj != null)
-            {
                 trackedObj.StoreValues(data);
-            }
 
-            // Resolve parent by GUID first, then by path
+            // Resolve parent by GUID first
             Transform parent = null;
-            if (!string.IsNullOrEmpty(data.parentGuid))
-            {
-                if (_guidToGameObject.TryGetValue(data.parentGuid, out var parentGO))
-                    parent = parentGO.transform;
-            }
+            if (!string.IsNullOrEmpty(data.parentGuid) && _guidToGameObject.TryGetValue(data.parentGuid, out var parentGO))
+                parent = parentGO.transform;
 
+            // Fallback to parentPath
             if (parent == null && !string.IsNullOrEmpty(data.parentPath))
             {
-                var parentGO = GameObject.Find(data.parentPath);
-                if (parentGO != null) parent = parentGO.transform;
+                var parentGO2 = GameObject.Find(NormalizeFindPath(data.parentPath));
+                if (parentGO2 != null)
+                    parent = parentGO2.transform;
             }
 
             if (parent != null)
             {
                 go.transform.SetParent(parent, false);
-                // Restore local transform
                 trackedObj?.RestoreTransform(isRoot: false);
             }
             else
             {
-                // root object - restore world transform
                 trackedObj?.RestoreTransform(isRoot: true);
             }
 
-            if (!string.IsNullOrEmpty(data.keepRelativePositionParentName))
-            {
-                if (go.TryGetComponent<KeepRelativePosition>(out var comp))
-                    comp.ParentName = data.keepRelativePositionParentName;
-            }
-
-            // If this object contains attachment points that need normalization, defer to SetObjectProperties which will reposition them
+            if (!string.IsNullOrEmpty(data.keepRelativePositionParentName) && go.TryGetComponent<KeepRelativePosition>(out var comp))
+                comp.ParentName = data.keepRelativePositionParentName;
         }
 
-        // Resolve embedded selectables (now that parents exist)
+        // Pass 3: embedded selectables
         foreach (var emb in _pendingEmbedded)
         {
             GameObject containerGO = null;
             if (!string.IsNullOrEmpty(emb.parentGuid))
-            {
                 _guidToGameObject.TryGetValue(emb.parentGuid, out containerGO);
-            }
             if (containerGO == null && !string.IsNullOrEmpty(emb.parentPath))
-            {
-                containerGO = GameObject.Find(emb.parentPath);
-            }
+                containerGO = GameObject.Find(NormalizeFindPath(emb.parentPath));
 
             if (containerGO == null)
             {
-                Debug.LogWarning($"Could not resolve embedded selectable parent for {emb.parentPath} (GUID: {emb.instance_guid})");
+                Debug.LogWarning($"[Embedded] Could not resolve parent for {emb.objectName} parentGuid={emb.parentGuid} parentPath={emb.parentPath}");
                 continue;
             }
 
-            // Find the embedded selectable under the container
-            Selectable sel = containerGO.GetComponent<Selectable>();
+            // Use selfPath for precise selection if available
+            Selectable sel = null;
+            if (!string.IsNullOrEmpty(emb.selfPath))
+            {
+                string full = NormalizeFindPath(emb.selfPath);
+                var candidateGO = GameObject.Find(full); // might work if names preserved
+                if (candidateGO != null)
+                    sel = candidateGO.GetComponent<Selectable>();
+            }
+
             if (sel == null)
             {
-                // maybe the embedded selectable is a child object; try find by path suffix
-                var candidates = containerGO.GetComponentsInChildren<Selectable>(true);
-                sel = candidates.FirstOrDefault(c => GetGameObjectPath(c.gameObject).EndsWith(emb.parentPath, StringComparison.Ordinal));
+                // Fallback: search by exact path under container
+                var allChildren = containerGO.GetComponentsInChildren<Selectable>(true);
+                sel = allChildren.FirstOrDefault(s => GetGameObjectPath(s.gameObject) == emb.selfPath)
+                      ?? allChildren.FirstOrDefault(s => s.gameObject.name == emb.objectName);
             }
 
             if (sel != null)
             {
                 LogData(sel, emb);
-                // Only apply local rotation for embedded selectable to avoid breaking prefab internal layout
                 var t = sel.transform;
                 t.localRotation = emb.localRotation;
-
+                t.localPosition = emb.localPosition;
+                t.localScale = emb.localScale;
                 var trackedObj = sel.GetComponent<TrackedObject>();
-                if (trackedObj != null && !_newObjects.Contains(trackedObj)) _newObjects.Add(trackedObj);
+                if (trackedObj != null && !_newObjects.Contains(trackedObj))
+                    _newObjects.Add(trackedObj);
             }
             else
             {
-                Debug.LogWarning($"Embedded selectable not found under container {containerGO.name} for path {emb.parentPath}");
+                Debug.LogWarning($"[Embedded] Selectable not found for {emb.objectName} under parent {containerGO.name}");
             }
         }
 
-        // Resolve attachment points now (they depend on parents and children being created)
+        // Pass 4: attachment points
         foreach (var apData in _pendingAttachmentPoints)
-        {
             ProcessAttachmentPoint(apData);
-        }
     }
 
     private async Task<GameObject> InstantiateObject(TrackedObject.Data trackedObject)
@@ -699,11 +556,8 @@ public class ConfigurationManager : MonoBehaviour
         }
 
         var task = data.GetPrefab();
-
         await task;
-        if (!Application.isPlaying)
-            throw new AppQuitInTaskException();
-
+        if (!Application.isPlaying) throw new AppQuitInTaskException();
         if (task.Result == null)
         {
             Debug.LogError($"AssetBundle returned null prefab for guid {trackedObject.global_guid}");
@@ -711,21 +565,14 @@ public class ConfigurationManager : MonoBehaviour
         }
 
         GameObject go = Instantiate(task.Result);
-
-        // Remove DestroyOnLoad children
-        var dolComps = go.GetComponentsInChildren<DestroyOnLoad>();
+        var dolComps = go.GetComponentsInChildren<DestroyOnLoad>(true);
         Array.ForEach(dolComps, comp => { if (comp != null) Destroy(comp.gameObject); });
 
-        // Do NOT set final transform here. We'll set transforms in second pass after parenting.
-        // But set PositionToRestore if component exists to worldPosition as fallback
         if (go.TryGetComponent<RestorePositionOnLoad>(out var compRestore))
-        {
             compRestore.PositionToRestore = trackedObject.worldPosition;
-        }
 
-        // Assign instance GUID/name onto selectable if present
         if (!string.IsNullOrEmpty(trackedObject.instance_guid))
-            go.name = trackedObject.instance_guid;
+            go.name = trackedObject.instance_guid; // retain original until randomized later
 
         var selectable = go.GetComponent<Selectable>();
         if (selectable != null)
@@ -736,32 +583,28 @@ public class ConfigurationManager : MonoBehaviour
 
             if (selectable.SpecialTypes != null && selectable.SpecialTypes.Count > 0 && selectable.SpecialTypes[0] == SpecialSelectableType.Door)
             {
-                var wc = selectable.GetComponentInChildren<WallCutter>(); if (wc != null) wc.UpdateCuts();
+                var wc = selectable.GetComponentInChildren<WallCutter>();
+                if (wc != null) wc.UpdateCuts();
             }
-
             ObjectMenu.Instance.HandleOutletAndPricing(go, trackedObject.UIButtonname);
         }
-
-        // Register child selectables will be done by caller after instantiation
         return go;
     }
 
     private void ProcessAttachmentPoint(TrackedObject.Data to)
     {
         GameObject apGO = null;
-        Selectable child = null;
         if (!string.IsNullOrEmpty(to.instance_guid))
             _guidToGameObject.TryGetValue(to.instance_guid, out apGO);
 
         if (apGO == null && !string.IsNullOrEmpty(to.parentPath))
-            apGO = GameObject.Find(to.parentPath);
+            apGO = GameObject.Find(NormalizeFindPath(to.parentPath));
 
         if (apGO == null)
         {
             Debug.LogError($"Could not find attachment point for {to.parentPath} (GUID: {to.instance_guid})");
             return;
         }
-
         if (!apGO.TryGetComponent<TrackedObject>(out var trackedObject))
         {
             Debug.LogError($"GameObject at {to.parentPath} did not have TrackedObject component");
@@ -769,223 +612,56 @@ public class ConfigurationManager : MonoBehaviour
         }
 
         trackedObject.StoreValues(to);
-
         var attachmentPoints = apGO.GetComponentsInChildren<AttachmentPoint>(true);
         if (attachmentPoints == null || attachmentPoints.Length == 0)
         {
             Debug.LogError($"Expected AttachmentPoint on {to.parentPath} but none found.");
             return;
         }
-
         foreach (var attPoint in attachmentPoints)
         {
             if (attPoint == null) continue;
-
             var childSelectable = attPoint.GetComponentInChildren<Selectable>();
-            if (childSelectable != null)
-            {
-                attPoint.AttachedSelectable.Add(childSelectable);
-            }
+            if (childSelectable != null) attPoint.AttachedSelectable.Add(childSelectable);
             _newPoints.Add(attPoint);
         }
     }
 
-    private GameObject ProcessEmbeddedSelectable(TrackedObject.Data to)
-    {
-        // Try GUID lookup first
-        if (!string.IsNullOrEmpty(to.instance_guid) && _guidToGameObject.TryGetValue(to.instance_guid, out var go))
-        {
-            var sel = go.GetComponent<Selectable>();
-            if (sel != null) LogData(sel, to);
-            go.transform.localRotation = to.localRotation;
-            return go;
-        }
-
-        // Fallback to path
-        var fallback = GameObject.Find(to.parentPath);
-        if (fallback != null)
-        {
-            var sel = fallback.GetComponent<Selectable>();
-            if (sel != null) LogData(sel, to);
-            fallback.transform.localRotation = to.localRotation;
-            return fallback;
-        }
-
-        Debug.LogError($"ProcessEmbeddedSelectable failed to find {to.parentPath} (GUID: {to.instance_guid})");
-        return null;
-    }
-
-    /// <summary>
-    /// Resets the objects position and rotation to match with the JSON strucutre, after a frame to allow other logic to process the correct information
-    /// </summary>
-    /// <param name="newObjects">The tracked list of new objects that have been created during loading</param>
     private async Task SetObjectProperties(List<TrackedObject> newObjects)
     {
-        newObjects.Reverse(); // The list needs to be reversed so that the hierarchy is root downwards. 
-        foreach (TrackedObject obj in newObjects)
-        {
-            //Debug.Log(obj.gameObject.name);
-            //ResetScaleLevels(obj);
-        }
-
-        // Allow time for scaling values to be applied in Selectable
+        newObjects.Reverse();
         await Task.Yield();
-        if (!Application.isPlaying)
-            throw new AppQuitInTaskException();
-
-        foreach (TrackedObject obj in newObjects)
-        {
-          //  ResetLocalPosition(obj);
-           // ResetMaterialPalettes(obj);
-        }
-
-      
+        if (!Application.isPlaying) throw new AppQuitInTaskException();
     }
 
-    /// <summary>
-    /// Randomizes the instance GUIDs of the tracked objects within the configuration so that double loading doesn't have conflicts with GameObject.Find
-    /// </summary>
     private void RandomizeInstanceGUIDs()
     {
         foreach (TrackedObject to in _newObjects)
         {
-            if (to.transform.root == to.transform)
+            if (to == null) continue;
+            if (to.transform.root == to.transform && to.TryGetComponent(out Selectable sel))
             {
-                to.gameObject.GetComponent<Selectable>().guid = Guid.NewGuid().ToString();
-                to.gameObject.name = to.gameObject.GetComponent<Selectable>().guid;
+                string newGuid = Guid.NewGuid().ToString();
+                sel.guid = newGuid;
+                to.data.instance_guid = newGuid;
+                to.gameObject.name = newGuid;
+                _guidToGameObject[newGuid] = to.gameObject; // keep dictionary aligned
             }
         }
     }
 
-    /// <summary>
-    /// Sets the scale of the object
-    /// </summary>
-    /// <param name="obj">The JSON structure of the object</param>
-    private void ResetScaleLevels(TrackedObject obj)
-    {
-        var storedScaleLevel = obj.GetScaleLevel();
-        if (storedScaleLevel != null)
-        {
-            var selectable = obj.GetComponent<Selectable>();
-            //selectable.ScaleLevels.ForEach((item) => item.Selected = false);
-            //storedScaleLevel.Selected = true;
+    private void LogData(Selectable s, TrackedObject.Data to) => s.GetComponent<TrackedObject>().StoreValues(to);
+    private GameObject GetRoot() => _newObjects.SingleOrDefault(x => x.transform == x.transform.root)?.gameObject;
 
-            obj.transform.localScale = new Vector3(
-                obj.GetScale().x,
-                obj.GetScale().y,
-                obj.GetScale().z
-            );
-            selectable.SetScaleLevel(storedScaleLevel, true);
-        }
-        else
-        {
-            //Debug.Log($"No scale level found for {obj.name}, applying default scale of {obj.GetScale()}.");
-            obj.transform.localScale = obj.GetScale();
-        }
-    }
+    public static bool IsRoomBoundary(string guid) => guid == "Wall_N" || guid == "Wall_S" || guid == "Wall_E" || guid == "Wall_W" || guid == "Ceil" || guid == "Floor";
+    public static bool IsBaseboard(string guid) => guid.StartsWith("Baseboard");
+    public static bool IsWallProtector(string guid) => guid.StartsWith("WallProtector");
+    private static bool IsBaseboard(TrackedObject.Data to) => IsBaseboard(to.global_guid);
+    public static bool IsWallProtector(TrackedObject.Data to) => IsWallProtector(to.global_guid);
+    public static bool IsRoomBoundary(TrackedObject.Data to) => IsRoomBoundary(to.global_guid);
+    private static GameObject GetRoomBoundary(TrackedObject.Data to) => GameObject.Find("RoomBoundary_" + to.global_guid);
+    private static GameObject GetGameObjectWithGuidName(TrackedObject.Data to) => GameObject.Find(to.global_guid);
 
-    /// <summary>
-    /// Sets the Local Position & "OriginalLocalPosition" of the object
-    /// </summary>
-    /// <param name="obj">The JSON structure of the object</param>
-    private void ResetLocalPosition(TrackedObject obj)
-    {
-        if (obj == null)
-        {
-            Debug.LogWarning("Attempted to reset local position of a missing TrackedObject reference.");
-            return;
-        }
-
-        if (obj.IsDecal())
-        {
-            return;
-        }
-
-        if (!string.IsNullOrEmpty(obj.GetComponent<Selectable>().GUID) && obj.transform != obj.transform.root)
-        {
-            obj.transform.localPosition = Vector3.zero;
-            obj.GetComponent<Selectable>().OriginalLocalPosition = obj.transform.localPosition;
-        }
-    }
-
-    private void ResetMaterialPalettes(TrackedObject obj)
-    {
-        if (obj == null)
-        {
-            Debug.LogWarning("Attempted to reset materials of a missing TrackedObject reference.");
-            return;
-        }
-
-        if (obj.TryGetComponent(out MaterialPalette palette))
-        {
-            for (int i = 0; i < obj.GetMaterials().Count(); i++)
-            {
-                string modifiedName = obj.GetMaterials()[i].Replace(" (Instance)", "");
-                palette.Assign(modifiedName, i);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Logs the JSON structure of the object scale to be applied 
-    /// at a later point in execution by <see cref="ResetScaleLevels"/>
-    /// </summary>
-    /// <param name="s">The object's selectable component</param>
-    /// <param name="to">The JSON structure of this object</param>
-    private void LogData(Selectable s, TrackedObject.Data to)
-    {
-        s.GetComponent<TrackedObject>().StoreValues(to);
-    }
-
-    /// <summary>
-    /// Finds the root transform of a generated configuration
-    /// </summary>
-    /// <returns>Generated configuration's transform.root</returns>
-    private GameObject GetRoot()
-    {
-        return _newObjects.Single(x => x.transform == x.transform.root).gameObject;
-    }
-
-    public static bool IsRoomBoundary(string guid)
-    {
-        return
-            guid == "Wall_N" ||
-            guid == "Wall_S" ||
-            guid == "Wall_E" ||
-            guid == "Wall_W" ||
-            guid == "Ceil" ||
-            guid == "Floor";
-    }
-
-    public static bool IsBaseboard(string guid)
-        => guid.StartsWith("Baseboard");
-
-    public static bool IsWallProtector(string guid)
-        => guid.StartsWith("WallProtector");
-
-    private static bool IsBaseboard(TrackedObject.Data to)
-        => IsBaseboard(to.global_guid);
-
-    public static bool IsWallProtector(TrackedObject.Data to)
-        => IsWallProtector(to.global_guid);
-
-    public static bool IsRoomBoundary(TrackedObject.Data to)
-        => IsRoomBoundary(to.global_guid);
-
-    private static GameObject GetRoomBoundary(TrackedObject.Data to)
-        => GameObject.Find("RoomBoundary_" + to.global_guid);
-
-    /// <returns>A permanent scene <see cref="GameObject"/> with 
-    /// <see cref="UnityEngine.Object.name"/> == 
-    /// <see cref="TrackedObject.Data.global_guid"/></returns>
-    private static GameObject GetGameObjectWithGuidName(TrackedObject.Data to)
-        => GameObject.Find(to.global_guid);
-
-    /// <summary>
-    /// Gets the hierachy PATH for a GameObject
-    /// </summary>
-    /// <param name="obj">The object whoms path you are needing</param>
-    /// <returns>string value containing entire editor & engine pathing</returns>
     public static string GetGameObjectPath(GameObject obj)
     {
         string path = "/" + obj.name;
@@ -997,33 +673,23 @@ public class ConfigurationManager : MonoBehaviour
         return path;
     }
 
-    /// <summary>
-    /// Loads all referenced selectable prefabs' asset bundles so instantiation is fast and reliable.
-    /// </summary>
     private async Task LoadAllObjectsIntoCache(List<TrackedObject.Data> trackedObjects)
     {
         var missingGuids = new List<string>();
         foreach (TrackedObject.Data to in trackedObjects)
         {
-            if (IsRoomBoundary(to) || IsBaseboard(to) || IsWallProtector(to))
-                continue;
-
-            // Skip attachment points
-            if (to.global_guid == _attachPointGUID || string.IsNullOrEmpty(to.global_guid))
-                continue;
-
+            if (IsRoomBoundary(to) || IsBaseboard(to) || IsWallProtector(to)) continue;
+            if (to.isAttachmentPoint || to.global_guid == _attachPointGUID || string.IsNullOrEmpty(to.global_guid)) continue;
             if (!SelectableAssetBundles.TryGetSelectableData(to.global_guid, out SelectableData data))
             {
                 Debug.LogError($"Could not find selectable data for {to.objectName} with guid {to.global_guid}");
                 missingGuids.Add(to.global_guid);
                 continue;
             }
-
             await AssetBundleManager.GetAsset<GameObject>(data.AssetBundleName);
             if (!Application.isPlaying) throw new AppQuitInTaskException();
         }
-
         if (missingGuids.Count > 0)
-            Debug.LogWarning($"Load cache completed with missing selectable data for {missingGuids.Count} GUID(s).\nFirst missing: {missingGuids.First()}");
+            Debug.LogWarning($"Load cache completed with missing selectable data for {missingGuids.Count} GUID(s). First missing: {missingGuids.First()}");
     }
 }
