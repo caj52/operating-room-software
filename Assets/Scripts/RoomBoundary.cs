@@ -233,6 +233,36 @@ public class RoomBoundary : MonoBehaviour
     {
         return RoomBoundariesByType[roomBoundaryType];
     }
+
+    public static void SetCeilingsAlpha(float alpha)
+    {
+        // Clamp alpha between 0 (fully transparent) and 1 (opaque)
+        alpha = Mathf.Clamp01(alpha);
+        foreach (var ceiling in Instances.Where(i => i.RoomBoundaryType == RoomBoundaryType.Ceiling))
+        {
+            if (ceiling.MeshRenderer != null && ceiling.MeshRenderer.material != null)
+            {
+                var mat = ceiling.MeshRenderer.material;
+                Color c = mat.color;
+                c.a = alpha;
+                mat.color = c;
+
+                // Attempt to ensure material is in a transparent rendering mode if using Standard shader
+                // (safe no-op for custom shaders)
+                var shaderName = mat.shader != null ? mat.shader.name : string.Empty;
+                if (shaderName.Contains("Standard") && alpha < 0.999f)
+                {
+                    mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                    mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+                    mat.SetInt("_ZWrite", 0);
+                    mat.DisableKeyword("_ALPHATEST_ON");
+                    mat.EnableKeyword("_ALPHABLEND_ON");
+                    mat.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+                    mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+                }
+            }
+        }
+    }
 }
 
 public enum RoomBoundaryType

@@ -86,6 +86,10 @@ public class RoomSize : MonoBehaviour
     private void OnRoomSizeChanged(RoomDimension dim)
     {
         CurrentDimensions = dim;
+        // Update input fields to reflect newly applied room dimensions (e.g. after loading a save)
+        if (InputFieldWidth != null) InputFieldWidth.SetTextWithoutNotify(dim.Width.ToString());
+        if (InputFieldHeight != null) InputFieldHeight.SetTextWithoutNotify(dim.Height.ToString());
+        if (InputFieldDepth != null) InputFieldDepth.SetTextWithoutNotify(dim.Depth.ToString());
     }
 
     private void EnforceDimensionSize(TMP_InputField inputField, string text)

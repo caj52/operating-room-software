@@ -21,9 +21,24 @@ public struct RoomConfiguration
         version = Application.version;
         roomDimension = default;
         collections = null;
+        // client metadata
+        clientAccountName = null;
+        clientAccountAddressLine1 = null;
+        clientAccountAddressLine2 = null;
+        clientProjectName = null;
+        clientProjectNumber = null;
+        clientOrderReferenceNumber = null;
     }
 
     public string version;
     public RoomDimension roomDimension;
     public List<Tracker> collections;
+
+    // --- Added client meta data ---
+    public string clientAccountName;
+    public string clientAccountAddressLine1;
+    public string clientAccountAddressLine2;
+    public string clientProjectName;
+    public string clientProjectNumber;
+    public string clientOrderReferenceNumber;
 }

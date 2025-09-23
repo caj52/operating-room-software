@@ -47,6 +47,7 @@ public class ConfigurationManager : MonoBehaviour
         CreateTracker();
         NewRoomSave();
         HandleBackwardsCompatibility();
+
     }
 
     private void Start() => duplicateRoom = FindObjectOfType<DuplicateRoom>();
@@ -204,6 +205,21 @@ public class ConfigurationManager : MonoBehaviour
         var token = Loading.GetLoadingToken();
 
         _roomConfiguration.roomDimension = RoomSize.Instance.CurrentDimensions;
+        // capture client metadata
+        try
+        {
+            _roomConfiguration.clientAccountName = UI_ClientMetaData.AccountName;
+            _roomConfiguration.clientAccountAddressLine1 = UI_ClientMetaData.AccountAddressLine1;
+            _roomConfiguration.clientAccountAddressLine2 = UI_ClientMetaData.AccountAddressLine2;
+            _roomConfiguration.clientProjectName = UI_ClientMetaData.ProjectName;
+            _roomConfiguration.clientProjectNumber = UI_ClientMetaData.ProjectNumber;
+            _roomConfiguration.clientOrderReferenceNumber = UI_ClientMetaData.OrderReferenceNumber;
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"Could not capture client metadata: {e.Message}");
+        }
+
         TrackedObject[] foundObjects = FindObjectsOfType<TrackedObject>();
 
         foreach (TrackedObject obj in foundObjects)
@@ -339,7 +355,58 @@ public class ConfigurationManager : MonoBehaviour
             _roomConfiguration = JsonConvert
                 .DeserializeObject<RoomConfiguration>(json);
 
+            // restore client metadata into UI
+            TryRestoreClientMetaData();
+
             LoadRoom();
+        }
+    }
+
+    private void TryRestoreClientMetaData()
+    {
+        try
+        {
+            // We need to find the UI_ClientMetaData instance in scene (it sets itself DontDestroyOnLoad)
+            var ui = FindObjectOfType<UI_ClientMetaData>(true);
+            if (ui == null) return; // nothing to restore
+
+            // Use reflection-safe approach since fields are private serialized
+            // We directly set the TMP_InputField.text via serialized backing fields if accessible
+            SetTMPField(ui, "InputFieldAccountName", _roomConfiguration.clientAccountName);
+            SetTMPField(ui, "InputFieldAccountAddressLine1", _roomConfiguration.clientAccountAddressLine1);
+            SetTMPField(ui, "InputFieldAccountAddressLine2", _roomConfiguration.clientAccountAddressLine2);
+            SetTMPField(ui, "InputFieldProjectName", _roomConfiguration.clientProjectName);
+            SetTMPField(ui, "InputFieldProjectNumber", _roomConfiguration.clientProjectNumber);
+            SetTMPField(ui, "InputFieldOrderReferenceNumber", _roomConfiguration.clientOrderReferenceNumber);
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"Failed to restore client meta data: {e.Message}");
+        }
+    }
+
+    private void SetTMPField(UI_ClientMetaData ui, string fieldName, string value)
+    {
+        if (string.IsNullOrEmpty(value)) return;
+        var type = typeof(UI_ClientMetaData);
+        var prop = type.GetProperty(fieldName, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+        if (prop != null)
+        {
+            var field = prop.GetValue(ui) as TMPro.TMP_InputField;
+            if (field != null)
+            {
+                field.text = value;
+            }
+        }
+        else
+        {
+            // fallback attempt for backing field
+            var f = type.GetField("<" + fieldName + ">k__BackingField", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            if (f != null)
+            {
+                var fieldObj = f.GetValue(ui) as TMPro.TMP_InputField;
+                if (fieldObj != null) fieldObj.text = value;
+            }
         }
     }
 
