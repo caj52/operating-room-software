@@ -28,6 +28,7 @@ public class WallCutter : MonoBehaviour
         _meshRenderer = CutArea.GetComponent<MeshRenderer>();
 
         _eventManager.RegisterEvents(
+            (ConfigurationManager.OnRoomLoadComplete, UpdateCuts),
             (Selectable.OnPlaced, UpdateCuts),
             (_gizmoHandler.GizmoDragEnded, UpdateCuts),
             (_gizmoHandler.GizmoDragPostUpdate, UpdateCuts));

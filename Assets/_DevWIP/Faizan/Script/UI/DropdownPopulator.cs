@@ -45,7 +45,7 @@ public class DropdownPopulator : MonoBehaviour
 
         if (isBoomExcelFileDropDown)
         {
-         sheetName = DataFilePaths.sheetNameBoomCombined;
+         sheetName = DataFilePaths.sheetNameBoomIndividual;
         }
         else
         {

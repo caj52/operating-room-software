@@ -125,6 +125,12 @@ internal static class Database
                 if (request.downloadHandler != null)
                 {
                     Debug.LogError(request.downloadHandler.text);
+                    UI_DialogPrompt.Open(
+                 $"Kindly Check your Internet",
+                 new ButtonAction("Close Application", () => {
+                   Application.Quit();
+                 })
+             );
                 }
             }
 

@@ -2421,11 +2421,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 6831054366316072048, guid: 2ccc5f2bcc0d58e4ab8897fbbca3d2dc, type: 3}
       propertyPath: maxRowNumber
-      value: 680
+      value: 193
       objectReference: {fileID: 0}
     - target: {fileID: 6831054366316072048, guid: 2ccc5f2bcc0d58e4ab8897fbbca3d2dc, type: 3}
       propertyPath: minRowNumber
-      value: 679
+      value: 191
       objectReference: {fileID: 0}
     - target: {fileID: 7158956196248536329, guid: 2ccc5f2bcc0d58e4ab8897fbbca3d2dc, type: 3}
       propertyPath: m_AnchorMax.y
@@ -7270,6 +7270,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2ccc1c21eb92b2d43903fee16c414d2c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  _initialOffsetApplied: 0
   <GUID>k__BackingField: Floor
   <MetaData>k__BackingField:
     <IsSubSelectable>k__BackingField: 0
@@ -11313,6 +11314,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2ccc1c21eb92b2d43903fee16c414d2c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  _initialOffsetApplied: 0
   <GUID>k__BackingField: Ceil
   <MetaData>k__BackingField:
     <IsSubSelectable>k__BackingField: 0
@@ -29031,7 +29033,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2284443531365169376, guid: 2a3e93d8083baa340a6e8b55c883ede6, type: 3}
       propertyPath: m_AnchoredPosition.y
-      value: 0.000049591064
+      value: 0.00004196167
       objectReference: {fileID: 0}
     - target: {fileID: 5273334853876149546, guid: 2a3e93d8083baa340a6e8b55c883ede6, type: 3}
       propertyPath: m_AnchorMax.x

@@ -732,6 +732,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2ccc1c21eb92b2d43903fee16c414d2c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  _initialOffsetApplied: 0
   <GUID>k__BackingField: 
   <MetaData>k__BackingField:
     <IsSubSelectable>k__BackingField: 0
@@ -1416,6 +1417,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2ccc1c21eb92b2d43903fee16c414d2c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  _initialOffsetApplied: 0
   <GUID>k__BackingField: 
   <MetaData>k__BackingField:
     <IsSubSelectable>k__BackingField: 0
@@ -1660,7 +1662,7 @@ GameObject:
   m_CorrespondingSourceObject: {fileID: 6917772863880111987, guid: 0a8d25d2c5af7064f8eddc8b2f5dc22b, type: 3}
   m_PrefabInstance: {fileID: 5548250361015497646}
   m_PrefabAsset: {fileID: 0}
---- !u!114 &8266824177201617092
+--- !u!114 &1039574022348841566
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -1669,7 +1671,7 @@ MonoBehaviour:
   m_GameObject: {fileID: 3242457085441201373}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 96ecab8b3abe5c342960b84000c38872, type: 3}
+  m_Script: {fileID: 11500000, guid: 1ef5841ced6c3e34d9b91129db08fec7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
 --- !u!114 &8883783861591891834 stripped
@@ -1830,7 +1832,7 @@ GameObject:
   m_CorrespondingSourceObject: {fileID: 6917772863880111987, guid: 0a8d25d2c5af7064f8eddc8b2f5dc22b, type: 3}
   m_PrefabInstance: {fileID: 6877339937128558811}
   m_PrefabAsset: {fileID: 0}
---- !u!114 &6808447810995515853
+--- !u!114 &4900904138991511178
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -1839,7 +1841,7 @@ MonoBehaviour:
   m_GameObject: {fileID: 4571687953231681448}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 96ecab8b3abe5c342960b84000c38872, type: 3}
+  m_Script: {fileID: 11500000, guid: 1ef5841ced6c3e34d9b91129db08fec7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
 --- !u!114 &7550260758214155279 stripped
