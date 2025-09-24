@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections; // Added for coroutine support
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -7,28 +8,96 @@ using System.Text.RegularExpressions;
 using iTextSharp.text;
 using iTextSharp.text.html;
 using iTextSharp.text.pdf;
-using iTextSharp.text.pdf.draw;
-using Unity.Burst.Intrinsics;
-using Unity.VisualScripting;
 using UnityEngine;
-using UnityEngine.Rendering.Universal;
-using static iTextSharp.awt.geom.Point2D;
-using static Measurable;
 using Font = iTextSharp.text.Font;
 
 public class PdfExporterLocal
 {
-    // Memory optimization: Static font cache to prevent repeated font loading
+    #region Configuration / Options
+    /// <summary>
+    /// Options to control PDF export behaviour (UI, logging, output path, callbacks).
+    /// </summary>
+    public class PdfExportOptions
+    {
+        /// <summary>Directory where PDF will be saved. If null a /pdf folder inside the current room path is used.</summary>
+        public string OutputDirectory { get; set; }
+        /// <summary>Custom file name (without extension). If null a timestamp based name is used.</summary>
+        public string FileNameBase { get; set; }
+        /// <summary>Open the PDF automatically after export (default true).</summary>
+        public bool OpenAfterExport { get; set; } = true;
+        /// <summary>Instead of opening the PDF, show the containing folder (Finder/Explorer) when OpenAfterExport is true.</summary>
+        public bool ShowInFolderInsteadOfOpen { get; set; } = false;
+        /// <summary>Show in‑app success dialog (default true).</summary>
+        public bool ShowSuccessDialog { get; set; } = true;
+        /// <summary>Show loading screen (default true).</summary>
+        public bool ShowLoadingScreen { get; set; } = true;
+        /// <summary>Enable memory logging (debug only).</summary>
+        public bool LogMemory { get; set; } = false;
+        /// <summary>Enable internal progress tracking (raw instantaneous updates).</summary>
+        public bool ReportProgress { get; set; } = false;
+        /// <summary>Enable coroutine smooth progress (use with ExportElevationPdfLocalSmooth).</summary>
+        public bool SmoothProgress { get; set; } = false;
+        /// <summary>Progress callback: (value 0..1, status message).</summary>
+        public Action<float, string> OnProgress { get; set; }
+        /// <summary>Invoke on success with full file path.</summary>
+        public Action<string> OnSuccess { get; set; }
+        /// <summary>Invoke on error with the exception.</summary>
+        public Action<Exception> OnError { get; set; }
+        /// <summary>Minimum seconds to keep loading screen visible (smooth UX).</summary>
+        public float MinDisplaySeconds { get; set; } = 0.75f;
+    }
+    #endregion
+
+    #region Caches / Memory Tracking
     private static readonly Dictionary<string, BaseFont> FontCache = new Dictionary<string, BaseFont>();
     private static readonly Dictionary<string, Font> CachedFonts = new Dictionary<string, Font>();
-
-    // Memory optimization: Template cache for reuse
     private static readonly Dictionary<string, PdfTemplate> TemplateCache = new Dictionary<string, PdfTemplate>();
-
-    // Memory monitoring
     private static long InitialMemory;
     private static long PeakMemory;
+    #endregion
 
+    #region Progress Internal
+    private static float _instProgress;         // instantaneous logical progress (target)
+    private static float _smoothedProgress;     // smoothed value (reported when SmoothProgress)
+    private static string _progressStatus;
+    private static float _progressLerpSpeed = 6f; // smoothing speed
+
+    private static void ResetProgress()
+    {
+        _instProgress = 0f;
+        _smoothedProgress = 0f;
+        _progressStatus = string.Empty;
+    }
+
+    private static void UpdateProgress(float value, string status, PdfExportOptions options, bool forceInstant = false)
+    {
+        if (value < 0f) value = 0f; if (value > 1f) value = 1f;
+        _instProgress = value;
+        _progressStatus = status;
+        if (options == null) return;
+        if (options.ReportProgress && !options.SmoothProgress)
+        {
+            options.OnProgress?.Invoke(_instProgress, _progressStatus);
+        }
+        // For smooth progress we defer actual callback to smoothing step in coroutine
+        if (forceInstant && options.SmoothProgress)
+        {
+            _smoothedProgress = _instProgress;
+            options.OnProgress?.Invoke(_smoothedProgress, _progressStatus);
+        }
+    }
+
+    private static void TickSmoothProgress(float deltaTime, PdfExportOptions options)
+    {
+        if (options == null || !options.SmoothProgress) return;
+        float before = _smoothedProgress;
+        _smoothedProgress = Mathf.MoveTowards(_smoothedProgress, _instProgress, deltaTime * _progressLerpSpeed * Mathf.Max(0.05f, Math.Abs(_instProgress - _smoothedProgress)));
+        if (!Mathf.Approximately(before, _smoothedProgress))
+            options.OnProgress?.Invoke(_smoothedProgress, _progressStatus);
+    }
+    #endregion
+
+    #region Data Classes
     public class PdfImageData
     {
         public string Path { get; set; }
@@ -58,90 +127,305 @@ public class PdfExporterLocal
         public string TableName { get; set; }
         public List<PdfField> Fields { get; set; } = new List<PdfField>();
     }
+    #endregion
 
-    private static BaseFont GetCachedBaseFont(string fontPath)
+    #region Constants
+    private const string PrimaryHeaderColorHex = "#001236";
+    private static readonly BaseColor PrimaryHeaderColor = WebColors.GetRGBColor(PrimaryHeaderColorHex);
+    private static readonly BaseColor TableStripeGray = HexToBaseColor("#E5E7EB");
+    #endregion
+
+    #region Public API
+    /// <summary>
+    /// User friendly overload. Returns full output file path (or null on error).
+    /// </summary>
+    public static string ExportElevationPdfLocal(
+        List<PdfImageData> images,
+        string title,
+        string subtitle,
+        List<AssemblyJson> assemblies,
+        ProjectMetaData metaData = null,
+        PdfExportOptions options = null)
     {
-        if (!FontCache.ContainsKey(fontPath))
+        options ??= new PdfExportOptions();
+        if (images == null) images = new List<PdfImageData>();
+        if (assemblies == null) assemblies = new List<AssemblyJson>();
+        metaData ??= new ProjectMetaData();
+
+        try
         {
+            string outputDir = !string.IsNullOrEmpty(options.OutputDirectory)
+                ? options.OutputDirectory
+                : Path.Combine(FullRoomSave.GetRoomPath(), "pdf");
+            if (!Directory.Exists(outputDir)) Directory.CreateDirectory(outputDir);
+
+            string fileName = !string.IsNullOrEmpty(options.FileNameBase)
+                ? SanitizeFileName(options.FileNameBase) + ".pdf"
+                : $"Export_{DateTime.Now:yyyyMMdd_HHmmss}.pdf";
+            string fullPath = Path.Combine(outputDir, fileName);
+
+            InternalExport(images, title, subtitle, assemblies, metaData, fullPath, options);
+            return fullPath;
+        }
+        catch (Exception ex)
+        {
+            options?.OnError?.Invoke(ex);
+            UnityEngine.Debug.LogError($"PDF export failed: {ex.Message}\n{ex.StackTrace}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Coroutine-based smooth export (non-blocking UI). Requires caller to StartCoroutine.
+    /// </summary>
+    public static IEnumerator ExportElevationPdfLocalSmooth(
+        List<PdfImageData> images,
+        string title,
+        string subtitle,
+        List<AssemblyJson> assemblies,
+        ProjectMetaData metaData = null,
+        PdfExportOptions options = null)
+    {
+        options ??= new PdfExportOptions { SmoothProgress = true, ReportProgress = false };
+        options.SmoothProgress = true; // enforce
+        if (images == null) images = new List<PdfImageData>();
+        if (assemblies == null) assemblies = new List<AssemblyJson>();
+        metaData ??= new ProjectMetaData();
+
+        ResetProgress();
+        float startTime = Time.realtimeSinceStartup;
+
+        string outputDir = !string.IsNullOrEmpty(options.OutputDirectory)
+            ? options.OutputDirectory
+            : Path.Combine(FullRoomSave.GetRoomPath(), "pdf");
+        if (!Directory.Exists(outputDir)) Directory.CreateDirectory(outputDir);
+
+        string fileName = !string.IsNullOrEmpty(options.FileNameBase)
+            ? SanitizeFileName(options.FileNameBase) + ".pdf"
+            : $"Export_{DateTime.Now:yyyyMMdd_HHmmss}.pdf";
+        string fullPath = Path.Combine(outputDir, fileName);
+
+        InitialMemory = GC.GetTotalMemory(true);
+        PeakMemory = InitialMemory;
+
+        if (options.ShowLoadingScreen && UI_GeneralLoadingScreen.instance != null)
+            UI_GeneralLoadingScreen.instance.ShowLoadingScreen();
+
+        // Progress planning
+        int dynamicSteps = Mathf.Max(1, assemblies.Count);
+        const int fixedSteps = 6;
+        int totalSteps = dynamicSteps + fixedSteps;
+        int stepIndex = 0;
+        void Step(string status)
+        {
+            stepIndex++;
+            float baseProgress = Mathf.Clamp01((float)stepIndex / totalSteps);
+            UpdateProgress(baseProgress, status, options);
+        }
+
+        FileStream fileStream = null; BufferedStream bufferedStream = null; Document document = null; PdfWriter writer = null;
+        Exception caught = null;
+
+        // Open resources (no yield until after constructed)
+        try
+        {
+            fileStream = new FileStream(fullPath, FileMode.Create, FileAccess.Write, FileShare.None, 4096);
+            bufferedStream = new BufferedStream(fileStream, 4096);
+            document = new Document(new Rectangle(1400, 1200, 90), 19.08f, 19.08f, 10, 10);
+            writer = PdfWriter.GetInstance(document, bufferedStream);
+            writer.CloseStream = false;
+            document.Open();
+        }
+        catch (Exception ex)
+        {
+            caught = ex;
+        }
+        Step("Opening document");
+        yield return null;
+
+        if (caught != null)
+        {
+            options.OnError?.Invoke(caught);
+            if (options.ShowLoadingScreen && UI_GeneralLoadingScreen.instance != null)
+                UI_GeneralLoadingScreen.instance.HideLoadingScreen();
+            yield break;
+        }
+
+        // Title
+        try { AddTitle(document, title, subtitle); } catch (Exception ex) { caught = ex; }
+        Step("Title added");
+        yield return null;
+        if (caught != null) goto CLEANUP;
+
+        // Assemblies + images
+        if (assemblies.Count == 0)
+        {
+            try { AddMainContent(document, writer, assemblies, images); } catch (Exception ex) { caught = ex; }
+            Step("Layout built");
+            yield return null;
+        }
+        else
+        {
+            // Build progressively without extra try/finally
+            PdfPCell container = new PdfPCell { Border = Rectangle.NO_BORDER, PaddingRight = 20f };
+            Font headerFont = GetCachedFont("header", "Arial", 12, Font.BOLD, BaseColor.WHITE);
+            Font serviceHeaderFont = GetCachedFont("serviceheader", "Arial", 12, Font.BOLD, BaseColor.WHITE);
+            Font itemFont = GetCachedFont("item", "Arial", 10, Font.NORMAL, BaseColor.BLACK);
+            Font valueFont = GetCachedFont("value", "Arial", 10, Font.NORMAL, BaseColor.BLACK);
+            float rowH = 21.6f; BaseColor white = BaseColor.WHITE;
+
+            for (int i = 0; i < assemblies.Count; i++)
+            {
+                try { ProcessSingleAssembly(container, assemblies[i], headerFont, serviceHeaderFont, itemFont, valueFont, rowH, TableStripeGray, white); }
+                catch (Exception ex) { caught = ex; break; }
+                float logicalBase = (float)(i + 1) / assemblies.Count;
+                float spanStart = 2f / totalSteps; // after first 2 fixed steps (open + title)
+                float spanEnd = (dynamicSteps + 2f) / totalSteps;
+                float mapped = Mathf.Lerp(spanStart, spanEnd, logicalBase);
+                UpdateProgress(mapped, $"Assembly {i + 1}/{assemblies.Count}", options);
+                TickSmoothProgress(Time.deltaTime, options);
+                yield return null;
+            }
+            if (caught != null) goto CLEANUP;
+
+            // Footer (ceiling height)
             try
             {
-                if (!File.Exists(fontPath))
-                    throw new FileNotFoundException("Font file not found: " + fontPath);
-
-                // Always use Unicode encoding with embedded font
-                FontCache[fontPath] = BaseFont.CreateFont(fontPath, BaseFont.IDENTITY_H, BaseFont.EMBEDDED);
+                float metersCH = GetCeilingHeight();
+                float ftWhole = Mathf.Floor(metersCH.ToFeet());
+                float inches = Mathf.Round((metersCH.ToFeet() - ftWhole) * 12f * 10f) / 10f;
+                string ceilingText = $"{metersCH:F2} m ({ftWhole}' {inches}\")";
+                var chTable = new PdfPTable(2) { WidthPercentage = 60f, SpacingBefore = 0f, SpacingAfter = 8f, HorizontalAlignment = Element.ALIGN_LEFT };
+                chTable.SetWidths(new float[] { 60, 40 });
+                chTable.AddCell(new PdfPCell(new Phrase("Ceiling Height", itemFont)) { BackgroundColor = white, FixedHeight = rowH, Border = Rectangle.BOX, Padding = 4 });
+                chTable.AddCell(new PdfPCell(new Phrase(ceilingText, valueFont)) { BackgroundColor = white, FixedHeight = rowH, Border = Rectangle.BOX, Padding = 4 });
+                container.AddElement(chTable);
             }
-            catch (Exception ex)
-            {
-                UnityEngine.Debug.LogError($"Font loading failed for {fontPath}: {ex.Message}. Using embedded fallback.");
+            catch { }
 
+            PdfPCell imageCell = CreateImageCell(images, document, writer, GetCeilingHeight());
+            imageCell.PaddingRight = 50;
+            PdfPCell assembliesCell = container; assembliesCell.PaddingRight = 0;
+            PdfPTable pageTable = new PdfPTable(2) { HorizontalAlignment = Element.ALIGN_LEFT, WidthPercentage = 100 };
+            pageTable.SetWidths(new float[] { 40, 60 });
+            pageTable.AddCell(assembliesCell);
+            pageTable.AddCell(imageCell);
+            try { document.Add(pageTable); } catch (Exception ex) { caught = ex; }
+            Step("Layout built");
+            yield return null;
+            if (caught != null) goto CLEANUP;
+        }
+
+        // Logo
+        try { AddCompanyLogo(document); } catch (Exception ex) { caught = ex; }
+        Step("Logo added");
+        yield return null;
+        if (caught != null) goto CLEANUP;
+
+        // Acceptance
+        try { AddCustomerAcceptanceSection(document, metaData); } catch (Exception ex) { caught = ex; }
+        Step("Acceptance section");
+        yield return null;
+        if (caught != null) goto CLEANUP;
+
+        // Close
+        try { document.Close(); writer?.Close(); bufferedStream?.Flush(); } catch (Exception ex) { caught = ex; }
+        Step("Finalizing");
+        yield return null;
+
+    CLEANUP:
+        // Dispose resources (no try/finally to keep yields legal)
+        if (writer != null) { /* writer already closed above */ }
+        if (document != null && document.IsOpen()) { document.Close(); }
+        bufferedStream?.Close();
+        fileStream?.Close();
+
+        if (caught != null)
+        {
+            options.OnError?.Invoke(caught);
+            UnityEngine.Debug.LogError($"PDF export (smooth) failed: {caught.Message}\n{caught.StackTrace}");
+            if (options.ShowLoadingScreen && UI_GeneralLoadingScreen.instance != null)
+                UI_GeneralLoadingScreen.instance.HideLoadingScreen();
+            yield break;
+        }
+
+        CleanupResources();
+
+        // Smooth finish
+        float elapsed = Time.realtimeSinceStartup - startTime;
+        if (elapsed < options.MinDisplaySeconds)
+        {
+            while (elapsed < options.MinDisplaySeconds)
+            {
+                elapsed += Time.deltaTime;
+                TickSmoothProgress(Time.deltaTime, options);
+                yield return null;
+            }
+        }
+        UpdateProgress(1f, "Done", options);
+        for (int i = 0; i < 2; i++) { TickSmoothProgress(Time.deltaTime, options); yield return null; }
+
+        if (options.ShowLoadingScreen && UI_GeneralLoadingScreen.instance != null)
+            UI_GeneralLoadingScreen.instance.HideLoadingScreen();
+
+        if (options.ShowSuccessDialog)
+        {
+            UI_DialogPrompt.Open(
+                $"Success! PDF saved to {fullPath}",
+                new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = fullPath),
+                new ButtonAction("Done"));
+        }
+
+        options.OnSuccess?.Invoke(fullPath);
+
+        if (options.OpenAfterExport)
+        {
+#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
+            if (options.ShowInFolderInsteadOfOpen)
+            {
+                try { Process.Start("open", $"-R \"{fullPath}\""); } catch (Exception ex) { UnityEngine.Debug.LogWarning($"Reveal failed: {ex.Message}"); }
+            }
+            else { Application.OpenURL("file:///" + fullPath); }
+#else
+            if (options.ShowInFolderInsteadOfOpen)
+            {
                 try
                 {
-                    // Use a fallback font that you know works well with IDENTITY_H
-                    string fallbackFontPath = Path.Combine(Application.streamingAssetsPath, "Fonts", "Arial.ttf");
-
-                    if (File.Exists(fallbackFontPath))
+                    Process.Start(new ProcessStartInfo
                     {
-                        FontCache[fontPath] = BaseFont.CreateFont(fallbackFontPath, BaseFont.IDENTITY_H, BaseFont.EMBEDDED);
-                    }
-                    else
-                    {
-                        // Use iTextSharp's built-in Helvetica (very limited range)
-                        FontCache[fontPath] = BaseFont.CreateFont(BaseFont.HELVETICA, BaseFont.WINANSI, BaseFont.NOT_EMBEDDED);
-                    }
+                        FileName = "explorer.exe",
+                        Arguments = "/select,\"" + fullPath + "\"",
+                        UseShellExecute = true
+                    });
                 }
-                catch (Exception fallbackEx)
-                {
-                    UnityEngine.Debug.LogError($"All font loading attempts failed: {fallbackEx.Message}");
-                    throw;
-                }
+                catch (Exception ex) { UnityEngine.Debug.LogWarning($"Show in Explorer failed: {ex.Message}"); }
             }
+            else { Application.OpenURL("file:///" + fullPath); }
+#endif
         }
-
-        return FontCache[fontPath];
     }
+    #endregion
 
-    // Memory optimization: Get cached font instances
-    private static Font GetCachedFont(string key, string fontName, float size, int style, BaseColor color)
-    {
-        if (!CachedFonts.ContainsKey(key))
-        {
-            CachedFonts[key] = FontFactory.GetFont(fontName, size, style, color);
-        }
-        return CachedFonts[key];
-    }
-
-    // Memory monitoring helper
-    private static void MonitorMemory(string operation)
-    {
-        long currentMemory = GC.GetTotalMemory(false);
-        if (currentMemory > PeakMemory)
-        {
-            PeakMemory = currentMemory;
-        }
-        UnityEngine.Debug.Log($"Memory after {operation}: {currentMemory / 1024 / 1024}MB (Peak: {PeakMemory / 1024 / 1024}MB)");
-    }
-
-    public static void ExportElevationPdfLocal(
+    #region Core Export (Blocking)
+    private static void InternalExport(
         List<PdfImageData> imageData,
         string title,
         string subtitle,
         List<AssemblyJson> assemblies,
-        ProjectMetaData metaData)
+        ProjectMetaData metaData,
+        string filePath,
+        PdfExportOptions options)
     {
-        // Memory optimization: Initialize memory monitoring
-        InitialMemory = GC.GetTotalMemory(true); // Force GC before starting
+        InitialMemory = GC.GetTotalMemory(true);
         PeakMemory = InitialMemory;
 
-        UI_GeneralLoadingScreen.instance.ShowLoadingScreen();
+        ResetProgress();
+        UpdateProgress(0f, "Starting", options, forceInstant: true);
 
-        string outputPath = Path.Combine(FullRoomSave.GetRoomPath(), "pdf");
-        if (!Directory.Exists(outputPath)) Directory.CreateDirectory(outputPath);
+        if (options.ShowLoadingScreen && UI_GeneralLoadingScreen.instance != null)
+            UI_GeneralLoadingScreen.instance.ShowLoadingScreen();
 
-        string fileName = Path.Combine(outputPath, $"Export_{DateTime.Now:yyyyMMdd_HHmmss}.pdf");
-
-        // Memory optimization: Use buffered file stream with smaller buffer
-        using (var fileStream = new FileStream(fileName, FileMode.Create, FileAccess.Write, FileShare.None, 4096))
+        using (var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 4096))
         using (var bufferedStream = new BufferedStream(fileStream, 4096))
         using (var document = new Document(new Rectangle(1400, 1200, 90), 19.08f, 19.08f, 10, 10))
         {
@@ -149,178 +433,171 @@ public class PdfExporterLocal
             try
             {
                 writer = PdfWriter.GetInstance(document, bufferedStream);
-                writer.CloseStream = false; // Prevent premature stream disposal
-
+                writer.CloseStream = false;
                 document.Open();
-                MonitorMemory("Document opened");
+                UpdateProgress(0.05f, "Document opened", options);
+                MonitorMemory("Document opened", options);
 
-                AddTitleOptimized(document, title, subtitle);
-                MonitorMemory("Title added");
+                AddTitle(doc: document, title: title, subtitle: subtitle);
+                UpdateProgress(0.15f, "Title", options);
+                MonitorMemory("Title added", options);
 
-                // Memory optimization: Process in smaller chunks and trigger GC between operations
-                AddMainContentOptimized(document, writer, assemblies, imageData);
+                AddMainContent(document, writer, assemblies, imageData);
+                UpdateProgress(0.55f, "Content", options);
+                MonitorMemory("Main content added", options);
 
-                // Force garbage collection before final operations
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
-                MonitorMemory("Main content added");
+                AddCompanyLogo(document);
+                UpdateProgress(0.7f, "Logo", options);
 
-                AddCompanyLogoOptimized(document);
-                AddCustomerAcceptanceSectionOptimized(document, metaData);
+                AddCustomerAcceptanceSection(document, metaData);
+                UpdateProgress(0.85f, "Acceptance", options);
 
                 document.Close();
-                MonitorMemory("Document closed");
+                UpdateProgress(0.95f, "Closing", options);
+                MonitorMemory("Document closed", options);
             }
             finally
             {
-                // Memory optimization: Explicit cleanup
                 if (writer != null)
                 {
                     CleanupPdfWriter(writer);
-                    writer?.Close();
+                    writer.Close();
                 }
             }
         }
 
-        // Final memory cleanup
         CleanupResources();
-        UI_GeneralLoadingScreen.instance.HideLoadingScreen();
+        UpdateProgress(1f, "Done", options, forceInstant: true);
 
-        UI_DialogPrompt.Open(
-            $"Success! PDF saved to {fileName}",
-            new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = fileName),
-            new ButtonAction("Done"));
+        if (options.ShowLoadingScreen && UI_GeneralLoadingScreen.instance != null)
+            UI_GeneralLoadingScreen.instance.HideLoadingScreen();
 
-#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
-        string location = fileName;
-        ProcessStartInfo startInfo = new ProcessStartInfo("/System/Library/CoreServices/Finder.app")
+        if (options.ShowSuccessDialog)
         {
-            WindowStyle = ProcessWindowStyle.Normal,
-            FileName = location.Trim()
-        };
-        Process.Start(startInfo);
+            UI_DialogPrompt.Open(
+                $"Success! PDF saved to {filePath}",
+                new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = filePath),
+                new ButtonAction("Done"));
+        }
+
+        options.OnSuccess?.Invoke(filePath);
+
+        if (options.OpenAfterExport)
+        {
+#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
+            if (options.ShowInFolderInsteadOfOpen)
+            {
+                try { Process.Start("open", $"-R \"{filePath}\""); } catch (Exception ex) { UnityEngine.Debug.LogWarning($"Failed to reveal in Finder: {ex.Message}"); }
+            }
+            else { Application.OpenURL("file:///" + filePath); }
+#else
+            if (options.ShowInFolderInsteadOfOpen)
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "explorer.exe",
+                        Arguments = "/select,\"" + filePath + "\"",
+                        UseShellExecute = true
+                    });
+                }
+                catch (Exception ex) { UnityEngine.Debug.LogWarning($"Failed to show in Explorer: {ex.Message}"); }
+            }
+            else { Application.OpenURL("file:///" + filePath); }
 #endif
-
-        Application.OpenURL("file:///" + fileName);
+        }
     }
+    #endregion
 
-    // Memory optimized: Process content in chunks
-    private static void AddMainContentOptimized(Document doc, PdfWriter writer, List<AssemblyJson> assemblies, List<PdfImageData> imageData)
+    #region Layout Builders
+    private static void AddMainContent(Document doc, PdfWriter writer, List<AssemblyJson> assemblies, List<PdfImageData> imageData)
     {
-        // Main layout table (assemblies on left, image on right)
-        PdfPTable mainTable = new PdfPTable(2)
+        var mainTable = new PdfPTable(2)
         {
             HorizontalAlignment = Element.ALIGN_LEFT,
             WidthPercentage = 100
         };
         mainTable.SetWidths(new float[] { 40, 60 });
 
-        // Process assemblies in smaller chunks to reduce memory pressure
-        PdfPCell assembliesCell = CreateAssembliesCellOptimized(assemblies);
+        PdfPCell assembliesCell = CreateAssembliesCell(assemblies);
         assembliesCell.PaddingRight = 0;
 
-        PdfPCell imageCell = CreateImageCellOptimized(imageData, doc, writer, GetCeilingHeight());
+        PdfPCell imageCell = CreateImageCell(imageData, doc, writer, GetCeilingHeight());
         imageCell.PaddingRight = 50;
 
         mainTable.AddCell(assembliesCell);
         mainTable.AddCell(imageCell);
         doc.Add(mainTable);
-
-        // Clear references immediately
-        mainTable = null;
-        assembliesCell = null;
-        imageCell = null;
     }
 
-    // Memory optimized title creation
-    private static void AddTitleOptimized(Document doc, string title, string subtitle)
+    private static void AddTitle(Document doc, string title, string subtitle)
     {
-        // Fonts
         var fontPath = Path.Combine(Application.streamingAssetsPath, "Data/Fonts/Teko/Teko-Light.ttf");
         BaseFont tekoLight = GetCachedBaseFont(fontPath);
-
-        Font prefixFont = new Font(tekoLight, 36, Font.NORMAL, BaseColor.WHITE);
+        Font titleFont = new Font(tekoLight, 36, Font.NORMAL, BaseColor.WHITE);
         Font subtitleFont = GetCachedFont("subtitle", "Arial", 15, Font.NORMAL, BaseColor.WHITE);
 
-        // Paragraphs (title + subtitle)
-        Paragraph pTitle = new Paragraph(title, prefixFont);
-        pTitle.SpacingAfter = 6f;              // gap between title and subtitle
-        pTitle.SetLeading(0f, 1.0f);           // normal line height for multi-line titles
+        Paragraph pTitle = new Paragraph(string.IsNullOrEmpty(title) ? "Untitled" : title, titleFont)
+        {
+            SpacingAfter = 6f
+        };
+        pTitle.SetLeading(0f, 1.0f);
+        Paragraph pSubtitle = new Paragraph(subtitle ?? string.Empty, subtitleFont);
 
-        Paragraph pSubtitle = new Paragraph(subtitle, subtitleFont);
-
-        // Cell with both paragraphs
         PdfPCell titleCell = new PdfPCell
         {
-            BackgroundColor = WebColors.GetRGBColor("#001236"),
+            BackgroundColor = PrimaryHeaderColor,
             Border = Rectangle.NO_BORDER,
             Padding = 10f
         };
         titleCell.AddElement(pTitle);
-        titleCell.AddElement(pSubtitle);
+        if (!string.IsNullOrEmpty(subtitle))
+            titleCell.AddElement(pSubtitle);
 
-        // Single-column table wrapper
-        PdfPTable tbl = new PdfPTable(1) { WidthPercentage = 100f };
-        tbl.AddCell(titleCell);
-        tbl.SpacingAfter = 20f;
-
-        doc.Add(tbl);
-
-        // Clear references (optional)
-        pTitle = null;
-        pSubtitle = null;
-        titleCell = null;
-        tbl = null;
+        PdfPTable wrapper = new PdfPTable(1) { WidthPercentage = 100f };
+        wrapper.AddCell(titleCell);
+        wrapper.SpacingAfter = 20f;
+        doc.Add(wrapper);
     }
 
-    // Memory optimized assemblies processing
-    private static PdfPCell CreateAssembliesCellOptimized(List<AssemblyJson> assemblies)
+    private static PdfPCell CreateAssembliesCell(List<AssemblyJson> assemblies)
     {
-        PdfPCell container = new PdfPCell
-        {
-            Border = Rectangle.NO_BORDER,
-            PaddingRight = 20f
-        };
+        PdfPCell container = new PdfPCell { Border = Rectangle.NO_BORDER, PaddingRight = 20f };
 
-        // Cache fonts to prevent repeated creation
         Font headerFont = GetCachedFont("header", "Arial", 12, Font.BOLD, BaseColor.WHITE);
-        Font serviceheaderFont = GetCachedFont("serviceheader", "Arial", 12, Font.BOLD, BaseColor.WHITE);
+        Font serviceHeaderFont = GetCachedFont("serviceheader", "Arial", 12, Font.BOLD, BaseColor.WHITE);
         Font itemFont = GetCachedFont("item", "Arial", 10, Font.NORMAL, BaseColor.BLACK);
         Font valueFont = GetCachedFont("value", "Arial", 10, Font.NORMAL, BaseColor.BLACK);
 
         float rowH = 21.6f;
-        BaseColor gray = HexToBaseColor("#E5E7EB");
         BaseColor white = BaseColor.WHITE;
 
-        // Process assemblies in batches to reduce memory pressure
-        const int batchSize = 5; // Process 5 assemblies at a time
-        for (int batchStart = 0; batchStart < assemblies.Count; batchStart += batchSize)
+        if (assemblies == null || assemblies.Count == 0)
         {
-            int batchEnd = Math.Min(batchStart + batchSize, assemblies.Count);
-
-            for (int i = batchStart; i < batchEnd; i++)
+            container.AddElement(new Paragraph("No assemblies available", itemFont));
+        }
+        else
+        {
+            const int batchSize = 5;
+            for (int batchStart = 0; batchStart < assemblies.Count; batchStart += batchSize)
             {
-                var asm = assemblies[i];
-                ProcessSingleAssembly(container, asm, headerFont, serviceheaderFont, itemFont, valueFont, rowH, gray, white);
-            }
-
-            // Force garbage collection between batches if memory is getting high
-            long currentMemory = GC.GetTotalMemory(false);
-            if (currentMemory > InitialMemory * 2) // If memory doubled
-            {
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
+                int batchEnd = Math.Min(batchStart + batchSize, assemblies.Count);
+                for (int i = batchStart; i < batchEnd; i++)
+                {
+                    var asm = assemblies[i];
+                    ProcessSingleAssembly(container, asm, headerFont, serviceHeaderFont, itemFont, valueFont, rowH, TableStripeGray, white);
+                }
             }
         }
 
-
-        // === Single global footer row: "Cieling Height" (once after all tables) ===
+        // Footer: Ceiling Height (fixed spelling)
         try
         {
             float metersCH = GetCeilingHeight();
-            float feetWholeCH = Mathf.Floor(metersCH.ToFeet());
-            float inchesCH = Mathf.Round((metersCH.ToFeet() - feetWholeCH) * 12f * 10f) / 10f;
-            string ceilingTextCH = $"{metersCH:F2} m ({feetWholeCH}' {inchesCH}\")";
+            float ftWhole = Mathf.Floor(metersCH.ToFeet());
+            float inches = Mathf.Round((metersCH.ToFeet() - ftWhole) * 12f * 10f) / 10f;
+            string ceilingText = $"{metersCH:F2} m ({ftWhole}' {inches}\")";
 
             var chTable = new PdfPTable(2)
             {
@@ -331,7 +608,7 @@ public class PdfExporterLocal
             };
             chTable.SetWidths(new float[] { 60, 40 });
 
-            var chLabelCell = new PdfPCell(new Phrase("Cieling Height", itemFont))
+            var labelCell = new PdfPCell(new Phrase("Ceiling Height", itemFont))
             {
                 BackgroundColor = white,
                 FixedHeight = rowH,
@@ -339,7 +616,7 @@ public class PdfExporterLocal
                 HorizontalAlignment = Element.ALIGN_LEFT,
                 Padding = 4
             };
-            var chValueCell = new PdfPCell(new Phrase(ceilingTextCH, valueFont))
+            var valueCell = new PdfPCell(new Phrase(ceilingText, valueFont))
             {
                 BackgroundColor = white,
                 FixedHeight = rowH,
@@ -347,26 +624,26 @@ public class PdfExporterLocal
                 HorizontalAlignment = Element.ALIGN_LEFT,
                 Padding = 4
             };
-
-            chTable.AddCell(chLabelCell);
-            chTable.AddCell(chValueCell);
-
+            chTable.AddCell(labelCell);
+            chTable.AddCell(valueCell);
             container.AddElement(chTable);
         }
-        catch (System.Exception ex)
+        catch (Exception ex)
         {
-            UnityEngine.Debug.LogWarning($"Failed adding Cieling Height footer: {ex.Message}");
+            UnityEngine.Debug.LogWarning($"Failed adding Ceiling Height footer: {ex.Message}");
         }
         return container;
     }
 
-    // Helper method to process individual assembly
-    private static void ProcessSingleAssembly(PdfPCell container, AssemblyJson asm, Font headerFont, Font serviceheaderFont, Font itemFont, Font valueFont, float rowH, BaseColor gray, BaseColor white)
+    private static void ProcessSingleAssembly(PdfPCell container, AssemblyJson asm, Font headerFont, Font serviceHeaderFont, Font itemFont, Font valueFont, float rowH, BaseColor gray, BaseColor white)
     {
-        var hdrPara = new Paragraph(asm.TableName, headerFont) { Alignment = Element.ALIGN_LEFT };
+        if (asm == null) return;
+        // Skip empty placeholder assemblies (e.g., tandem mount slot left empty)
+        if ((asm.Fields == null || asm.Fields.Count == 0) && string.IsNullOrWhiteSpace(asm.TableName)) return;
+        var hdrPara = new Paragraph(string.IsNullOrEmpty(asm.TableName) ? "Assembly" : asm.TableName, headerFont) { Alignment = Element.ALIGN_LEFT };
         PdfPCell hdrCell = new PdfPCell(hdrPara)
         {
-            BackgroundColor = HexToBaseColor("#001236"),
+            BackgroundColor = PrimaryHeaderColor,
             Border = Rectangle.NO_BORDER,
             Padding = 6,
             HorizontalAlignment = Element.ALIGN_LEFT,
@@ -375,7 +652,6 @@ public class PdfExporterLocal
         hdrTable.AddCell(hdrCell);
         container.AddElement(hdrTable);
 
-        // Memory optimization: Process fields in smaller chunks
         var fldTbl = new PdfPTable(2)
         {
             WidthPercentage = 60f,
@@ -392,7 +668,7 @@ public class PdfExporterLocal
         foreach (var f in normalFields)
         {
             var bg = stripe ? gray : white;
-            fldTbl.AddCell(new PdfPCell(new Phrase(f.Item, itemFont))
+            fldTbl.AddCell(new PdfPCell(new Phrase(f.Item ?? string.Empty, itemFont))
             {
                 BackgroundColor = bg,
                 FixedHeight = rowH,
@@ -400,7 +676,7 @@ public class PdfExporterLocal
                 HorizontalAlignment = Element.ALIGN_LEFT,
                 Padding = 4
             });
-            fldTbl.AddCell(new PdfPCell(new Phrase(f.Value, valueFont))
+            fldTbl.AddCell(new PdfPCell(new Phrase(f.Value ?? string.Empty, valueFont))
             {
                 BackgroundColor = bg,
                 FixedHeight = rowH,
@@ -411,41 +687,33 @@ public class PdfExporterLocal
             stripe = !stripe;
         }
 
-        // Add conditional rows based on table name
         AddConditionalRows(fldTbl, asm.TableName, rowH, gray, white, itemFont, ref stripe);
         container.AddElement(fldTbl);
 
-        // Process service attachments if any
         if (serviceAttachments.Count > 0)
         {
-            ProcessServiceAttachments(container, serviceAttachments, serviceheaderFont, itemFont, valueFont, rowH, gray, white);
+            ProcessServiceAttachments(container, serviceAttachments, serviceHeaderFont, itemFont, valueFont, rowH, gray, white);
         }
 
         container.AddElement(new Paragraph(" "));
-
-        // Clear local references
-        hdrPara = null;
-        hdrCell = null;
-        hdrTable = null;
-        fldTbl = null;
     }
 
     private static void AddConditionalRows(PdfPTable fldTbl, string tableName, float rowH, BaseColor gray, BaseColor white, Font itemFont, ref bool stripe)
     {
+        if (string.IsNullOrEmpty(tableName)) return;
         if (tableName == "Flat Panel Arm" || tableName == "Lights - U | ONE" || tableName == "Spring Arm (Low Ceiling)")
         {
-            AddAdditionalRow(fldTbl, "Circuits Required", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
-            AddAdditionalRow(fldTbl, "Overall Weight", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
-            AddAdditionalRow(fldTbl, "Torque Moment", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
-            AddAdditionalRow(fldTbl, "Vertical Force Nm", "", rowH, stripe ? gray : white, itemFont);
+            AddAdditionalRow(fldTbl, "Circuits Required", string.Empty, rowH, stripe ? gray : white, itemFont); stripe = !stripe;
+            AddAdditionalRow(fldTbl, "Overall Weight", string.Empty, rowH, stripe ? gray : white, itemFont); stripe = !stripe;
+            AddAdditionalRow(fldTbl, "Torque Moment", string.Empty, rowH, stripe ? gray : white, itemFont); stripe = !stripe;
+            AddAdditionalRow(fldTbl, "Vertical Force Nm", string.Empty, rowH, stripe ? gray : white, itemFont);
         }
-
         if (tableName.Contains("Boom - Service Head"))
         {
-            AddAdditionalRow(fldTbl, "Med-Gas Connection Type", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
-            AddAdditionalRow(fldTbl, "Overall Weight", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
-            AddAdditionalRow(fldTbl, "Vertical Force", "", rowH, stripe ? gray : white, itemFont); stripe = !stripe;
-            AddAdditionalRow(fldTbl, "Payload Capacity", "", rowH, stripe ? gray : white, itemFont);
+            AddAdditionalRow(fldTbl, "Med-Gas Connection Type", string.Empty, rowH, stripe ? gray : white, itemFont); stripe = !stripe;
+            AddAdditionalRow(fldTbl, "Overall Weight", string.Empty, rowH, stripe ? gray : white, itemFont); stripe = !stripe;
+            AddAdditionalRow(fldTbl, "Vertical Force", string.Empty, rowH, stripe ? gray : white, itemFont); stripe = !stripe;
+            AddAdditionalRow(fldTbl, "Payload Capacity", string.Empty, rowH, stripe ? gray : white, itemFont);
         }
     }
 
@@ -463,7 +731,7 @@ public class PdfExporterLocal
         var subHdr = new PdfPCell(new Phrase("Service Head Details", serviceheaderFont))
         {
             Colspan = 2,
-            BackgroundColor = WebColors.GetRGBColor("#001236"),
+            BackgroundColor = PrimaryHeaderColor,
             Border = Rectangle.NO_BORDER,
             Padding = 4,
             HorizontalAlignment = Element.ALIGN_LEFT,
@@ -474,7 +742,7 @@ public class PdfExporterLocal
         foreach (var f in serviceAttachments)
         {
             var bg = useGray ? gray : white;
-            attachTbl.AddCell(new PdfPCell(new Phrase(f.Item, itemFont))
+            attachTbl.AddCell(new PdfPCell(new Phrase(f.Item ?? string.Empty, itemFont))
             {
                 BackgroundColor = bg,
                 FixedHeight = rowH,
@@ -482,7 +750,7 @@ public class PdfExporterLocal
                 HorizontalAlignment = Element.ALIGN_LEFT,
                 Padding = 4
             });
-            attachTbl.AddCell(new PdfPCell(new Phrase(f.Value, valueFont))
+            attachTbl.AddCell(new PdfPCell(new Phrase(f.Value ?? string.Empty, valueFont))
             {
                 BackgroundColor = bg,
                 FixedHeight = rowH,
@@ -498,31 +766,29 @@ public class PdfExporterLocal
 
     private static void AddAdditionalRow(PdfPTable table, string itemText, string valueText, float rowHeight, BaseColor backgroundColor, Font itemFont)
     {
-        PdfPCell itemCell = new PdfPCell(new Phrase(itemText, itemFont));
-        PdfPCell valueCell = new PdfPCell(new Phrase(valueText, itemFont));
-
-        itemCell.FixedHeight = rowHeight;
-        valueCell.FixedHeight = rowHeight;
-
-        itemCell.BackgroundColor = backgroundColor;
-        valueCell.BackgroundColor = backgroundColor;
-
-        itemCell.HorizontalAlignment = Element.ALIGN_LEFT;
-        valueCell.HorizontalAlignment = Element.ALIGN_LEFT;
-
+        PdfPCell itemCell = new PdfPCell(new Phrase(itemText, itemFont))
+        {
+            FixedHeight = rowHeight,
+            BackgroundColor = backgroundColor,
+            HorizontalAlignment = Element.ALIGN_LEFT,
+            Border = Rectangle.BOX,
+            Padding = 4
+        };
+        PdfPCell valueCell = new PdfPCell(new Phrase(valueText, itemFont))
+        {
+            FixedHeight = rowHeight,
+            BackgroundColor = backgroundColor,
+            HorizontalAlignment = Element.ALIGN_LEFT,
+            Border = Rectangle.BOX,
+            Padding = 4
+        };
         table.AddCell(itemCell);
         table.AddCell(valueCell);
     }
 
     public static string Distance { get; private set; } = string.Empty;
 
-    // Memory optimized image cell creation
-
-    private static PdfPCell CreateImageCellOptimized(
-            List<PdfImageData> imageData,
-            Document doc,
-            PdfWriter writer,
-            float roomHeight = 300f)
+    private static PdfPCell CreateImageCell(List<PdfImageData> imageData, Document doc, PdfWriter writer, float roomHeight = 300f)
     {
         float pageWidth = doc.PageSize.Width;
         float usablePageWidth = pageWidth - (doc.LeftMargin + doc.RightMargin);
@@ -539,7 +805,6 @@ public class PdfExporterLocal
             PaddingLeft = 20f
         };
 
-        // Only show main images (no side height ruler)
         PdfPTable imgs = new PdfPTable(2) { WidthPercentage = 100f };
         for (int i = 0; i < 2; i++)
         {
@@ -551,43 +816,31 @@ public class PdfExporterLocal
                 Padding = 0f
             };
 
-            if (imageData.Count > i && File.Exists(imageData[i].Path))
+            if (imageData.Count > i && !string.IsNullOrEmpty(imageData[i].Path) && File.Exists(imageData[i].Path))
             {
                 try
                 {
                     Image img = Image.GetInstance(imageData[i].Path);
                     img.Alignment = Element.ALIGN_BOTTOM;
-
                     float scale = Math.Min(availableImageWidth / img.Width, maxTargetHeight / img.Height);
                     img.ScaleAbsolute(img.Width * scale, img.Height * scale);
-
                     cell.AddElement(img);
-                    img = null;
                 }
                 catch (Exception ex)
                 {
-                    UnityEngine.Debug.LogError($"Failed to load image {imageData[i].Path}: {ex.Message}\"");
+                    UnityEngine.Debug.LogError($"Failed to load image {imageData[i].Path}: {ex.Message}");
                 }
             }
-
             imgs.AddCell(cell);
         }
 
-        // Wrap images + beam in an outer single-column table
         var outer = new PdfPTable(1) { WidthPercentage = 100f };
         outer.DefaultCell.Border = Rectangle.NO_BORDER;
         outer.DefaultCell.Padding = 0f;
+        outer.AddCell(new PdfPCell(imgs) { Border = Rectangle.NO_BORDER, Padding = 0f });
 
-        outer.AddCell(new PdfPCell(imgs)
-        {
-            Border = Rectangle.NO_BORDER,
-            Padding = 0f
-        });
-
-        // Add the bottom beam back
         var cb = writer.DirectContent;
-        Image beamImg = BuildBeamImageOptimized(cb, usablePageWidth, 10f);
-
+        Image beamImg = BuildBeamImage(cb, usablePageWidth, 10f);
         outer.AddCell(new PdfPCell(beamImg)
         {
             Border = Rectangle.NO_BORDER,
@@ -599,147 +852,80 @@ public class PdfExporterLocal
         imageCell.AddElement(outer);
         return imageCell;
     }
-    private static Image BuildHeightImageOptimized(PdfContentByte cb, float visualHeight, float maxTargetHeight)
+
+    private static Image BuildHeightImage(PdfContentByte cb, float visualHeight, float maxTargetHeight)
     {
         string cacheKey = $"height_{visualHeight}_{maxTargetHeight}";
-
         if (TemplateCache.ContainsKey(cacheKey))
-        {
             return Image.GetInstance(TemplateCache[cacheKey]);
-        }
 
         PdfTemplate tpl = cb.CreateTemplate(50, visualHeight);
         tpl.SetLineWidth(1.5f);
+        tpl.MoveTo(10, 0); tpl.LineTo(10, visualHeight); tpl.Stroke();
+        tpl.MoveTo(5, 0); tpl.LineTo(15, 0); tpl.Stroke();
+        tpl.MoveTo(5, visualHeight); tpl.LineTo(15, visualHeight); tpl.Stroke();
 
-        // Main line
-        tpl.MoveTo(10, 0);
-        tpl.LineTo(10, visualHeight);
-        tpl.Stroke();
-
-        // Bottom tick
-        tpl.MoveTo(5, 0);
-        tpl.LineTo(15, 0);
-        tpl.Stroke();
-
-        // Top tick
-        tpl.MoveTo(5, visualHeight);
-        tpl.LineTo(15, visualHeight);
-        tpl.Stroke();
-
-        // Calculate distance string
         float meters = GetCeilingHeight();
         float ft = Mathf.Floor(meters.ToFeet());
         float inch = Mathf.Round((meters.ToFeet() - ft) * 12f * 10f) / 10f;
         Distance = $"{ft}' {inch}\"";
 
         var fontPath = Path.Combine(Application.streamingAssetsPath, "Data/Fonts/Teko/Teko-Regular.ttf");
-        // Draw the text with cached font
         BaseFont teko = GetCachedBaseFont(fontPath);
-
         tpl.BeginText();
         tpl.SetFontAndSize(teko, 36);
-        tpl.ShowTextAligned(
-            Element.ALIGN_LEFT,
-            Distance,
-            40,
-            maxTargetHeight / 2,
-            90);
+        tpl.ShowTextAligned(Element.ALIGN_LEFT, Distance, 40, maxTargetHeight / 2, 90);
         tpl.EndText();
-
-        // Cache the template for reuse
         TemplateCache[cacheKey] = tpl;
-
         return Image.GetInstance(tpl);
     }
 
-    // Memory optimized content table building
-    private static PdfPTable BuildContentTableOptimized(Image heightImg, List<PdfImageData> imageData, float availableImageWidth, float maxTargetHeight)
+    private static PdfPTable BuildContentTable(Image heightImg, List<PdfImageData> imageData, float availableImageWidth, float maxTargetHeight)
     {
         PdfPTable table = new PdfPTable(2) { WidthPercentage = 100f };
         table.SetWidths(new float[] { 10f, 90f });
-
-        PdfPCell hCell = new PdfPCell(heightImg)
-        {
-            Border = Rectangle.NO_BORDER,
-            Padding = 0f,
-            VerticalAlignment = Element.ALIGN_MIDDLE
-        };
+        PdfPCell hCell = new PdfPCell(heightImg) { Border = Rectangle.NO_BORDER, Padding = 0f, VerticalAlignment = Element.ALIGN_MIDDLE };
         table.AddCell(hCell);
 
         PdfPTable imgs = new PdfPTable(2) { WidthPercentage = 100f };
-        float maxH = maxTargetHeight;
-
-        // Memory optimization: Process images with proper scaling and disposal
         for (int i = 0; i < 2; i++)
         {
-            PdfPCell cell = new PdfPCell
-            {
-                Border = Rectangle.NO_BORDER,
-                HorizontalAlignment = Element.ALIGN_CENTER,
-                VerticalAlignment = Element.ALIGN_BOTTOM,
-                Padding = 0f
-            };
-
+            PdfPCell cell = new PdfPCell { Border = Rectangle.NO_BORDER, HorizontalAlignment = Element.ALIGN_CENTER, VerticalAlignment = Element.ALIGN_BOTTOM, Padding = 0f };
             if (imageData.Count > i && File.Exists(imageData[i].Path))
             {
                 try
                 {
                     Image img = Image.GetInstance(imageData[i].Path);
-                    img.Alignment = Element.ALIGN_BOTTOM;
-
-                    // Memory optimization: Pre-scale images to reduce memory usage
-                    float scale = Math.Min(availableImageWidth / img.Width, maxH / img.Height);
+                    float scale = Math.Min(availableImageWidth / img.Width, maxTargetHeight / img.Height);
                     img.ScaleAbsolute(img.Width * scale, img.Height * scale);
-
                     cell.AddElement(img);
-
-                    // Clear image reference immediately
-                    img = null;
                 }
                 catch (Exception ex)
                 {
                     UnityEngine.Debug.LogError($"Failed to load image {imageData[i].Path}: {ex.Message}");
                 }
             }
-
             imgs.AddCell(cell);
         }
-
-        PdfPCell wrap = new PdfPCell(imgs)
-        {
-            Border = Rectangle.NO_BORDER,
-            Padding = 0f
-        };
-        table.AddCell(wrap);
-
+        table.AddCell(new PdfPCell(imgs) { Border = Rectangle.NO_BORDER, Padding = 0f });
         return table;
     }
 
-    // Memory optimized beam image building
-    private static Image BuildBeamImageOptimized(PdfContentByte cb, float usablePageWidth, float leftMargin)
+    private static Image BuildBeamImage(PdfContentByte cb, float usablePageWidth, float leftMargin)
     {
         string cacheKey = $"beam_{usablePageWidth}_{leftMargin}";
-
         if (TemplateCache.ContainsKey(cacheKey))
-        {
             return Image.GetInstance(TemplateCache[cacheKey]);
-        }
 
         float totalWidth = leftMargin + usablePageWidth;
         PdfTemplate beam = cb.CreateTemplate(totalWidth, 100f);
-
         float beamY = 100f;
         float supportH = 20f;
         float spacing = usablePageWidth / 14f;
-
         beam.SetLineWidth(3f);
-
-        // Main beam line
         beam.MoveTo(leftMargin, beamY);
         beam.LineTo(leftMargin + usablePageWidth, beamY);
         beam.Stroke();
-
-        // Supports
         for (int i = 0; i <= 14; i++)
         {
             float x = leftMargin + (i * spacing);
@@ -747,269 +933,246 @@ public class PdfExporterLocal
             beam.LineTo(x - supportH, beamY - supportH);
             beam.Stroke();
         }
-
-        // Cache for reuse
         TemplateCache[cacheKey] = beam;
-
         Image img = Image.GetInstance(beam);
         img.ScaleToFit(totalWidth, 100f);
         return img;
     }
+    #endregion
 
-    private static float GetCeilingHeight() => RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling).Height;
+    #region Helper / Utilities
+    private static float GetCeilingHeight()
+    {
+        var ceiling = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling);
+        return ceiling != null ? ceiling.Height : 0f;
+    }
 
-    // Memory optimized logo addition
-    private static void AddCompanyLogoOptimized(Document doc)
+    private static void AddCompanyLogo(Document doc)
     {
         try
         {
             string logoPath = Application.streamingAssetsPath + "/Data/quotes/UImagineUnlimited-logo.png";
-            if (!File.Exists(logoPath))
-            {
-                UnityEngine.Debug.LogWarning($"Logo file not found: {logoPath}");
-                return;
-            }
-
+            if (!File.Exists(logoPath)) { UnityEngine.Debug.LogWarning($"Logo file not found: {logoPath}"); return; }
             PdfPTable logoTable = new PdfPTable(1) { TotalWidth = 300, HorizontalAlignment = Element.ALIGN_RIGHT, LockedWidth = true };
             PdfPCell logoCell = new PdfPCell { Border = Rectangle.NO_BORDER, HorizontalAlignment = Element.ALIGN_LEFT, PaddingBottom = 10f };
-
             Image logo = Image.GetInstance(logoPath);
             logo.ScaleToFit(300, 300);
             logoCell.AddElement(logo);
             logoTable.AddCell(logoCell);
             doc.Add(logoTable);
-
-            // Clear references
-            logo = null;
-            logoCell = null;
-            logoTable = null;
         }
-        catch (Exception ex)
-        {
-            UnityEngine.Debug.LogError($"Failed to add company logo: {ex.Message}");
-        }
+        catch (Exception ex) { UnityEngine.Debug.LogError($"Failed to add company logo: {ex.Message}"); }
     }
 
-    // Memory optimized customer acceptance section
-    private static void AddCustomerAcceptanceSectionOptimized(Document doc, ProjectMetaData metaData)
+    private static void AddCustomerAcceptanceSection(Document doc, ProjectMetaData metaData)
     {
+        metaData ??= new ProjectMetaData();
         Font normalFont = GetCachedFont("normal", FontFactory.HELVETICA, 10, Font.NORMAL, BaseColor.BLACK);
         Font notesFont = GetCachedFont("notes", FontFactory.HELVETICA_OBLIQUE, 10, Font.NORMAL, BaseColor.BLACK);
 
-        PdfPTable acceptanceTable = new PdfPTable(2);
-        acceptanceTable.TotalWidth = 800;
-        acceptanceTable.HorizontalAlignment = Element.ALIGN_RIGHT;
-        acceptanceTable.LockedWidth = true;
+        PdfPTable acceptanceTable = new PdfPTable(2)
+        {
+            TotalWidth = 800,
+            HorizontalAlignment = Element.ALIGN_RIGHT,
+            LockedWidth = true
+        };
         acceptanceTable.SetWidths(new float[] { 60, 40 });
 
-        // Left side
-        PdfPCell leftCell = new PdfPCell();
-        leftCell.Border = Rectangle.BOX;
-        leftCell.Padding = 5f;
-
+        PdfPCell leftCell = new PdfPCell { Border = Rectangle.BOX, Padding = 5f };
         leftCell.AddElement(new Paragraph("Customer Acceptance and Configuration Acknowledgement", notesFont));
         leftCell.AddElement(Chunk.NEWLINE);
         leftCell.AddElement(Chunk.NEWLINE);
         leftCell.AddElement(Chunk.NEWLINE);
 
-        // Signature table
-        PdfPTable signatureTable = new PdfPTable(2);
-        signatureTable.WidthPercentage = 90;
+        PdfPTable signatureTable = new PdfPTable(2) { WidthPercentage = 90 };
         signatureTable.SetWidths(new float[] { 2f, 1f });
-
-        PdfPCell signatureCell = new PdfPCell(new Phrase("Signature", normalFont));
-        signatureCell.FixedHeight = 30f;
-        signatureCell.VerticalAlignment = Element.ALIGN_BOTTOM;
-        signatureCell.Border = Rectangle.TOP_BORDER;
-
-        PdfPCell dateCell = new PdfPCell(new Phrase("Date", normalFont));
-        dateCell.FixedHeight = 30f;
-        dateCell.VerticalAlignment = Element.ALIGN_BOTTOM;
-        dateCell.Border = Rectangle.TOP_BORDER;
-
+        PdfPCell signatureCell = new PdfPCell(new Phrase("Signature", normalFont)) { FixedHeight = 30f, VerticalAlignment = Element.ALIGN_BOTTOM, Border = Rectangle.TOP_BORDER };
+        PdfPCell dateCell = new PdfPCell(new Phrase("Date", normalFont)) { FixedHeight = 30f, VerticalAlignment = Element.ALIGN_BOTTOM, Border = Rectangle.TOP_BORDER };
         signatureTable.AddCell(signatureCell);
         signatureTable.AddCell(dateCell);
         leftCell.AddElement(signatureTable);
-
         acceptanceTable.AddCell(leftCell);
 
-        // Right side
-        PdfPTable detailTable = new PdfPTable(1);
-        detailTable.WidthPercentage = 100;
-
-        string[] detailLabels = {
-            "Account Name: " + (metaData.AccountName ?? ""),
-            "Account Address: " + (metaData.AccountAddressLine1 ?? ""),
-            " " + (metaData.AccountAddressLine2 ?? ""),
-            "Project Name: " + (metaData.ProjectName ?? ""),
-            "Project #: " + (metaData.ProjectNumber ?? ""),
-            "Order Reference #: " + (metaData.OrderReferenceNumber ?? "")
-        };
-
-        foreach (var label in detailLabels)
+        PdfPTable detailTable = new PdfPTable(1) { WidthPercentage = 100 };
+        string[] details =
         {
-            PdfPCell labelCell = new PdfPCell(new Phrase(label, normalFont));
-            labelCell.Padding = 4f;
+            "Account Name: " + (metaData.AccountName ?? string.Empty),
+            "Account Address: " + (metaData.AccountAddressLine1 ?? string.Empty),
+            " " + (metaData.AccountAddressLine2 ?? string.Empty),
+            "Project Name: " + (metaData.ProjectName ?? string.Empty),
+            "Project #: " + (metaData.ProjectNumber ?? string.Empty),
+            "Order Reference #: " + (metaData.OrderReferenceNumber ?? string.Empty)
+        };
+        foreach (var d in details)
+        {
+            PdfPCell labelCell = new PdfPCell(new Phrase(d, normalFont)) { Padding = 4f };
             detailTable.AddCell(labelCell);
         }
-
-        PdfPCell rightCell = new PdfPCell(detailTable);
-        rightCell.Border = Rectangle.BOX;
-        rightCell.Padding = 0f;
-
+        PdfPCell rightCell = new PdfPCell(detailTable) { Border = Rectangle.BOX, Padding = 0f };
         acceptanceTable.AddCell(rightCell);
         doc.Add(acceptanceTable);
-
-        // Clear references
-        leftCell = null;
-        rightCell = null;
-        acceptanceTable = null;
-        detailTable = null;
-        signatureTable = null;
     }
 
-    // Memory optimization: Cleanup method for PdfWriter resources
     private static void CleanupPdfWriter(PdfWriter writer)
     {
         try
         {
-            // Release all cached templates
             foreach (var template in TemplateCache.Values)
             {
-                try
-                {
-                    writer.ReleaseTemplate(template);
-                }
-                catch (Exception ex)
-                {
-                    UnityEngine.Debug.LogWarning($"Failed to release template: {ex.Message}");
-                }
+                try { writer.ReleaseTemplate(template); }
+                catch (Exception ex) { UnityEngine.Debug.LogWarning($"Failed to release template: {ex.Message}"); }
             }
         }
-        catch (Exception ex)
-        {
-            UnityEngine.Debug.LogError($"Error during PdfWriter cleanup: {ex.Message}");
-        }
+        catch (Exception ex) { UnityEngine.Debug.LogError($"Error during PdfWriter cleanup: {ex.Message}"); }
     }
 
-    // Memory optimization: Clear all cached resources
     public static void CleanupResources()
     {
         try
         {
-            // Clear template cache
             TemplateCache.Clear();
-
-            // Clear font caches
             FontCache.Clear();
             CachedFonts.Clear();
-
-            // Force garbage collection
             GC.Collect();
             GC.WaitForPendingFinalizers();
             GC.Collect();
-
             UnityEngine.Debug.Log($"Memory cleaned. Final memory: {GC.GetTotalMemory(false) / 1024 / 1024}MB");
         }
-        catch (Exception ex)
+        catch (Exception ex) { UnityEngine.Debug.LogError($"Error during resource cleanup: {ex.Message}"); }
+    }
+
+    private static void MonitorMemory(string operation, PdfExportOptions options)
+    {
+        if (options == null || !options.LogMemory) return;
+        long current = GC.GetTotalMemory(false);
+        if (current > PeakMemory) PeakMemory = current;
+        UnityEngine.Debug.Log($"[PDF] Memory after {operation}: {current / 1024 / 1024}MB (Peak {PeakMemory / 1024 / 1024}MB)");
+    }
+
+    private static BaseFont GetCachedBaseFont(string fontPath)
+    {
+        if (string.IsNullOrEmpty(fontPath)) throw new ArgumentException("Font path null/empty");
+        if (!FontCache.TryGetValue(fontPath, out var baseFont))
         {
-            UnityEngine.Debug.LogError($"Error during resource cleanup: {ex.Message}");
+            try
+            {
+                if (!File.Exists(fontPath)) throw new FileNotFoundException("Font file not found: " + fontPath);
+                baseFont = BaseFont.CreateFont(fontPath, BaseFont.IDENTITY_H, BaseFont.EMBEDDED);
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError($"Font loading failed for {fontPath}: {ex.Message}. Using fallback.");
+                try
+                {
+                    string fallbackPath = Path.Combine(Application.streamingAssetsPath, "Fonts", "Arial.ttf");
+                    baseFont = File.Exists(fallbackPath)
+                        ? BaseFont.CreateFont(fallbackPath, BaseFont.IDENTITY_H, BaseFont.EMBEDDED)
+                        : BaseFont.CreateFont(BaseFont.HELVETICA, BaseFont.WINANSI, BaseFont.NOT_EMBEDDED);
+                }
+                catch (Exception fallbackEx)
+                {
+                    UnityEngine.Debug.LogError($"All font loading attempts failed: {fallbackEx.Message}");
+                    throw;
+                }
+            }
+            FontCache[fontPath] = baseFont;
         }
+        return baseFont;
+    }
+
+    private static Font GetCachedFont(string key, string fontName, float size, int style, BaseColor color)
+    {
+        if (!CachedFonts.TryGetValue(key, out var font))
+        {
+            font = FontFactory.GetFont(fontName, size, style, color);
+            CachedFonts[key] = font;
+        }
+        return font;
     }
 
     public static BaseColor HexToBaseColor(string hex, int alpha = 255)
     {
         if (string.IsNullOrEmpty(hex)) return BaseColor.WHITE;
         hex = hex.Replace("#", "");
+        if (hex.Length < 6) return BaseColor.WHITE;
         int r = int.Parse(hex.Substring(0, 2), System.Globalization.NumberStyles.HexNumber);
         int g = int.Parse(hex.Substring(2, 2), System.Globalization.NumberStyles.HexNumber);
         int b = int.Parse(hex.Substring(4, 2), System.Globalization.NumberStyles.HexNumber);
         return new BaseColor(r, g, b, alpha);
     }
 
-    private static void OpenPdfFile(string fileName)
+    private static string SanitizeFileName(string fileName)
     {
-        try
-        {
-            Process.Start(new ProcessStartInfo(fileName) { UseShellExecute = true });
-        }
-        catch (Exception ex)
-        {
-            UnityEngine.Debug.LogError($"Failed to open PDF: {ex.Message}");
-        }
+        var invalid = Path.GetInvalidFileNameChars();
+        foreach (var c in invalid) fileName = fileName.Replace(c, '_');
+        return fileName.Trim();
     }
 
-    // Memory optimized version of ConvertToAssemblyJsonFull
-    public static List<AssemblyJson> ConvertToAssemblyJsonFull(
-        List<AssemblyData> assemblyDatas,
-        List<AdditionalPdfData> additionalData)
+    private static string NormalizeItemName(SelectableMetaData meta)
     {
-        List<AssemblyJson> allTables = new();
-        int assId = 1;
+        if (meta == null) return string.Empty;
+        return string.IsNullOrWhiteSpace(meta.SubPartName) ? (meta.Name ?? string.Empty).Trim() : $"{meta.Name?.Trim()} {meta.SubPartName?.Trim()}";
+    }
 
-        // Memory optimization: Process assemblies in batches
+    private static bool IsServiceHeadAttachment(SelectableMetaData meta)
+    {
+        if (meta == null || meta.Categories == null) return false;
+        return meta.Categories.Contains("Boom - SH High Voltage") ||
+               meta.Categories.Contains("Boom - SH Low Voltage") ||
+               meta.Categories.Contains("Boom - SH Accessories") ||
+               meta.Categories.Contains("Service Head Shelf (500mm)") ||
+               (meta.Name != null && (meta.Name.Contains("Service Head Shelf (500mm)") || meta.Name.Contains("SHP_Rails") || meta.Name.Contains("NitrogenRegulator")));
+    }
+    #endregion
+
+    #region Data Conversion
+    public static List<AssemblyJson> ConvertToAssemblyJsonFull(List<AssemblyData> assemblyDatas, List<AdditionalPdfData> additionalData)
+    {
+        List<AssemblyJson> allTables = new List<AssemblyJson>();
+        if (assemblyDatas == null) return allTables;
+        int assId = 1;
         const int batchSize = 10;
         for (int batchStart = 0; batchStart < assemblyDatas.Count; batchStart += batchSize)
         {
             int batchEnd = Math.Min(batchStart + batchSize, assemblyDatas.Count);
-
             for (int i = batchStart; i < batchEnd; i++)
             {
                 var assemblyData = assemblyDatas[i];
+                if (assemblyData == null) continue;
                 var assembly = ProcessSingleAssemblyData(assemblyData, assId++);
                 allTables.Add(assembly);
             }
-
-            // Force GC between batches if memory is getting high
-            long currentMemory = GC.GetTotalMemory(false);
-            if (currentMemory > InitialMemory * 1.5f)
-            {
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
-            }
         }
-
-        // Process additional data
-        ProcessAdditionalData(allTables, additionalData);
-
+        ProcessAdditionalData(allTables, additionalData ?? new List<AdditionalPdfData>());
         return allTables;
     }
 
-    // Helper method to process single assembly data
     private static AssemblyJson ProcessSingleAssemblyData(AssemblyData assemblyData, int assId)
     {
-        var assembly = new AssemblyJson
-        {
-            AssemblyId = assId,
-            TableName = assemblyData.Title
-        };
+        var assembly = new AssemblyJson { AssemblyId = assId, TableName = assemblyData.Title };
+        if (assemblyData.OrderedSelectables == null) return assembly;
 
-        Dictionary<string, int> serviceHeadItemCounts = new();
-        List<string> usedServiceHeadItems = new();
+        Dictionary<string, int> serviceHeadItemCounts = new Dictionary<string, int>();
+        List<string> usedServiceHeadItems = new List<string>();
 
-        // First pass — count service head attachments
         foreach (var item in assemblyData.OrderedSelectables)
         {
             var meta = item.GetMetadata();
+            if (meta == null) continue;
             string itemName = NormalizeItemName(meta);
-
             if (IsServiceHeadAttachment(meta))
             {
-                if (serviceHeadItemCounts.ContainsKey(itemName))
-                    serviceHeadItemCounts[itemName]++;
-                else
-                    serviceHeadItemCounts[itemName] = 1;
+                if (!serviceHeadItemCounts.TryGetValue(itemName, out var count)) count = 0;
+                serviceHeadItemCounts[itemName] = count + 1;
             }
         }
 
-        // Second pass — process all fields
         foreach (var item in assemblyData.OrderedSelectables)
         {
             var meta = item.GetMetadata();
-            string itemName = NormalizeItemName(meta);
-
+            if (meta == null || meta.Name == null) continue;
             if (meta.Name.Contains("Blank Plate")) continue;
-
+            string itemName = NormalizeItemName(meta);
             bool isServiceHead = IsServiceHeadAttachment(meta);
 
             if (isServiceHead && !usedServiceHeadItems.Contains(itemName))
@@ -1020,59 +1183,46 @@ public class PdfExporterLocal
                 continue;
             }
 
-            if (item.RelatedSelectables[0] == item)
+            if (item.RelatedSelectables != null && item.RelatedSelectables.Count > 0 && item.RelatedSelectables[0] == item)
             {
-                foreach (var pdf in meta.PdfData)
+                if (meta.PdfData != null)
                 {
-                    string value = pdf.Value.Trim();
-                    if (value.Equals("{NAME}", StringComparison.OrdinalIgnoreCase))
-                        value = itemName;
-
-                    if (pdf.Table.Trim().Equals("{ASSEMBLY}", StringComparison.OrdinalIgnoreCase))
+                    foreach (var pdf in meta.PdfData)
                     {
-                        assembly.Fields.Add(new PdfField { Item = pdf.Key, Value = value });
+                        string value = (pdf.Value ?? string.Empty).Trim();
+                        if (value.Equals("{NAME}", StringComparison.OrdinalIgnoreCase)) value = itemName;
+                        if (pdf.Table != null && pdf.Table.Trim().Equals("{ASSEMBLY}", StringComparison.OrdinalIgnoreCase))
+                        {
+                            assembly.Fields.Add(new PdfField { Item = pdf.Key, Value = value });
+                        }
                     }
-                    // Note: External table processing removed to reduce memory complexity
                 }
             }
 
             bool lengthAlreadyAdded = assembly.Fields.Any(f => f.Item == itemName + " length");
-
             if (!lengthAlreadyAdded)
             {
                 float size = item.CurrentScaleLevel?.Size ?? 0f;
-
                 if (size > 0f)
                 {
-                    assembly.Fields.Add(new PdfField
-                    {
-                        Item = itemName + " length",
-                        Value = (size * 1000f).ToString("F0") + "mm"
-                    });
+                    assembly.Fields.Add(new PdfField { Item = itemName + " length", Value = (size * 1000f).ToString("F0") + "mm" });
                 }
             }
         }
-
         return assembly;
     }
 
-    // Helper method to process additional data
     private static void ProcessAdditionalData(List<AssemblyJson> allTables, List<AdditionalPdfData> additionalData)
     {
         foreach (var addTable in additionalData)
         {
+            if (addTable == null) continue;
             AssemblyJson existing;
-            var match = Regex.Match(addTable.Table, "\\{(\\d+)\\}");
-
-            if (match.Success)
-            {
-                int id = int.Parse(match.Groups[1].Value);
+            var match = Regex.Match(addTable.Table ?? string.Empty, "\\{(\\d+)\\}");
+            if (match.Success && int.TryParse(match.Groups[1].Value, out int id))
                 existing = allTables.FirstOrDefault(x => x.AssemblyId == id);
-            }
             else
-            {
                 existing = allTables.FirstOrDefault(x => x.TableName == addTable.Table);
-            }
 
             if (existing == null)
             {
@@ -1086,26 +1236,9 @@ public class PdfExporterLocal
             }
         }
     }
+    #endregion
 
-    private static string NormalizeItemName(SelectableMetaData meta)
-    {
-        return string.IsNullOrWhiteSpace(meta.SubPartName)
-            ? meta.Name.Trim()
-            : $"{meta.Name.Trim()} {meta.SubPartName.Trim()}";
-    }
-
-    private static bool IsServiceHeadAttachment(SelectableMetaData meta)
-    {
-        return meta.Categories.Contains("Boom - SH High Voltage") ||
-               meta.Categories.Contains("Boom - SH Low Voltage") ||
-               meta.Categories.Contains("Boom - SH Accessories") ||
-               meta.Categories.Contains("Service Head Shelf (500mm)") ||
-               meta.Name.Contains("Service Head Shelf (500mm)") ||
-               meta.Name.Contains("SHP_Rails") ||
-               meta.Name.Contains("NitrogenRegulator");
-    }
-
-    // Memory optimized version of RenderSingleConfigPage
+    #region Single Page Renderer (Existing API)
     public static void RenderSingleConfigPage(
         Document doc,
         PdfWriter writer,
@@ -1115,32 +1248,21 @@ public class PdfExporterLocal
         List<AssemblyJson> assemblies,
         ProjectMetaData metadata)
     {
-        // Force GC before starting
         GC.Collect();
         GC.WaitForPendingFinalizers();
 
-        AddTitleOptimized(doc, title, subtitle);
-
+        AddTitle(doc, title, subtitle);
         PdfPTable mainTable = new PdfPTable(2) { WidthPercentage = 100 };
         mainTable.SetWidths(new float[] { 40f, 60f });
-
-        PdfPCell assembliesCell = CreateAssembliesCellOptimized(assemblies);
-        PdfPCell imageCell = CreateImageCellOptimized(images, doc, writer);
-
+        PdfPCell assembliesCell = CreateAssembliesCell(assemblies);
+        PdfPCell imageCell = CreateImageCell(images, doc, writer);
         mainTable.AddCell(assembliesCell);
         mainTable.AddCell(imageCell);
         doc.Add(mainTable);
-
-        // Clear references immediately
-        mainTable = null;
-        assembliesCell = null;
-        imageCell = null;
-
-        AddCompanyLogoOptimized(doc);
-        AddCustomerAcceptanceSectionOptimized(doc, metadata);
-
-        // Force GC after completion
+        AddCompanyLogo(doc);
+        AddCustomerAcceptanceSection(doc, metadata);
         GC.Collect();
         GC.WaitForPendingFinalizers();
     }
+    #endregion
 }
