@@ -165,7 +165,11 @@ MonoBehaviour:
   <MultiAttach>k__BackingField: 0
   <MultiLimit>k__BackingField: 3
   <_originalParent>k__BackingField: {fileID: 0}
+  _hasNormalizedParent: 0
   <Renderer>k__BackingField: {fileID: 0}
+  _originalLocalPosition: {x: 0, y: 0, z: 0}
+  _originalLocalRotation: {x: 0, y: 0, z: 0, w: 0}
+  _hasBeenInitialized: 0
 --- !u!114 &6767177462637301524
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -1331,6 +1331,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2ccc1c21eb92b2d43903fee16c414d2c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  _initialOffsetApplied: 0
   <GUID>k__BackingField: 
   <MetaData>k__BackingField:
     <IsSubSelectable>k__BackingField: 0
