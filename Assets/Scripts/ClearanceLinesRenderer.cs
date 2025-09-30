@@ -111,6 +111,14 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
     private float MedianY => ((_highestY + _lowestY) / 2f) - _highestSelectable.transform.position.y;
     private object _lockObj = new();
    public Material renderMaterialColor;
+
+    // Special offsets (in meters) derived from manufacturer guidance
+    private const float TOP_HORIZONTAL_EXTRA = 0.150f;      // 150mm
+    private const float BOTTOM_SPRING_EXTRA = 0.21216f;     // 212.16mm
+    // If needed in future: private const float BOTTOM_MOTORIZED_EXTRA = 0.260f; // 260mm
+
+    // Cache last computed extra offset to trigger regen when parts change
+    private float _lastSpecialOffset = 0f;
     #endregion
 
     #region Monobehaviour
@@ -192,6 +200,16 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
             _lineRenderer.endWidth = size;
         }
 
+        // For arm assemblies, if special-offset presence changes (parts added/removed), regenerate
+        if (Type == RendererType.ArmAssembly && _highestSelectable != null)
+        {
+            float currentOffset = GetArmAssemblyExtraOffset();
+            if (!Mathf.Approximately(currentOffset, _lastSpecialOffset))
+            {
+                _lastSpecialOffset = currentOffset;
+                SetNeedsUpdate();
+            }
+        }
     }
     #endregion
 
@@ -216,6 +234,9 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         });
 
         UI_ToggleClearanceLines.ClearanceLinesToggled.AddListener(CheckStatus);
+
+        // React to selectables being added/removed in scene (so we can detect our target arm parts)
+        Selectable.ActiveSelectablesInSceneChanged.AddListener(SetNeedsUpdate);
     }
 
     private void Unsubscribe()
@@ -228,6 +249,7 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
             }
         });
         UI_ToggleClearanceLines.ClearanceLinesToggled.RemoveListener(CheckStatus);
+        Selectable.ActiveSelectablesInSceneChanged.RemoveListener(SetNeedsUpdate);
     }
 
     [RuntimeInitializeOnLoadMethod]
@@ -247,12 +269,14 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         if (_lineRenderer == null)
         {
             Debug.Log("Anas => Adding ClearacneLine ");
-            if (Type==RendererType.Allia||Type==RendererType.PetCTscan)
+            if (Type==RendererType.PetCTscan)
             {
+                // Only PetCTscan uses the rectangle prefab
                 prefab = Resources.Load<GameObject>("Prefabs/ClearanceLinesRendererRectangle");
             }
             else
             {
+                // All other types (including Allia) use the standard line renderer prefab
                 prefab = Resources.Load<GameObject>("Prefabs/ClearanceLinesRenderer");
             }
             var newObj = Instantiate(prefab, Type == RendererType.ArmAssembly ? _highestSelectable.transform : transform.root);
@@ -414,11 +438,39 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         {
             UpdateLineRendererBedScanner();
         }
-
         else if (Type == RendererType.Allia)
         {
-            UpdateLineRendererBedScannerAllia();
+            // Do NOT draw rectangle for Allia; use Azurion-style (circular) rendering
+            UpdateLineRendererAzurion();
         }
+    }
+
+    // Computes additional offset for ArmAssembly based on presence of specific child selectables
+    private float GetArmAssemblyExtraOffset()
+    {
+        if (Type != RendererType.ArmAssembly || _highestSelectable == null) return 0f;
+
+        var root = _highestSelectable.transform;
+        // Look through all children under this assembly root (active and inactive)
+        var childSelectables = root.GetComponentsInChildren<Selectable>(true);
+        float offset = 0f;
+
+        foreach (var sel in childSelectables)
+        {
+            string n = sel.gameObject.name;
+            // Top horizontal powered XL => +150mm
+            if (n.IndexOf("BoomSegment_2PoweredXL", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                offset = Mathf.Max(offset, TOP_HORIZONTAL_EXTRA);
+            }
+            // Bottom spring XXL => +212.16mm
+            if (n.IndexOf("1000SH_XXL_SpringBottom", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                offset = Mathf.Max(offset, BOTTOM_SPRING_EXTRA);
+            }
+        }
+
+        return offset;
     }
 
 
@@ -465,6 +517,11 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
             _cancelTask = false;
             return;
         }
+
+        // Apply special manufacturer offsets when specific arm parts are present
+        float specialOffset = GetArmAssemblyExtraOffset();
+        _lastSpecialOffset = specialOffset;
+        _farthestDistance += specialOffset;
 
         _farthestDistance += BufferSize;
         for (int i = 0; i < _positions.Count; i++)
@@ -634,6 +691,5 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         }
         _needsUpdate = false;
     }
-
     #endregion
 }

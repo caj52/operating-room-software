@@ -748,39 +748,59 @@ public class ObjectMenu : MonoBehaviour
 
     private async void FilterMenuItems(AttachmentPoint attachmentPoint)
     {
+        // Resolve the appropriate metadata for this attachment point in a robust way
+        AttachmentPointMetaData apMeta = null;
+
+        // Try to find any selectable data that references this attachment point GUID
         var selectableData = SelectableAssetBundles.GetSelectableData()
-            .Where(x => x.MetaData.AttachmentPointGuidMetaData
-            .FirstOrDefault(y => y.Guid == attachmentPoint.MetaData.Guid) != default)
-            .First();
+            .FirstOrDefault(x => x?.MetaData?.AttachmentPointGuidMetaData != null &&
+                                 x.MetaData.AttachmentPointGuidMetaData.Any(y => y.Guid == attachmentPoint.MetaData.Guid));
 
-        var task = Database.GetMetaData(
-            selectableData.AssetBundleName,
-            selectableData.MetaData);
-
-        await task;
-
-        if (!Application.isPlaying)
-            throw new Exception($"App quit during task");
-
-        if (task.Result.ResultType != Database.MetaDataOpertaionResultType.Success)
+        if (selectableData != null)
         {
-            UI_DialogPrompt.Open($"Error: {task.Result.ErrorMessage}");
-            return;
+            var task = Database.GetMetaData(
+                selectableData.AssetBundleName,
+                selectableData.MetaData);
+
+            await task;
+
+            if (!Application.isPlaying)
+                return;
+
+            if (task.Result.ResultType == Database.MetaDataOpertaionResultType.Success)
+            {
+                var metaData = task.Result.MetaData;
+
+                var apData = metaData
+                    .AttachmentPointGuidMetaData
+                    .FirstOrDefault(x => x.Guid == attachmentPoint.MetaData.Guid)
+                    ?? selectableData.MetaData
+                        .AttachmentPointGuidMetaData
+                        .FirstOrDefault(x => x.Guid == attachmentPoint.MetaData.Guid);
+
+                if (apData != null)
+                {
+                    apMeta = apData.MetaData;
+                }
+            }
+            else
+            {
+                Debug.LogWarning($"Could not fetch metadata for filtering: {task.Result.ErrorMessage}");
+            }
         }
 
-        var metaData = task.Result.MetaData;
-
-        var apData = metaData
-            .AttachmentPointGuidMetaData
-            .FirstOrDefault(x => x.Guid == attachmentPoint.MetaData.Guid);
-
-        if (apData == default)
+        // Fallback to the attachment point's own metadata if we couldn't resolve from DB/asset bundles
+        if (apMeta == null)
         {
-            apData = selectableData.MetaData
-                .AttachmentPointGuidMetaData
-                .First(x => x.Guid == attachmentPoint.MetaData.Guid);
+            apMeta = attachmentPoint.MetaData ?? new AttachmentPointMetaData
+            {
+                Guid = attachmentPoint.GUID,
+                AllowedSelectableCategories = new List<string>(),
+                AllowedSelectableAssetBundleNames = new List<string>()
+            };
         }
 
+        // Apply filtering using resolved metadata
         ObjectMenuItems.ForEach(item =>
         {
             if (item.SelectableData == null)
@@ -796,32 +816,23 @@ public class ObjectMenu : MonoBehaviour
             }
 
             var compareMetaData = item.SelectableMetaData;
+            var categories = compareMetaData?.Categories ?? new List<string>();
 
-            foreach (var category in compareMetaData.Categories)
+            // Category-based allow list
+            foreach (var category in categories)
             {
-                if (apData.MetaData
-                    .AllowedSelectableCategories.Contains(category))
+                if (apMeta.AllowedSelectableCategories != null &&
+                    apMeta.AllowedSelectableCategories.Contains(category))
                 {
-                    foreach (var ob in apData.MetaData.AllowedSelectableCategories)
-                    {
-                        Debug.LogError(ob);
-                    }
-                    Debug.LogError("GameObject " + item.GameObject.name);
                     item.GameObject.SetActive(true);
                     return;
                 }
             }
 
-            if (apData.MetaData
-                .AllowedSelectableAssetBundleNames
-                .Contains(item.SelectableData.AssetBundleName))
+            // Explicit asset bundle allow list
+            if (apMeta.AllowedSelectableAssetBundleNames != null &&
+                apMeta.AllowedSelectableAssetBundleNames.Contains(item.SelectableData.AssetBundleName))
             {
-
-                foreach (var ob in apData.MetaData.AllowedSelectableAssetBundleNames)
-                {
-                    Debug.LogError(ob);
-                }
-                Debug.LogError("GameObject " + item.SelectableData.AssetBundleName);
                 item.GameObject.SetActive(true);
                 return;
             }

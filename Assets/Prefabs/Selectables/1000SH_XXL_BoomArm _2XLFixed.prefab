@@ -176,26 +176,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   <Target>k__BackingField: {fileID: 7261344254973020886}
---- !u!114 &8568006493292999061
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 676682964299888007}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f68425babe0141945b7bb62bfa707421, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  _lineRenderer: {fileID: 0}
-  <IncludeChildrenInMeasurement>k__BackingField: 0
-  <DoorHinge>k__BackingField: {fileID: 0}
-  <DoorStrike>k__BackingField: {fileID: 0}
-  <DoorSwingAngle>k__BackingField: 90
-  <Type>k__BackingField: 0
-  epsilon: 0.00001
-  renderMaterialColor: {fileID: 0}
 --- !u!1 &2173824520737490535 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 919132149155446097, guid: e5ef99855970f95419f7181e49634ae7, type: 3}

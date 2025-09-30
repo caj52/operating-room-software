@@ -386,6 +386,26 @@ GameObject:
   m_CorrespondingSourceObject: {fileID: 6720701881900560553, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
   m_PrefabInstance: {fileID: 1983855958416559860}
   m_PrefabAsset: {fileID: 0}
+--- !u!114 &-4595904969385156834
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5101638000107683421}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f68425babe0141945b7bb62bfa707421, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _lineRenderer: {fileID: 0}
+  <IncludeChildrenInMeasurement>k__BackingField: 0
+  <DoorHinge>k__BackingField: {fileID: 0}
+  <DoorStrike>k__BackingField: {fileID: 0}
+  <DoorSwingAngle>k__BackingField: 90
+  <Type>k__BackingField: 2
+  epsilon: 0.00001
+  renderMaterialColor: {fileID: 0}
 --- !u!1001 &7411249822702440702
 PrefabInstance:
   m_ObjectHideFlags: 0

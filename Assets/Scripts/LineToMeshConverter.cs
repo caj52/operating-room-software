@@ -13,6 +13,13 @@ public class LineToMeshConverter : MonoBehaviour
     public float widthScale = 0.5f;
     public int circleResolution = 8;
     Selectable selectable;
+
+    // Special case: allow same-parent collisions for this parent Selectable
+    private const string TandemCoverName = "Boom - Tandem Ceiling Cover";
+
+    // Track active, relevant clearance-line collisions for this object
+    private readonly HashSet<Collider> _activeRelevantCollisions = new HashSet<Collider>();
+
     void Start()
     {
 
@@ -33,6 +40,9 @@ public class LineToMeshConverter : MonoBehaviour
             meshFilter.mesh = mesh;
         }
 
+        // Ensure initial state is green
+        SetRendererColor(this, new Color(0f, 1f, 0f, 0.5f));
+
         UpdateMesh();
     }
 
@@ -40,10 +50,56 @@ public class LineToMeshConverter : MonoBehaviour
     {
         UpdateMesh();
 
-        Collider[] colliders = Physics.OverlapSphere(transform.position, 0.5f);
-        if (colliders.Length == 0)
+        // Fallback: if no relevant collisions are currently around, ensure color goes back to green.
+        UpdateCollisionColorFallback();
+    }
+
+    private bool IsTandemParent(Transform parent)
+    {
+        if (parent == null) return false;
+        var sel = parent.GetComponent<Selectable>();
+        return sel != null && sel.UIButtonName == TandemCoverName;
+    }
+
+    private static string GetSelectableName(Transform t)
+    {
+        if (t == null) return "Unknown";
+        var sel = t.GetComponentInParent<Selectable>();
+        if (sel != null && !string.IsNullOrEmpty(sel.UIButtonName)) return sel.UIButtonName;
+        return t.name;
+    }
+
+    private void UpdateCollisionColorFallback()
+    {
+        if (sphereCollider == null) return;
+
+        // Clean up destroyed/invalid colliders from the set
+        _activeRelevantCollisions.RemoveWhere(c => c == null);
+
+        Vector3 center = transform.TransformPoint(sphereCollider.center);
+        float radius = Mathf.Max(sphereCollider.radius, 0.1f);
+        Collider[] colliders = Physics.OverlapSphere(center, radius);
+
+        bool touchingWall = false;
+
+        for (int i = 0; i < colliders.Length; i++)
         {
-            Debug.Log("Anas => No collision detected, should trigger exit");
+            Collider other = colliders[i];
+            if (other == null || other.gameObject == gameObject) continue;
+
+            if (other.gameObject.layer == LayerMask.NameToLayer("Wall") &&
+                !other.gameObject.name.Contains("Ceil") &&
+                !other.gameObject.name.Contains("Floor"))
+            {
+                touchingWall = true;
+                break;
+            }
+        }
+
+        // If we are not colliding with any relevant line and not touching a wall, ensure color returns to green
+        if (_activeRelevantCollisions.Count == 0 && !touchingWall)
+        {
+            SetRendererColor(this, new Color(0f, 1f, 0f, 0.5f));
         }
     }
 
@@ -131,23 +187,44 @@ public class LineToMeshConverter : MonoBehaviour
     {
         if (other.CompareTag("ClearanceLine"))
         {
-            if (this.transform.parent != other.transform.parent)
+            // Valid collision if from different parent OR same parent with special Tandem Cover parent
+            bool differentParent = this.transform.parent != other.transform.parent;
+            bool sameParentTandem = this.transform.parent == other.transform.parent && IsTandemParent(this.transform.parent);
+            if (differentParent || sameParentTandem)
             {
-                Debug.Log("Anas => Not Same Highest Selectable and Intersaction");
+                _activeRelevantCollisions.Add(other);
+                Debug.Log("Anas => Collision between clearance lines (valid context)");
                 SetRendererColor(this, new Color(1f, 0f, 0f, 0.5f)); // Red
                 SetRendererColor(other.GetComponent<LineToMeshConverter>(), new Color(1f, 0f, 0f, 0.5f));
 
                 if (UI_ToggleProximityAlerts.IsActive)
                 {
-                UI_DialogPrompt.Open($"{selectable.UIButtonName} is colliding with the {other.gameObject.name}",
-                new ButtonAction
-                {
-                    ButtonText = "Ok",
-                    Action = () =>
+                    if (sameParentTandem)
                     {
-                        UI_DialogPrompt.Close();
-                    },
-                });
+                        UI_DialogPrompt.Open("Collision is possible between both arms",
+                        new ButtonAction
+                        {
+                            ButtonText = "Ok",
+                            Action = () =>
+                            {
+                                UI_DialogPrompt.Close();
+                            },
+                        });
+                    }
+                    else
+                    {
+                        string thisName = GetSelectableName(transform);
+                        string otherName = GetSelectableName(other.transform);
+                        UI_DialogPrompt.Open($"Collision possible between {thisName} and {otherName}",
+                        new ButtonAction
+                        {
+                            ButtonText = "Ok",
+                            Action = () =>
+                            {
+                                UI_DialogPrompt.Close();
+                            },
+                        });
+                    }
                 }
                
             }
@@ -171,13 +248,17 @@ public class LineToMeshConverter : MonoBehaviour
             }
            
         }
+     
     }
     private void OnTriggerStay(Collider other)
     {
         if (other.CompareTag("ClearanceLine"))
         {
-            if (this.transform.parent != other.transform.parent)
+            bool differentParent = this.transform.parent != other.transform.parent;
+            bool sameParentTandem = this.transform.parent == other.transform.parent && IsTandemParent(this.transform.parent);
+            if (differentParent || sameParentTandem)
             {
+                _activeRelevantCollisions.Add(other);
                 SetRendererColor(this, new Color(1f, 0f, 0f, 0.5f)); // Red
                 SetRendererColor(other.GetComponent<LineToMeshConverter>(), new Color(1f, 0f, 0f, 1f));
             }
@@ -188,22 +269,48 @@ public class LineToMeshConverter : MonoBehaviour
         Debug.Log("Anas=> Collision not Detected", other.gameObject);
         if (other.CompareTag("ClearanceLine"))
         {
+            _activeRelevantCollisions.Remove(other);
             Debug.Log("Anas not Detected with another LineObject!");
-            SetRendererColor(this, new Color(0, 1, 0, 0.5f)); // Green
-            SetRendererColor(other.GetComponent<LineToMeshConverter>(), new Color(0, 1, 0, 0.5f));
+            if (_activeRelevantCollisions.Count == 0)
+            {
+                SetRendererColor(this, new Color(0, 1, 0, 0.5f)); // Green
+            }
+            // Optionally set the other to green as well, but it may still be colliding with something else
+            // SetRendererColor(other.GetComponent<LineToMeshConverter>(), new Color(0, 1, 0, 0.5f));
         }
         if (other.gameObject.layer == LayerMask.NameToLayer("Wall") && !other.gameObject.name.Contains("Ceil") && !other.gameObject.name.Contains("Floor"))
         {
             Debug.Log("Anas => Exited from wall contact");
-            SetRendererColor(this, new Color(0, 1, 0, 0.5f));
+            // Only set to green if no relevant line collisions remain
+            if (_activeRelevantCollisions.Count == 0)
+            {
+                SetRendererColor(this, new Color(0, 1, 0, 0.5f));
+            }
         }
+    }
+
+    private void OnDisable()
+    {
+        // Ensure we don't leave stale red color when object gets disabled/destroyed
+        SetRendererColor(this, new Color(0f, 1f, 0f, 0.5f));
+        _activeRelevantCollisions.Clear();
     }
 
     private void SetRendererColor(LineToMeshConverter renderer, Color color)
     {
-        if (renderer != null && renderer.GetComponent<LineRenderer>() != null && renderer.GetComponent<LineRenderer>().materials.Length > 0)
+        if (renderer == null) return;
+        var lr = renderer.GetComponent<LineRenderer>();
+        if (lr == null) return;
+
+        // Set LineRenderer colors directly (more reliable than material color alone)
+        lr.startColor = color;
+        lr.endColor = color;
+
+        // Also try to set material color if supported by the shader
+        var mat = lr.material;
+        if (mat != null && mat.HasProperty("_Color"))
         {
-            renderer.GetComponent<LineRenderer>().materials[0].color = color;
+            mat.color = color;
         }
     }
 

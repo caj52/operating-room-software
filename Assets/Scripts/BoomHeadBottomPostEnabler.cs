@@ -25,6 +25,7 @@ public class BoomHeadBottomPostEnabler : MonoBehaviour
 
         if (onlyNitrogen)
         {
+            Transform parent = selectable[0].transform.root;
             gameObject.SetActive(false);
             return;
         }

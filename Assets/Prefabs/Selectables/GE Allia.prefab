@@ -651,6 +651,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   <Target>k__BackingField: {fileID: 5101638000107683421}
+--- !u!4 &1629974701746781922 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 2146648432715924850, guid: 079e7b84b37433144b31b3d8dd253ae6, type: 3}
+  m_PrefabInstance: {fileID: 816479994859748240}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &2343336320138070228 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 3157458526562562884, guid: 079e7b84b37433144b31b3d8dd253ae6, type: 3}
@@ -778,6 +783,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   <Target>k__BackingField: {fileID: 5101638000107683421}
+--- !u!4 &7837611430986858778 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: -1760781935689287030, guid: 079e7b84b37433144b31b3d8dd253ae6, type: 3}
+  m_PrefabInstance: {fileID: 816479994859748240}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &8000393780648147589 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: -1994069907987955435, guid: 079e7b84b37433144b31b3d8dd253ae6, type: 3}
@@ -796,6 +806,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   <Target>k__BackingField: {fileID: 5101638000107683421}
+--- !u!4 &8183227652094605284 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 8846215410217077876, guid: 079e7b84b37433144b31b3d8dd253ae6, type: 3}
+  m_PrefabInstance: {fileID: 816479994859748240}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &8497704540523650857 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 9131419310272619705, guid: 079e7b84b37433144b31b3d8dd253ae6, type: 3}
@@ -997,7 +1012,27 @@ GameObject:
   m_CorrespondingSourceObject: {fileID: 6720701881900560553, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
   m_PrefabInstance: {fileID: 1983855958416559860}
   m_PrefabAsset: {fileID: 0}
---- !u!114 &4385675898669773449
+--- !u!114 &2260687710333935000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5101638000107683421}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f68425babe0141945b7bb62bfa707421, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _lineRenderer: {fileID: 0}
+  <IncludeChildrenInMeasurement>k__BackingField: 0
+  <DoorHinge>k__BackingField: {fileID: 0}
+  <DoorStrike>k__BackingField: {fileID: 0}
+  <DoorSwingAngle>k__BackingField: 90
+  <Type>k__BackingField: 4
+  epsilon: 0.00001
+  renderMaterialColor: {fileID: 0}
+--- !u!114 &7468356559855410177
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -1009,3 +1044,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9acfc92d8f8c4f14cb8ba2ab265805b0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  cielingAttachObject: {fileID: 7837611430986858778}
+  object1toScale: {fileID: 1629974701746781922}
+  object2toScale: {fileID: 8183227652094605284}

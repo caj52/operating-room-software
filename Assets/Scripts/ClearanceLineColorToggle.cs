@@ -71,23 +71,23 @@ public class ClearanceLineColorToggle : MonoBehaviour
 
     void OnTriggerEnter(Collider other)
     {
+        // Ignore collisions with other clearance lines entirely
+        if (other.CompareTag("ClearanceLine")) return;
+
         if (IsWall(other))
         {
             ApplyColor(collideColor);
             TryShowProximityAlert($"{GetDisplayName()} is touching the wall!");
             return;
         }
-
-        if (IsOtherClearanceLine(other))
-        {
-            ApplyColor(collideColor);
-            TryShowProximityAlert($"{GetDisplayName()} is colliding with {other.gameObject.name}");
-        }
     }
 
     void OnTriggerStay(Collider other)
     {
-        if (IsWall(other) || IsOtherClearanceLine(other))
+        // Ignore collisions with other clearance lines entirely
+        if (other.CompareTag("ClearanceLine")) return;
+
+        if (IsWall(other))
         {
             ApplyColor(collideColor);
         }
@@ -95,7 +95,10 @@ public class ClearanceLineColorToggle : MonoBehaviour
 
     void OnTriggerExit(Collider other)
     {
-        if (IsWall(other) || IsOtherClearanceLine(other))
+        // Ignore collisions with other clearance lines entirely
+        if (other.CompareTag("ClearanceLine")) return;
+
+        if (IsWall(other))
         {
             ApplyColor(normalColor);
         }
@@ -109,11 +112,6 @@ public class ClearanceLineColorToggle : MonoBehaviour
             return !n.Contains("Ceil") && !n.Contains("Floor");
         }
         return false;
-    }
-
-    bool IsOtherClearanceLine(Collider other)
-    {
-        return other.CompareTag("ClearanceLine") && other.transform.parent != transform.parent;
     }
 
     void TryShowProximityAlert(string message)

@@ -932,6 +932,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: BoomSegment_1
       objectReference: {fileID: 0}
+    - target: {fileID: 6720701881900560553, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
+      propertyPath: m_TagString
+      value: BoomTopArm
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
 --- !u!1 &4221720670961798976 stripped

@@ -319,10 +319,7 @@ internal class UI_ObjectEditor : MonoBehaviour
     {
         var guid = AttachmentPoint.SelectedAttachmentPoint.MetaData.Guid;
 
-        Selectable.AttachmentPointData data = ObjectMenu
-            .LastOpenedSelectable
-            .AttachmentPointDatas
-            .First(x => x.Guid == guid);
+        // Removed unsafe lookup into AttachmentPointDatas that could throw when no match exists.
 
         var existing = _activeMetaData
             .AttachmentPointGuidMetaData

@@ -29,11 +29,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: a27301800d2a7504b9c66610bc0493ff, type: 3}
       propertyPath: m_LocalPosition.y
-      value: 0.25
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: a27301800d2a7504b9c66610bc0493ff, type: 3}
       propertyPath: m_LocalPosition.z
-      value: 0.23
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: a27301800d2a7504b9c66610bc0493ff, type: 3}
       propertyPath: m_LocalRotation.w
@@ -95,6 +95,29 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   <Target>k__BackingField: {fileID: 2799276748574586728}
+--- !u!114 &7825572102811107588
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1814358489284768497}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a3b69c8953e3f09438454d8679833f63, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  attachmentPoint: {fileID: 0}
+  railPlateParentName: NitrogenRegulatorAtachPoint
+  caseInsensitiveMatch: 1
+  useLocalPosition: 1
+  positionWhenChildOfRailPlate: {x: 0, y: 0, z: 0}
+  positionOtherwise: {x: 0, y: 0.25, z: 0.23}
+  railNameKeywords:
+  - Standard_Rail_v1
+  - Rear_Rail
+  - SHP_Rails
+  - Rail
 --- !u!1001 &4642673746734279105
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -220,6 +243,10 @@ PrefabInstance:
       value: NitrogenRegulator
       objectReference: {fileID: 0}
     - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
+      propertyPath: <AttachmentPointDatas>k__BackingField.Array.size
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: <MetaData>k__BackingField.<Enabled>k__BackingField
       value: 1
       objectReference: {fileID: 0}
@@ -249,11 +276,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 3702329968397827254, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: m_LocalPosition.y
-      value: 0
+      value: 0.25
       objectReference: {fileID: 0}
     - target: {fileID: 3702329968397827254, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: m_LocalPosition.z
-      value: 0
+      value: 0.23
       objectReference: {fileID: 0}
     - target: {fileID: 3702329968397827254, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: m_LocalRotation.w

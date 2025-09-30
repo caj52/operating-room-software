@@ -613,9 +613,6 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             SelectionChanged?.Invoke();
         }
 
-        ToggleMeasurableActiveStatesWhilePlacing(false);
-        FindObjectOfType<UI_MeasurementButton>(true)._toggle.isOn = false;
-
     }
 
     public void Select()
@@ -667,11 +664,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         });
 
         SelectionChanged?.Invoke();
-        if (UI_ToggleClearanceLines.IsActive)
-        {
-            FindObjectOfType<UI_MeasurementButton>(true)._toggle.isOn = true;
-            ToggleMeasurableActiveStatesWhilePlacing(true);
-        }
+
 
     }
 
