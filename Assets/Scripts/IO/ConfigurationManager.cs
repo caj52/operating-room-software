@@ -198,6 +198,8 @@ public class ConfigurationManager : MonoBehaviour
         return string.Join("_", filename.Split(Path.GetInvalidFileNameChars()));
     }
 
+
+
     public async void SaveRoom(string title)
     {
         CreateTracker();
@@ -477,7 +479,11 @@ public class ConfigurationManager : MonoBehaviour
             {
                 go = IsRoomBoundary(data) ? GetRoomBoundary(data) : GetGameObjectWithGuidName(data);
                 if (go != null && go.GetComponent<Selectable>() != null)
+                {
                     LogData(go.GetComponent<Selectable>(), data);
+                    ResetMaterialPalettes(go.GetComponent<TrackedObject>());
+                }
+
                 continue;
             }
 
@@ -614,6 +620,24 @@ public class ConfigurationManager : MonoBehaviour
             ProcessAttachmentPoint(apData);
     }
 
+
+    private void ResetMaterialPalettes(TrackedObject obj)
+    {
+        if (obj == null)
+        {
+            Debug.LogWarning("Attempted to reset materials of a missing TrackedObject reference.");
+            return;
+        }
+
+        if (obj.TryGetComponent(out MaterialPalette palette))
+        {
+            for (int i = 0; i < obj.GetMaterials().Count(); i++)
+            {
+                string modifiedName = obj.GetMaterials()[i].Replace(" (Instance)", "");
+                palette.Assign(modifiedName, i);
+            }
+        }
+    }
     private async Task<GameObject> InstantiateObject(TrackedObject.Data trackedObject)
     {
         if (!SelectableAssetBundles.TryGetSelectableData(trackedObject.global_guid, out SelectableData data))

@@ -4667,6 +4667,10 @@ PrefabInstance:
       propertyPath: <elements>k__BackingField.Array.data[0].materials.Array.data[3]
       value: 
       objectReference: {fileID: 2100000, guid: 3a974a94a4e74cc4894e26965890f338, type: 2}
+    - target: {fileID: 6489340789016149685, guid: 1b78c14021aea83438cf07a8ec426282, type: 3}
+      propertyPath: <elements>k__BackingField.Array.data[0].<_zeroStart>k__BackingField
+      value: 1
+      objectReference: {fileID: 0}
     - target: {fileID: 9219654223733637955, guid: 1b78c14021aea83438cf07a8ec426282, type: 3}
       propertyPath: m_LocalPosition.x
       value: 10
@@ -5131,6 +5135,10 @@ PrefabInstance:
       propertyPath: <elements>k__BackingField.Array.data[0].materials.Array.data[3]
       value: 
       objectReference: {fileID: 2100000, guid: 3a974a94a4e74cc4894e26965890f338, type: 2}
+    - target: {fileID: 6489340789016149685, guid: 1b78c14021aea83438cf07a8ec426282, type: 3}
+      propertyPath: <elements>k__BackingField.Array.data[0].<_zeroStart>k__BackingField
+      value: 1
+      objectReference: {fileID: 0}
     - target: {fileID: 9219654223733637955, guid: 1b78c14021aea83438cf07a8ec426282, type: 3}
       propertyPath: m_LocalPosition.x
       value: 0
@@ -5470,6 +5478,10 @@ PrefabInstance:
       propertyPath: <elements>k__BackingField.Array.data[0].materials.Array.data[3]
       value: 
       objectReference: {fileID: 2100000, guid: 3a974a94a4e74cc4894e26965890f338, type: 2}
+    - target: {fileID: 6489340789016149685, guid: 1b78c14021aea83438cf07a8ec426282, type: 3}
+      propertyPath: <elements>k__BackingField.Array.data[0].<_zeroStart>k__BackingField
+      value: 1
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 1b78c14021aea83438cf07a8ec426282, type: 3}
 --- !u!114 &618851851 stripped
@@ -9815,6 +9827,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b1d11514d5f652d47aa40f46bd9c58d9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  transparentCeilingAlpha: 0.1
+  freeLookCeilingAlpha: 1
 --- !u!1 &1286014373
 GameObject:
   m_ObjectHideFlags: 0
@@ -21698,6 +21712,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b1d11514d5f652d47aa40f46bd9c58d9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  transparentCeilingAlpha: 0.1
+  freeLookCeilingAlpha: 1
 --- !u!114 &3820170956656190134
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -25481,6 +25497,10 @@ PrefabInstance:
       propertyPath: <elements>k__BackingField.Array.data[0].materials.Array.data[3]
       value: 
       objectReference: {fileID: 2100000, guid: 3a974a94a4e74cc4894e26965890f338, type: 2}
+    - target: {fileID: 6489340789016149685, guid: 1b78c14021aea83438cf07a8ec426282, type: 3}
+      propertyPath: <elements>k__BackingField.Array.data[0].<_zeroStart>k__BackingField
+      value: 1
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 1b78c14021aea83438cf07a8ec426282, type: 3}
 --- !u!4 &6489340789723960628 stripped
@@ -29033,7 +29053,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2284443531365169376, guid: 2a3e93d8083baa340a6e8b55c883ede6, type: 3}
       propertyPath: m_AnchoredPosition.y
-      value: 0.00004196167
+      value: 0.000034332275
       objectReference: {fileID: 0}
     - target: {fileID: 5273334853876149546, guid: 2a3e93d8083baa340a6e8b55c883ede6, type: 3}
       propertyPath: m_AnchorMax.x

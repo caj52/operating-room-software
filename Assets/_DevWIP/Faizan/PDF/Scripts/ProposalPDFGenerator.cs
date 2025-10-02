@@ -72,6 +72,9 @@ public class ProposalPDFGenerator : MonoBehaviour
     private float currentProgress = 0f;
     private bool isCancelled = false;
     private Coroutine pdfGenerationCoroutine = null;
+    
+    // Image cleanup tracking
+    private List<string> tempImagePaths = new List<string>();
 
     #endregion
 
@@ -108,6 +111,9 @@ public class ProposalPDFGenerator : MonoBehaviour
         bool hasError = false;
         string errorMessage = "";
         string filePath = "";
+        
+        // Clear any previous temp image paths
+        tempImagePaths.Clear();
 
         // Show loading screen with cancel option
         UI_GeneralLoadingScreen.instance.ShowLoadingScreen();
@@ -193,8 +199,37 @@ public class ProposalPDFGenerator : MonoBehaviour
         UI_GeneralLoadingScreen.instance.SetProgress(0.4f);
 
         // Step 3: Generate PDF
-        string fileName = $"SalesProposal_{Guid.NewGuid()}.pdf";
-        filePath = Path.Combine(Application.persistentDataPath, fileName);
+        // Sanitize config name for safe filename
+        string safeConfigName = string.IsNullOrWhiteSpace(configName)
+            ? "Config"
+            : string.Join("_", configName.Split(Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries));
+        
+        // Resolve room path first with validation and fallback
+        string roomPath = FullRoomSave.GetRoomPath();
+        bool roomPathInvalid = string.IsNullOrWhiteSpace(roomPath) || roomPath.IndexOfAny(Path.GetInvalidPathChars()) >= 0;
+        
+        if (roomPathInvalid)
+        {
+            // Fallback to persistent data path if no room saved
+            roomPath = Application.persistentDataPath;
+        }
+        
+        // Always create SalesProposals subfolder for consistent organization
+        string salesProposalsPath = Path.Combine(roomPath, "SalesProposals");
+        
+        // Ensure target directory exists
+        if (!Directory.Exists(salesProposalsPath))
+        {
+            Directory.CreateDirectory(salesProposalsPath);
+            Debug.Log($"Created SalesProposals folder at: {salesProposalsPath}");
+        }
+        
+        // Generate unique filename to prevent overwriting using existing method
+        string baseFileName = $"SalesProposal_{safeConfigName}";
+        string fileName = GenerateUniqueFileName(salesProposalsPath, baseFileName, ".pdf");
+        
+        filePath = Path.Combine(salesProposalsPath, fileName);
+
 
         UI_GeneralLoadingScreen.instance.SetStatus("Creating PDF document structure...");
         yield return null;
@@ -279,7 +314,10 @@ public class ProposalPDFGenerator : MonoBehaviour
 
     private void CleanupAndShowResult(bool cancelled, bool hasError, string errorMessage, string filePath)
     {
-        // Clean up
+        // Clean up temporary images
+        CleanupTemporaryImages();
+        
+        // Clean up UI references
         UI_GeneralLoadingScreen.instance.OnCancel -= HandleCancellation;
         UI_GeneralLoadingScreen.instance.HideLoadingScreen();
         pdfGenerationCoroutine = null;
@@ -315,6 +353,47 @@ public class ProposalPDFGenerator : MonoBehaviour
             OpenPDF(filePath);
         }
     }
+    
+    /// <summary>
+    /// Cleans up all temporary image files created during PDF generation
+    /// </summary>
+    private void CleanupTemporaryImages()
+    {
+        // Delete ceiling screenshot if it exists
+        if (!string.IsNullOrEmpty(path) && File.Exists(path))
+        {
+            try
+            {
+                File.Delete(path);
+                Debug.Log($"Deleted ceiling screenshot: {path}");
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"Failed to delete ceiling screenshot {path}: {e.Message}");
+            }
+        }
+
+        // Delete all elevation images
+        foreach (string imagePath in tempImagePaths)
+        {
+            if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
+            {
+                try
+                {
+                    File.Delete(imagePath);
+                    Debug.Log($"Deleted elevation image: {imagePath}");
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"Failed to delete elevation image {imagePath}: {e.Message}");
+                }
+            }
+        }
+        
+        // Clear the tracking list
+        tempImagePaths.Clear();
+    }
+
 
     private void HandleCancellation()
     {
@@ -359,11 +438,11 @@ public class ProposalPDFGenerator : MonoBehaviour
     private void SetupFonts()
     {
         BaseFont baseFont = BaseFont.CreateFont(BaseFont.HELVETICA, BaseFont.CP1252, BaseFont.EMBEDDED);
-        titleFont = new Font(baseFont, 16, Font.BOLD);
-        headerFont = new Font(baseFont, 12, Font.BOLD);
-        normalFont = new Font(baseFont, 10, Font.NORMAL);
+        titleFont = new Font(baseFont, 12, Font.BOLD);
+        headerFont = new Font(baseFont, 10, Font.BOLD);
+        normalFont = new Font(baseFont, 6, Font.NORMAL);
         smallFont = new Font(baseFont, 8, Font.NORMAL);
-        boldFont = new Font(baseFont, 10, Font.BOLD);
+        boldFont = new Font(baseFont, 8, Font.BOLD);
         notesFont = new Font(baseFont, 8, Font.ITALIC);
         tableHeaderFont = new Font(baseFont, normalFont.Size, Font.NORMAL, BaseColor.WHITE);
         tableTitleFont = new Font(baseFont, normalFont.Size, Font.BOLD, new BaseColor(168, 168, 168));
@@ -535,6 +614,8 @@ public class ProposalPDFGenerator : MonoBehaviour
 
             document.Add(Chunk.NEWLINE);
             AddTableTitle(document, configName);
+
+            // Handle lights section if lights exist
             if (lights.Count > 0)
             {
                 PdfPTable lightTable = CreateModelTable("MODEL DESCRIPTION", "QTY", "LIGHT", lights.Count.ToString());
@@ -542,32 +623,64 @@ public class ProposalPDFGenerator : MonoBehaviour
                 AddHorizontalLine(document);
 
                 AddSectionHeader(document, "OPTION/ACCESSORY DESCRIPTION");
-                // ADDED: Old-style text-only options for LIGHT
-                {
-                    string lightOptionsText = BuildOptionsDescriptionString(lights, false);
-                    PdfPTable lightOptions = CreateOptionTable(lightOptionsText);
-                    document.Add(lightOptions);
-                    document.Add(Chunk.NEWLINE);
-                    //  document.Add(lightOptions);
-                }
+                // Old-style text-only options for LIGHT
+                string lightOptionsText = BuildOptionsDescriptionString(lights, false);
+                PdfPTable lightOptions = CreateOptionTable(lightOptionsText);
+                document.Add(lightOptions);
+                document.Add(Chunk.NEWLINE);
+            }
 
-                if (booms.Count > 0)
+            // Handle booms section if booms exist
+            if (booms.Count > 0)
+            {
+                // Special quantity logic for Boom - Tandem Ceiling Cover (same as pricing page)
+                int boomQty = 1; // default quantity
+                
+                // Check if this is a Boom - Tandem Ceiling Cover configuration
+                var firstSp = group.FirstOrDefault();
+                if (firstSp != null)
                 {
-                    PdfPTable boomTable = CreateModelTable("MODEL DESCRIPTION", "QTY", "ARTICULATING BOOM", "1");
-                    document.Add(boomTable);
-                    AddHorizontalLine(document);
+                    var rootSelectables = firstSp.transform.root.GetComponentsInChildren<Selectable>(true);
+                    bool isTandemCeilingCover = rootSelectables.Any(s => 
+                        !string.IsNullOrEmpty(s.UIButtonName) && 
+                        s.UIButtonName.Contains("Boom - Tandem Ceiling Cover"));
 
-                    AddSectionHeader(document, "OPTION/ACCESSORY DESCRIPTION");
-                    // ADDED: Old-style text-only options for BOOM
+                    if (isTandemCeilingCover)
                     {
-                        string boomOptionsText = BuildOptionsDescriptionString(booms, true);
-                        PdfPTable boomOptions = CreateOptionTable(boomOptionsText);
-                        document.Add(boomOptions);
-                        AddHorizontalLine(document);
+                        // Count boom service heads attached to this configuration
+                        int serviceHeadCount = 0;
+                        foreach (var selectable in rootSelectables)
+                        {
+                            var scaleHandler = selectable.GetComponent<BoomHeadScaleHandler>();
+                            if (scaleHandler != null)
+                            {
+                                serviceHeadCount++;
+                            }
+                        }
+                        
+                        // If 2 service heads are found, set quantity to 2
+                        if (serviceHeadCount >= 2)
+                        {
+                            boomQty = 2;
+                        }
                     }
-
                 }
 
+                PdfPTable boomTable = CreateModelTable("MODEL DESCRIPTION", "QTY", "ARTICULATING BOOM", boomQty.ToString());
+                document.Add(boomTable);
+                AddHorizontalLine(document);
+
+                AddSectionHeader(document, "OPTION/ACCESSORY DESCRIPTION");
+                // Old-style text-only options for BOOM
+                string boomOptionsText = BuildOptionsDescriptionString(booms, true);
+                PdfPTable boomOptions = CreateOptionTable(boomOptionsText);
+                document.Add(boomOptions);
+                AddHorizontalLine(document);
+            }
+
+            // Calculate and display total if we have any items (lights or booms)
+            if (lights.Count > 0 || booms.Count > 0)
+            {
                 double configTotal = 0;
 
                 // Calculate total from the group, handling both UI and non-UI cases
@@ -613,9 +726,22 @@ public class ProposalPDFGenerator : MonoBehaviour
                 AddCompanyHeader(document);
             }
 
+            // Add ceiling image
             AddImageToPDF(document, path, pdfWriter, imageHeight);
+            
+            // Add elevation images and track paths for cleanup
             if (imageData.Count > 0)
+            {
                 AddImageToPDF(document, imageData[0].Path, pdfWriter, imageHeight);
+                // Track image paths for cleanup
+                foreach (var imgData in imageData)
+                {
+                    if (!string.IsNullOrEmpty(imgData.Path))
+                    {
+                        tempImagePaths.Add(imgData.Path);
+                    }
+                }
+            }
         }
     }
 
@@ -639,13 +765,12 @@ public class ProposalPDFGenerator : MonoBehaviour
             PdfPTable table = new PdfPTable(5);
             table.WidthPercentage = 100;
             table.SetWidths(new float[] { 2, 5, 1, 2, 2 });
+            table.SpacingBefore = 5f; // Add space before table
+            table.SpacingAfter = 5f;  // Add space after table
 
             double subtotal = 0;
 
             // ---------- LIGHT MODELS ----------
-            // Header for light models
-            AddRowToTable(table, "LIGHT MODELS", BaseColor.WHITE, BaseColor.BLACK, PdfPCell.NO_BORDER);
-
             // Aggregate light rows by PartNumber+Name+UnitPrice (as before)
             var lightGroups = configGroup
                 .Where(sp => sp.objectPricingData != null &&
@@ -659,34 +784,55 @@ public class ProposalPDFGenerator : MonoBehaviour
                         : $"{sp.objectPricingData.ObjectSize} {sp.objectPricingData.ObjectName}",
                     UnitPrice = sp.objectPricingData.ListPrice +
                                (sp.objectPricingData.isSimFlexArmAvailable ? sp.objectPricingData.SimFlexPrice : 0)
-                });
+                })
+                .ToList(); // Convert to list to avoid multiple enumeration
 
-            foreach (var g in lightGroups)
+            // Only add light models header if there are actual light items
+            if (lightGroups.Count > 0)
             {
-                int qty = g.Count();
-                double unit = g.Key.UnitPrice;
-                double ext = unit * qty;
+                AddRowToTable(table, "MODEL DESCRIPTION", BaseColor.WHITE, BaseColor.BLACK, PdfPCell.NO_BORDER);
 
-                // Prefer UI row if any item has it
-                var withUI = g.FirstOrDefault(x => x.UIRefPricingRowDataFill != null);
-                if (withUI?.UIRefPricingRowDataFill != null)
+                foreach (var g in lightGroups)
                 {
-                    var ui = withUI.UIRefPricingRowDataFill;
-                    table.AddCell(CreateLeftAlignedCell(ui.partNo.text ?? "N/A", normalFont));
-                    table.AddCell(CreateLeftAlignedCell(g.Key.Name, normalFont));
-                    table.AddCell(CreateCenteredCell(qty.ToString(), normalFont));
-                    table.AddCell(CreateRightAlignedCell(unit.ToString("C"), normalFont));
-                    table.AddCell(CreateRightAlignedCell(ui.Price.ToString("C"), normalFont));
-                    subtotal += ui.Price;
+                    int qty = g.Count();
+                    double unit = g.Key.UnitPrice;
+                    double ext = unit * qty; // EXT LIST PRICE = LIST PRICE * QTY
+
+                    // Prefer UI row if any item has it
+                    var withUI = g.FirstOrDefault(x => x.UIRefPricingRowDataFill != null);
+                    if (withUI?.UIRefPricingRowDataFill != null)
+                    {
+                        var ui = withUI.UIRefPricingRowDataFill;
+                        table.AddCell(CreateLeftAlignedCell(ui.partNo.text ?? "N/A", normalFont));
+                        table.AddCell(CreateLeftAlignedCell(g.Key.Name, normalFont));
+                        table.AddCell(CreateCenteredCell(qty.ToString(), normalFont));
+                        table.AddCell(CreateRightAlignedCell(unit.ToString("C"), normalFont));
+                        table.AddCell(CreateRightAlignedCell((unit * qty).ToString("C"), normalFont)); // EXT = UNIT * QTY
+                        subtotal += (unit * qty);
+                    }
+                    else
+                    {
+                        table.AddCell(CreateLeftAlignedCell(g.Key.PartNumber ?? "N/A", normalFont));
+                        table.AddCell(CreateLeftAlignedCell(g.Key.Name, normalFont));
+                        table.AddCell(CreateCenteredCell(qty.ToString(), normalFont));
+                        table.AddCell(CreateRightAlignedCell(unit.ToString("C"), normalFont));
+                        table.AddCell(CreateRightAlignedCell(ext.ToString("C"), normalFont)); // EXT = UNIT * QTY
+                        subtotal += ext;
+                    }
                 }
-                else
+                
+                // Add a small spacer row after light models
+                if (lightGroups.Count > 0)
                 {
-                    table.AddCell(CreateLeftAlignedCell(g.Key.PartNumber ?? "N/A", normalFont));
-                    table.AddCell(CreateLeftAlignedCell(g.Key.Name, normalFont));
-                    table.AddCell(CreateCenteredCell(qty.ToString(), normalFont));
-                    table.AddCell(CreateRightAlignedCell(unit.ToString("C"), normalFont));
-                    table.AddCell(CreateRightAlignedCell(ext.ToString("C"), normalFont));
-                    subtotal += ext;
+                    for (int i = 0; i < 5; i++)
+                    {
+                        PdfPCell spacerCell = new PdfPCell(new Phrase(" ", normalFont))
+                        {
+                            Border = Rectangle.NO_BORDER,
+                            FixedHeight = 3f
+                        };
+                        table.AddCell(spacerCell);
+                    }
                 }
             }
 
@@ -702,61 +848,135 @@ public class ProposalPDFGenerator : MonoBehaviour
 
             if (lightOptionData.Count > 0)
             {
-                AddRowToTable(table, "LIGHT OPTIONS", BaseColor.WHITE, BaseColor.GRAY, PdfPCell.NO_BORDER);
+                AddRowToTable(table, "OPTION/ACCESSORY DESCRIPTION", BaseColor.BLACK,new BaseColor(180,180,180), PdfPCell.NO_BORDER);
 
                 foreach (var d in lightOptionData)
                 {
-                    AddRowToTable(table, d); // uses existing helper (adds 1 qty, list & ext = ListPrice)
+                    AddRowToTable(table, d); // uses existing helper (qty=1, so EXT = LIST * 1 = LIST)
                     subtotal += d.ListPrice;
+                }
+                
+                // Add a small spacer row after light options
+                for (int i = 0; i < 5; i++)
+                {
+                    PdfPCell spacerCell = new PdfPCell(new Phrase(" ", normalFont))
+                    {
+                        Border = Rectangle.NO_BORDER,
+                        FixedHeight = 3f
+                    };
+                    table.AddCell(spacerCell);
                 }
             }
 
-            // ---------- BOOM MODELS ----------
-            AddRowToTable(table, "BOOM MODELS", BaseColor.WHITE, BaseColor.BLACK, PdfPCell.NO_BORDER);
-
+            // ---------- BOOM MODELS (AGGREGATED) ----------
             var nonLightItems = configGroup
                 .Where(sp => sp.objectPricingData != null &&
                              (sp.objectPricingData.ObjectName == null ||
                               !sp.objectPricingData.ObjectName.ToLower().Contains("light")))
-                .OrderBy(sp => GetHierarchyPath(sp.transform)) // keep hierarchy order
                 .ToList();
 
-            foreach (var sp in nonLightItems)
+            // Only add boom models header if there are boom items
+            if (nonLightItems.Count > 0)
             {
-                var data = sp.objectPricingData;
+                AddRowToTable(table, "MODEL DESCRIPTION", BaseColor.WHITE, BaseColor.BLACK, PdfPCell.NO_BORDER);
 
-                // Always compose the display name to include size/length
-                string composedName = string.IsNullOrWhiteSpace(data.ObjectSize)
-                    ? (data.ObjectName ?? "N/A")
-                    : $"{data.ObjectSize} {data.ObjectName}".Trim();
+                // Calculate total boom price first
+                double totalBoomPrice = 0;
+                string aggregatedPartNumber = "";
+                string aggregatedDescription = "";
 
-                string partNumber = string.IsNullOrEmpty(data.PartNumber) ? "N/A" : data.PartNumber;
-                double unitPrice = data.ListPrice + (data.isSimFlexArmAvailable ? data.SimFlexPrice : 0);
-
-                if (sp.UIRefPricingRowDataFill != null)
+                // Calculate total price from all boom items
+                foreach (var sp in nonLightItems)
                 {
-                    var ui = sp.UIRefPricingRowDataFill;
+                    var data = sp.objectPricingData;
+                    double itemPrice = data.ListPrice + (data.isSimFlexArmAvailable ? data.SimFlexPrice : 0);
+                    
+                    if (sp.UIRefPricingRowDataFill != null)
+                    {
+                        totalBoomPrice += sp.UIRefPricingRowDataFill.Price;
+                    }
+                    else
+                    {
+                        totalBoomPrice += itemPrice;
+                    }
+                }
 
-                    // Use UI values where appropriate BUT keep our composedName so length/size is visible
-                    table.AddCell(CreateLeftAlignedCell(ui.partNo.text ?? partNumber, normalFont));
-                    table.AddCell(CreateLeftAlignedCell(composedName, normalFont)); // <-- force composed with length/size
-                    table.AddCell(CreateCenteredCell("1", normalFont));
-                    table.AddCell(CreateRightAlignedCell((ui.listPrice.text ?? unitPrice.ToString("C")), normalFont));
-                    table.AddCell(CreateRightAlignedCell(ui.Price.ToString("C"), normalFont));
+                // Use the first item's part number and create dynamic description
+                if (nonLightItems.Count > 0)
+                {
+                    var firstItem = nonLightItems.First();
+                    aggregatedPartNumber = firstItem.objectPricingData.PartNumber ?? "N/A";
+                    
+                    // Build dynamic description based on boom configuration
+                    aggregatedDescription = BuildBoomModelDescription(firstItem.transform.root.gameObject);
+                }
 
-                    subtotal += ui.Price;
+                // Special quantity logic for Boom - Tandem Ceiling Cover
+                int boomQty = 1; // default quantity
+                
+                // Check if this is a Boom - Tandem Ceiling Cover configuration
+                var rootSelectables = firstSp.transform.root.GetComponentsInChildren<Selectable>(true);
+                bool isTandemCeilingCover = rootSelectables.Any(s => 
+                    !string.IsNullOrEmpty(s.UIButtonName) && 
+                    s.UIButtonName.Contains("Boom - Tandem Ceiling Cover"));
+
+                if (isTandemCeilingCover)
+                {
+                    // Count boom service heads attached to this configuration
+                    int serviceHeadCount = 0;
+                    foreach (var selectable in rootSelectables)
+                    {
+                        var scaleHandler = selectable.GetComponent<BoomHeadScaleHandler>();
+                        if (scaleHandler != null)
+                        {
+                            serviceHeadCount++;
+                        }
+                    }
+                    
+                    // If 2 service heads are found, set quantity to 2
+                    if (serviceHeadCount >= 2)
+                    {
+                        boomQty = 2;
+                    }
+                }
+
+                // Pricing calculation based on quantity
+                double listPrice, extendedPrice;
+                
+                if (boomQty == 2)
+                {
+                    // For tandem with 2 booms: LIST PRICE = cost of 1 boom, EXT LIST PRICE = LIST PRICE × 2
+                    listPrice = totalBoomPrice/2;  // Cost of 1 boom
+                    extendedPrice = listPrice*boomQty;  // Cost of 1 boom × 2 = total cost
                 }
                 else
                 {
-                    table.AddCell(CreateLeftAlignedCell(partNumber, normalFont));
-                    table.AddCell(CreateLeftAlignedCell(composedName, normalFont)); // <-- composed with length/size
-                    table.AddCell(CreateCenteredCell("1", normalFont));
-                    table.AddCell(CreateRightAlignedCell(unitPrice.ToString("C"), normalFont));
-                    table.AddCell(CreateRightAlignedCell(unitPrice.ToString("C"), normalFont));
+                    // For single boom: LIST PRICE = total boom cost, EXT LIST PRICE = LIST PRICE × 1
+                    listPrice = totalBoomPrice;  // Total boom cost
+                    extendedPrice = listPrice * boomQty;  // Same as list price since qty = 1
+                }
 
-                    subtotal += unitPrice;
+                // Add single aggregated row for all boom items
+                table.AddCell(CreateLeftAlignedCell(aggregatedPartNumber, normalFont));
+                table.AddCell(CreateLeftAlignedCell(aggregatedDescription, normalFont));
+                table.AddCell(CreateCenteredCell(boomQty.ToString(), normalFont));
+                table.AddCell(CreateRightAlignedCell(listPrice.ToString("C"), normalFont)); // LIST PRICE (cost of 1 boom)
+                table.AddCell(CreateRightAlignedCell(extendedPrice.ToString("C"), normalFont)); // EXT LIST PRICE = LIST PRICE × QTY
+
+                subtotal += extendedPrice;
+                
+                // Add a small spacer row after boom models
+                for (int i = 0; i < 5; i++)
+                {
+                    PdfPCell spacerCell = new PdfPCell(new Phrase(" ", normalFont))
+                    {
+                        Border = Rectangle.NO_BORDER,
+                        FixedHeight = 3f
+                    };
+                    table.AddCell(spacerCell);
                 }
             }
+
             // ---------- BOOM OPTIONS (priced line-items) ----------
             var boomOptionData = DropdownPopulator.GetAllCurrentStates()
                 .Where(s => s.Item1 != null && s.Item2 != null && s.Item1.isBoomExcelFileDropDown)
@@ -768,37 +988,54 @@ public class ProposalPDFGenerator : MonoBehaviour
 
             if (boomOptionData.Count > 0)
             {
-                AddRowToTable(table, "BOOM OPTIONS", BaseColor.WHITE, BaseColor.GRAY, PdfPCell.NO_BORDER);
+                AddRowToTable(table, "OPTION/ACCESSORY DESCRIPTION", BaseColor.BLACK, new BaseColor(180,180,180), PdfPCell.NO_BORDER);
 
                 foreach (var d in boomOptionData)
                 {
-                    AddRowToTable(table, d);
+                    AddRowToTable(table, d); // uses existing helper (qty=1, so EXT = LIST * 1 = LIST)
                     subtotal += d.ListPrice;
                 }
             }
 
             // ---------- SUBTOTAL ----------
-            PdfPCell subtotalLabel = new PdfPCell(new Phrase("Subtotal", boldFont))
+            // Only add subtotal if we have any content in the table
+            if (lightGroups.Count > 0 || lightOptionData.Count > 0 || nonLightItems.Count > 0 || boomOptionData.Count > 0)
             {
-                Colspan = 4,
-                Border = Rectangle.TOP_BORDER,
-                HorizontalAlignment = Element.ALIGN_RIGHT,
-                PaddingTop = 5
-            };
-            PdfPCell subtotalValue = CreateRightAlignedCell(subtotal.ToString("C"), boldFont);
-            subtotalValue.Border = Rectangle.TOP_BORDER;
+                // Add a spacer row before subtotal
+                for (int i = 0; i < 5; i++)
+                {
+                    PdfPCell spacerCell = new PdfPCell(new Phrase(" ", normalFont))
+                    {
+                        Border = Rectangle.NO_BORDER,
+                        FixedHeight = 5f
+                    };
+                    table.AddCell(spacerCell);
+                }
+                
+                PdfPCell subtotalLabel = new PdfPCell(new Phrase("Subtotal", boldFont))
+                {
+                    Colspan = 4,
+                    Border = Rectangle.TOP_BORDER,
+                    HorizontalAlignment = Element.ALIGN_RIGHT,
+                    PaddingTop = 5
+                };
+                PdfPCell subtotalValue = CreateRightAlignedCell(subtotal.ToString("C"), boldFont);
+                subtotalValue.Border = Rectangle.TOP_BORDER;
 
-            table.AddCell(subtotalLabel);
-            table.AddCell(subtotalValue);
+                table.AddCell(subtotalLabel);
+                table.AddCell(subtotalValue);
 
-            document.Add(table);
-            document.Add(Chunk.NEWLINE);
+                document.Add(table);
+                document.Add(Chunk.NEWLINE);
+            }
         }
 
         // Add common charges and grand totals once at the end
         PdfPTable misc = new PdfPTable(5);
         misc.WidthPercentage = 100;
         misc.SetWidths(new float[] { 2, 5, 1, 2, 2 });
+        misc.SpacingBefore = 5f;
+        misc.SpacingAfter = 5f;
 
         var reader = FindObjectOfType<ExcelReader>();
         if (reader != null)
@@ -853,7 +1090,7 @@ public class ProposalPDFGenerator : MonoBehaviour
         PdfPCell leftCell = new PdfPCell { Border = Rectangle.NO_BORDER };
         leftCell.AddElement(new Paragraph("Proposal", titleFont));
         leftCell.AddElement(new Paragraph("\n", normalFont));
-        leftCell.AddElement(new Paragraph($"Sales Rep: {salesRepName}", titleFont));
+        leftCell.AddElement(new Paragraph($"{salesRepName}", titleFont));
         leftCell.AddElement(new Paragraph($"{salesRepEmail}", normalFont));
         leftCell.AddElement(new Paragraph("\n", normalFont));
         leftCell.AddElement(new Paragraph(companyName, normalFont));
@@ -872,7 +1109,7 @@ public class ProposalPDFGenerator : MonoBehaviour
             if (File.Exists(logoPath))
             {
                 Image logo = Image.GetInstance(logoPath);
-                logo.ScaleAbsolute(150, 75);
+                logo.ScaleAbsolute(150f, 75f);
                 rightCell.AddElement(logo);
             }
         }
@@ -1022,13 +1259,15 @@ public class ProposalPDFGenerator : MonoBehaviour
                 ? data.ObjectName
                 : $"{data.ObjectSize} {data.ObjectName}";
 
-            double price = data.ListPrice + (data.isSimFlexArmAvailable ? data.SimFlexPrice : 0);
+            int qty = 1; // Default quantity
+            double unitPrice = data.ListPrice + (data.isSimFlexArmAvailable ? data.SimFlexPrice : 0);
+            double extPrice = unitPrice * qty; // EXT LIST PRICE = LIST PRICE * QTY
 
             table.AddCell(CreateLeftAlignedCell(partNumber, normalFont));
             table.AddCell(CreateLeftAlignedCell(name, normalFont));
-            table.AddCell(CreateCenteredCell("1", normalFont));
-            table.AddCell(CreateRightAlignedCell(price.ToString("C"), normalFont));
-            table.AddCell(CreateRightAlignedCell(price.ToString("C"), normalFont));
+            table.AddCell(CreateCenteredCell(qty.ToString(), normalFont));
+            table.AddCell(CreateRightAlignedCell(unitPrice.ToString("C"), normalFont));
+            table.AddCell(CreateRightAlignedCell(extPrice.ToString("C"), normalFont)); // EXT = UNIT * QTY
         }
     }
 
@@ -1041,11 +1280,15 @@ public class ProposalPDFGenerator : MonoBehaviour
             var data = state.Item2;
             if (data.ListPrice == 0) continue;
 
+            int qty = 1; // Default quantity for dropdown items
+            double unitPrice = data.ListPrice;
+            double extPrice = unitPrice * qty; // EXT LIST PRICE = LIST PRICE * QTY
+
             table.AddCell(CreateLeftAlignedCell(data.PartNumber ?? "N/A", normalFont));
             table.AddCell(CreateLeftAlignedCell(data.ObjectName, normalFont));
-            table.AddCell(CreateCenteredCell("1", normalFont));
-            table.AddCell(CreateRightAlignedCell(data.ListPrice.ToString("C"), normalFont));
-            table.AddCell(CreateRightAlignedCell(data.ListPrice.ToString("C"), normalFont));
+            table.AddCell(CreateCenteredCell(qty.ToString(), normalFont));
+            table.AddCell(CreateRightAlignedCell(unitPrice.ToString("C"), normalFont));
+            table.AddCell(CreateRightAlignedCell(extPrice.ToString("C"), normalFont)); // EXT = UNIT * QTY
         }
     }
 
@@ -1058,6 +1301,8 @@ public class ProposalPDFGenerator : MonoBehaviour
             {
                 BackgroundColor = bg,
                 Border = border,
+                PaddingTop = 4f,
+                PaddingBottom = 4f,
                 HorizontalAlignment = h switch
                 {
                     "QTY" => Element.ALIGN_CENTER,
@@ -1071,11 +1316,15 @@ public class ProposalPDFGenerator : MonoBehaviour
 
     private void AddRowToTable(PdfPTable table, PriceExcelData data)
     {
+        int qty = 1; // Default quantity for dropdown items
+        double unitPrice = data.ListPrice;
+        double extPrice = unitPrice * qty; // EXT LIST PRICE = LIST PRICE * QTY
+        
         table.AddCell(CreateLeftAlignedCell(data.PartNumber ?? "N/A", normalFont));
         table.AddCell(CreateLeftAlignedCell(data.ObjectName, normalFont));
-        table.AddCell(CreateCenteredCell("1", normalFont));
-        table.AddCell(CreateRightAlignedCell(data.ListPrice.ToString("C"), normalFont));
-        table.AddCell(CreateRightAlignedCell(data.ListPrice.ToString("C"), normalFont));
+        table.AddCell(CreateCenteredCell(qty.ToString(), normalFont));
+        table.AddCell(CreateRightAlignedCell(unitPrice.ToString("C"), normalFont));
+        table.AddCell(CreateRightAlignedCell(extPrice.ToString("C"), normalFont)); // EXT = UNIT * QTY
     }
 
     private void AddTotalsTable(Document doc)
@@ -1175,17 +1424,35 @@ public class ProposalPDFGenerator : MonoBehaviour
 
     private PdfPCell CreateLeftAlignedCell(string text, Font font)
     {
-        return new PdfPCell(new Phrase(text, font)) { Border = Rectangle.NO_BORDER, HorizontalAlignment = Element.ALIGN_LEFT };
+        return new PdfPCell(new Phrase(text, font)) 
+        { 
+            Border = Rectangle.NO_BORDER, 
+            HorizontalAlignment = Element.ALIGN_LEFT,
+            PaddingTop = 4f,
+            PaddingBottom = 4f
+        };
     }
 
     private PdfPCell CreateRightAlignedCell(string text, Font font)
     {
-        return new PdfPCell(new Phrase(text, font)) { Border = Rectangle.NO_BORDER, HorizontalAlignment = Element.ALIGN_RIGHT };
+        return new PdfPCell(new Phrase(text, font)) 
+        { 
+            Border = Rectangle.NO_BORDER, 
+            HorizontalAlignment = Element.ALIGN_RIGHT,
+            PaddingTop = 4f,
+            PaddingBottom = 4f
+        };
     }
 
     private PdfPCell CreateCenteredCell(string text, Font font)
     {
-        return new PdfPCell(new Phrase(text, font)) { Border = Rectangle.NO_BORDER, HorizontalAlignment = Element.ALIGN_CENTER };
+        return new PdfPCell(new Phrase(text, font)) 
+        { 
+            Border = Rectangle.NO_BORDER, 
+            HorizontalAlignment = Element.ALIGN_CENTER,
+            PaddingTop = 4f,
+            PaddingBottom = 4f
+        };
     }
 
     private double CalculateTotalPrice()
@@ -1243,6 +1510,254 @@ public class ProposalPDFGenerator : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Generate a unique file name by appending a counter suffix if the file already exists
+    /// </summary>
+    private string GenerateUniqueFileName(string directory, string baseFileName, string extension)
+    {
+        // Sanitize file name
+        string safeBaseFileName = string.Join("_", baseFileName.Split(Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries));
+        
+        string fileName = $"{safeBaseFileName}{extension}";
+        string filePath = Path.Combine(directory, fileName);
+
+        // File exists, append counter suffix
+        if (File.Exists(filePath))
+        {
+            int counter = 1;
+            while (true)
+            {
+                string numberedFileName = $"{safeBaseFileName}_{counter}{extension}";
+                filePath = Path.Combine(directory, numberedFileName);
+
+                // If this file name doesn't exist, use it
+                if (!File.Exists(filePath))
+                    break;
+
+                counter++;
+            }
+        }
+
+        return Path.GetFileName(filePath);
+    }
+
+    #endregion
+
+    #region Dynamic Boom Description Helpers
+    
+    /// <summary>
+    /// Builds a dynamic boom model description based on the actual boom configuration
+    /// </summary>
+    private string BuildBoomModelDescription(GameObject boomRoot)
+    {
+        var description = new System.Text.StringBuilder();
+        
+        // Get all selectables in the boom hierarchy
+        var allSelectables = boomRoot.GetComponentsInChildren<Selectable>(true);
+        
+        // Determine boom type from UIButtonName (exclude S-Series)
+        string boomType = DetermineBoomType(allSelectables);
+        if (!string.IsNullOrEmpty(boomType))
+        {
+            description.Append(boomType);
+        }
+        
+        // Get service head configuration if present
+        var serviceHeadInfo = GetServiceHeadInfo(allSelectables);
+        if (!string.IsNullOrEmpty(serviceHeadInfo))
+        {
+            if (description.Length > 0) description.Append(", ");
+            description.Append(serviceHeadInfo);
+        }
+        
+        // Get articulating configuration (exclude top arm info)
+        var articulatingInfo = GetArticulatingInfo(allSelectables);
+        if (!string.IsNullOrEmpty(articulatingInfo))
+        {
+            if (description.Length > 0) description.Append(", ");
+            description.Append(articulatingInfo);
+        }
+        
+        // Get active rows count
+        var rowsInfo = GetActiveRowsInfo(allSelectables);
+        if (!string.IsNullOrEmpty(rowsInfo))
+        {
+            if (description.Length > 0) description.Append(", ");
+            description.Append(rowsInfo);
+        }
+        
+        // Get accessories count
+        var accessoriesInfo = GetAccessoriesInfo(allSelectables);
+        if (!string.IsNullOrEmpty(accessoriesInfo))
+        {
+            if (description.Length > 0) description.Append(", ");
+            description.Append(accessoriesInfo);
+        }
+        
+        return description.ToString();
+    }
+    
+    /// <summary>
+    /// Determines the boom type from UIButtonName, excluding S-Series and top arm info
+    /// </summary>
+    private string DetermineBoomType(Selectable[] selectables)
+    {
+        foreach (var selectable in selectables)
+        {
+            if (!string.IsNullOrEmpty(selectable.UIButtonName))
+            {
+                string uiName = selectable.UIButtonName.ToLower();
+                
+                // Skip top arm selectables
+                if (uiName.Contains("top arm") || uiName.Contains("toparm"))
+                    continue;
+                
+                return selectable.UIButtonName;
+                
+            }
+        }
+        
+        // Fallback to generic
+        return "STANDARD POWERED";
+    }
+    
+    /// <summary>
+    /// Gets service head configuration info including size
+    /// </summary>
+    private string GetServiceHeadInfo(Selectable[] selectables)
+    {
+        foreach (var selectable in selectables)
+        {
+            // Look for service head components
+            var scaleHandler = selectable.GetComponent<BoomHeadScaleHandler>();
+            if (scaleHandler != null)
+            {
+                // Try to get size from current scale level
+                var currentScale = selectable.CurrentPreviewScaleLevel;
+                if (currentScale != null && currentScale.TryGetValue("size", out string sizeStr))
+                {
+                    return $"{sizeStr} Service Head";
+                }
+                
+                // Fallback: try to determine from UIButtonName
+                if (!string.IsNullOrEmpty(selectable.UIButtonName))
+                {
+                    if (selectable.UIButtonName.Contains("600"))
+                        return "600mm Service Head";
+                    else if (selectable.UIButtonName.Contains("200"))
+                        return "200mm Service Head";
+                    else if (selectable.UIButtonName.Contains("400"))
+                        return "400mm Service Head";
+                }
+            }
+        }
+        
+        return "";
+    }
+    
+    /// <summary>
+    /// Gets articulating arm configuration, excluding top arm info
+    /// </summary>
+    private string GetArticulatingInfo(Selectable[] selectables)
+    {
+        foreach (var selectable in selectables)
+        {
+            if (!string.IsNullOrEmpty(selectable.UIButtonName))
+            {
+                string uiName = selectable.UIButtonName.ToLower();
+                
+                // Skip top arm selectables
+                if (uiName.Contains("top arm") || uiName.Contains("toparm"))
+                    continue;
+                
+                if (uiName.Contains("xl") && uiName.Contains("powered"))
+                    return "XL Articulating";
+                else if (uiName.Contains("articulating"))
+                    return "Articulating";
+                else if (uiName.Contains("spring") && uiName.Contains("arm"))
+                    return "Spring Articulating";
+            }
+        }
+        
+        return "Articulating";
+    }
+    
+    /// <summary>
+    /// Gets the number of active rows from service head configuration
+    /// </summary>
+    private string GetActiveRowsInfo(Selectable[] selectables)
+    {
+        foreach (var selectable in selectables)
+        {
+            var scaleHandler = selectable.GetComponent<BoomHeadScaleHandler>();
+            if (scaleHandler != null)
+            {
+                var currentScale = selectable.CurrentPreviewScaleLevel;
+                if (currentScale != null && currentScale.TryGetValue("rows", out string rowsStr))
+                {
+                    if (int.TryParse(rowsStr, out int rowCount))
+                    {
+                        return $"{rowCount} ROW";
+                    }
+                }
+                
+                // Fallback: count active rows from scale handler
+                if (scaleHandler.attachRow != null)
+                {
+                    int activeRows = 0;
+                    foreach (var row in scaleHandler.attachRow)
+                    {
+                        if (row.entries != null && row.entries.Any(entry => entry != null && entry.activeInHierarchy))
+                        {
+                            activeRows++;
+                        }
+                    }
+                    if (activeRows > 0)
+                    {
+                        return $"{activeRows} ROW";
+                    }
+                }
+            }
+        }
+        
+        return "";
+    }
+    
+    /// <summary>
+    /// Gets the accessories count from attached components
+    /// </summary>
+    private string GetAccessoriesInfo(Selectable[] selectables)
+    {
+        int accessoryCount = 0;
+        
+        foreach (var selectable in selectables)
+        {
+            // Count outlets and other accessories
+            if (!string.IsNullOrEmpty(selectable.UIButtonName))
+            {
+                string uiName = selectable.UIButtonName.ToLower();
+                
+                if (uiName.Contains("outlet") || 
+                    uiName.Contains("accessory") || 
+                    uiName.Contains("ethernet") ||
+                    uiName.Contains("gas") ||
+                    uiName.Contains("power"))
+                {
+                    accessoryCount++;
+                }
+            }
+            
+ 
+        }
+        
+        if (accessoryCount > 0)
+        {
+            return $"{accessoryCount}A";
+        }
+        
+        return "";
+    }
+    
     #endregion
 
     public class PageEventHelper : PdfPageEventHelper
@@ -1260,23 +1775,10 @@ public class ProposalPDFGenerator : MonoBehaviour
 
         private int totalPageCount;
 
-        //public override void OnStartPage(PdfWriter writer, Document document)
-        //{
-        //    // Track the total number of pages
-        //    totalPageCount = writer.PageNumber;
-        //}
         public override void OnStartPage(PdfWriter writer, Document document)
         {
             // Track the total number of pages
             totalPageCount = writer.PageNumber;
-            // Only add header if it's not the very first page
-            //if (document.PageSize.Height != 0)
-            //{
-            //    Debug.Log("Adding header to page: " + writer.PageNumber);
-            //    FindAnyObjectByType<ProposalPDFGenerator>().AddCompanyHeader(document);
-            //}
-
-
         }
 
         public override void OnEndPage(PdfWriter writer, Document document)

@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -17,6 +18,8 @@ public class Save : MonoBehaviour
 
     [Header("Dynamic UI")]
     public TMP_Text header;
+
+    private string currentSaveMode = ""; // "room" or "configuration"
 
     private void Awake()
     {
@@ -44,10 +47,12 @@ public class Save : MonoBehaviour
                 if (Selectable.SelectedSelectables.Count == 0)
                 {
                     header.text = "Save Room";
+                    currentSaveMode = "room";
                 }
                 else
                 {
                     header.text = "Save Configuration";
+                    currentSaveMode = "configuration";
                 }
 
                 FreeLookCam.Instance.isLocked = true;
@@ -56,18 +61,23 @@ public class Save : MonoBehaviour
 
         b_Confirm.onClick.AddListener(() =>
         {
-            if (Selectable.SelectedSelectables.Count == 0)
+            if (string.IsNullOrWhiteSpace(fileName.text))
             {
-                ConfigurationManager.Instance.SaveRoom(fileName.text.Replace(" ", "_"));
+                header.text = "Please enter a name";
+                header.color = Color.red;
+                return;
+            }
+            
+            string sanitizedName = fileName.text.Replace(" ", "_");
+            
+            if (currentSaveMode == "room")
+            {
+                CheckAndSaveRoom(sanitizedName);
             }
             else
             {
-                ConfigurationManager.Instance.SaveConfiguration(fileName.text.Replace(" ", "_"));
+                CheckAndSaveConfiguration(sanitizedName);
             }
-
-            fileName.text = "";
-            FreeLookCam.Instance.isLocked = false;
-            savePanel.SetActive(false);
         });
 
         foreach (Button b in b_Cancel)
@@ -79,6 +89,120 @@ public class Save : MonoBehaviour
             });
         }
 
+        savePanel.SetActive(false);
+    }
+    
+    private void CheckAndSaveRoom(string name)
+    {
+        string folder = Application.persistentDataPath + $"/Saved/";
+        string configName = ConfigurationManager.Instance.ReplaceInvalidChars(name) + ".json";
+        string path = Path.Combine(folder, configName);
+        
+        if (File.Exists(path))
+        {
+            // Hide save panel before showing the dialog
+            savePanel.SetActive(false);
+            PromptOverwrite(name, true);
+        }
+        else
+        {
+            CompleteSaveRoom(name);
+        }
+    }
+    
+    private void CheckAndSaveConfiguration(string name)
+    {
+        string folder = Application.persistentDataPath + $"/Saved/Configs/";
+        string configName = ConfigurationManager.Instance.ReplaceInvalidChars(name) + ".json";
+        string path = Path.Combine(folder, configName);
+        
+        if (File.Exists(path))
+        {
+            // Hide save panel before showing the dialog
+            savePanel.SetActive(false);
+            PromptOverwrite(name, false);
+        }
+        else
+        {
+            CompleteSaveConfiguration(name);
+        }
+    }
+    
+    private void PromptOverwrite(string name, bool isRoom)
+    {
+        UI_DialogPrompt.Open(
+            $"A {(isRoom ? "room" : "configuration")} named '{name}' already exists.",
+            new ButtonAction("Overwrite", () => {
+                // Explicitly close the dialog prompt
+                UI_DialogPrompt.Close();
+                
+                // Make sure the save panel is closed
+                savePanel.SetActive(false);
+                FreeLookCam.Instance.isLocked = false;
+                
+                if (isRoom)
+                    CompleteSaveRoom(name);
+                else
+                    CompleteSaveConfiguration(name);
+            }),
+            new ButtonAction("Rename", () => {
+                // Explicitly close the dialog prompt
+                UI_DialogPrompt.Close();
+                
+                // Re-show the save panel to allow renaming
+                savePanel.SetActive(true);
+                FreeLookCam.Instance.isLocked = true;
+            }));
+    }
+    
+    private void CompleteSaveRoom(string name)
+    {
+        // Hide the save panel first
+        savePanel.SetActive(false);
+        FreeLookCam.Instance.isLocked = false;
+        fileName.text = "";
+        
+        // Call our internal save method that will suppress the ConfigurationManager's dialog
+        StartCoroutine(SaveRoomAndShowDialog(name));
+    }
+    
+    private IEnumerator SaveRoomAndShowDialog(string name)
+    {
+        // Save the room using ConfigurationManager
+        ConfigurationManager.Instance.SaveRoom(name);
+        
+        // Wait a small amount of time to let ConfigurationManager's dialog appear
+        yield return new WaitForSeconds(0.1f);
+        
+        // Close any open dialogs (including the one from ConfigurationManager)
+        UI_DialogPrompt.Close();
+        
+        // Wait another small amount of time
+        yield return new WaitForSeconds(0.1f);
+        
+        // Show our own clearer success message
+        string folder = Application.persistentDataPath + $"/Saved/";
+        UI_DialogPrompt.Open(
+            $"Room '{name}' saved successfully!",
+            new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = folder),
+            new ButtonAction("Done"));
+    }
+    
+    private void CompleteSaveConfiguration(string name)
+    {
+        // Save the configuration
+        ConfigurationManager.Instance.SaveConfiguration(name);
+        
+        // Show a clearer success message
+        string folder = Application.persistentDataPath + $"/Saved/Configs/";
+        UI_DialogPrompt.Open(
+            $"Configuration '{name}' saved successfully!",
+            new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = folder),
+            new ButtonAction("Done"));
+        
+        // Clear input field
+        fileName.text = "";
+        FreeLookCam.Instance.isLocked = false;
         savePanel.SetActive(false);
     }
 }

@@ -12,6 +12,21 @@ ModelImporter:
   - first:
       type: UnityEngine:Material
       assembly: UnityEngine.CoreModule
+      name: Gray buttons
+    second: {fileID: 2100000, guid: 4298f66be45254141aa665b1b04a80df, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: Gray buttons.001
+    second: {fileID: 2100000, guid: d61404ecd03995b448b1746bf5288d2c, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: Greay main
+    second: {fileID: 2100000, guid: 5a776d0dc869c3f48a1b6572f9a704f4, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
       name: Material.001
     second: {fileID: 2100000, guid: 77c166f637b0bfd4088208e6f16fd83d, type: 2}
   - first:
@@ -32,6 +47,76 @@ ModelImporter:
   - first:
       type: UnityEngine:Material
       assembly: UnityEngine.CoreModule
+      name: Material.005
+    second: {fileID: 2100000, guid: 79c49f6ef2a901e4289e63c4628ee9a6, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: Material.006
+    second: {fileID: 2100000, guid: 20cb673f936bab947ab34f94fa00a9b3, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: Material.007
+    second: {fileID: 2100000, guid: 662f5dfbf4b33f24b9868093dd03fd63, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: Material.008
+    second: {fileID: 2100000, guid: 8b7777cb19f15c344a233d2f59bd5f4f, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: Material.009
+    second: {fileID: 2100000, guid: 8f53f76aae3d32842b9c754263921993, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: Material.011
+    second: {fileID: 2100000, guid: a069e0c4a6dcaab41b189473d84d2382, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: Material.012
+    second: {fileID: 2100000, guid: 8186d81120f64aa44b6ac538428e8a34, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: Material.013
+    second: {fileID: 2100000, guid: 05e383df4aaaad74cb9284b53a4bf618, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: Material.014
+    second: {fileID: 2100000, guid: a622f7d6b48ae0242992ad25bcd34e41, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: Material.015
+    second: {fileID: 2100000, guid: fac4a7e80964e48469f253296ba3056b, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: Material.016
+    second: {fileID: 2100000, guid: 38e76ef23968e044fb0fcbd4203d8eb8, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: Material.017
+    second: {fileID: 2100000, guid: 9117f3dd16d452944af6664c15fec2c0, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: Material.018
+    second: {fileID: 2100000, guid: d602979df5813bd4bb29502b197a52db, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: Material.020
+    second: {fileID: 2100000, guid: 3854cb2298c1e594ab2a4ed3ba83ff56, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
       name: Material.024
     second: {fileID: 2100000, guid: 87caf349340fcee47beb34e553ca791f, type: 2}
   - first:
@@ -44,6 +129,11 @@ ModelImporter:
       assembly: UnityEngine.CoreModule
       name: Material.026
     second: {fileID: 2100000, guid: 26aadc311d5803e479747e803e926425, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: Material.027
+    second: {fileID: 2100000, guid: 6a166f08472dc204aa83fb5c8beb2d7e, type: 2}
   - first:
       type: UnityEngine:Material
       assembly: UnityEngine.CoreModule
@@ -89,6 +179,31 @@ ModelImporter:
       assembly: UnityEngine.CoreModule
       name: Material.036
     second: {fileID: 2100000, guid: fcde4bd3b3d9259408247d56e850e59c, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: Material.037
+    second: {fileID: 2100000, guid: 974b24d37b588514294e04817c67243b, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: Material.038
+    second: {fileID: 2100000, guid: 06bd378e94a6cd241988ca12b3bb20dd, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: White
+    second: {fileID: 2100000, guid: 01df7db7b11989340bb4be29e30a3850, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: White buttons
+    second: {fileID: 2100000, guid: d6f512ebf54c7de4d837824cb76f7a81, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: White buttons.001
+    second: {fileID: 2100000, guid: b2a6a7ef423849f43be16171fb5652e3, type: 2}
   - first:
       type: UnityEngine:Material
       assembly: UnityEngine.CoreModule

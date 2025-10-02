@@ -355,6 +355,10 @@ PrefabInstance:
       propertyPath: m_Layer
       value: 6
       objectReference: {fileID: 0}
+    - target: {fileID: -8993648947112634164, guid: 079e7b84b37433144b31b3d8dd253ae6, type: 3}
+      propertyPath: m_Materials.Array.data[1]
+      value: 
+      objectReference: {fileID: 2100000, guid: 70440ee40a1ccf5489fb8f7ac0a93446, type: 2}
     - target: {fileID: -8800268281662330465, guid: 079e7b84b37433144b31b3d8dd253ae6, type: 3}
       propertyPath: m_Layer
       value: 6
@@ -874,7 +878,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: -6565122453228016778, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: rmsCount
-      value: 14
+      value: 15
       objectReference: {fileID: 0}
     - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: <GUID>k__BackingField
@@ -1012,26 +1016,6 @@ GameObject:
   m_CorrespondingSourceObject: {fileID: 6720701881900560553, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
   m_PrefabInstance: {fileID: 1983855958416559860}
   m_PrefabAsset: {fileID: 0}
---- !u!114 &2260687710333935000
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 5101638000107683421}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f68425babe0141945b7bb62bfa707421, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  _lineRenderer: {fileID: 0}
-  <IncludeChildrenInMeasurement>k__BackingField: 0
-  <DoorHinge>k__BackingField: {fileID: 0}
-  <DoorStrike>k__BackingField: {fileID: 0}
-  <DoorSwingAngle>k__BackingField: 90
-  <Type>k__BackingField: 4
-  epsilon: 0.00001
-  renderMaterialColor: {fileID: 0}
 --- !u!114 &7468356559855410177
 MonoBehaviour:
   m_ObjectHideFlags: 0

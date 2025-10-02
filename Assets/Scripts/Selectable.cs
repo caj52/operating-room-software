@@ -835,16 +835,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                             if (ignore.IgnoreY) y = child.transform.localScale.y;
                             if (ignore.IgnoreZ) z = child.transform.localScale.z;
                         }
-                        // Debug.Log($"Applying new scale of ({x}, {y}, {z})");
-                        if (child.name.Contains("BoomSegment_1-3"))
-                        {
-                            child.transform.localScale = new Vector3( 1, 1, z);
-                        }
-                        else
-                        {
                         child.transform.localScale = new Vector3(x, y, z);
-
-                        }
                     }
                 }
             }

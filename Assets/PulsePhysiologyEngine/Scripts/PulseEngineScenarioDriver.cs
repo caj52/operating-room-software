@@ -80,9 +80,9 @@ namespace Pulse.Unity
         private void InitializeEngine()
         {
             string dateAndTimeVar = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
-            string logFilePath = $"{Application.persistentDataPath}/{gameObject.name}{dateAndTimeVar}.log";
+          //  string logFilePath = $"{Application.persistentDataPath}/{gameObject.name}{dateAndTimeVar}.log";
             engine = new PulseUnityEngine();
-            engine.SetLogFilename(logFilePath);
+        //   engine.SetLogFilename(logFilePath);
             scenario = new SEScenario();
 
             if (scenarioJson != null)

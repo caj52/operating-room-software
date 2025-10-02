@@ -115,7 +115,7 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
     // Special offsets (in meters) derived from manufacturer guidance
     private const float TOP_HORIZONTAL_EXTRA = 0.150f;      // 150mm
     private const float BOTTOM_SPRING_EXTRA = 0.21216f;     // 212.16mm
-    // If needed in future: private const float BOTTOM_MOTORIZED_EXTRA = 0.260f; // 260mm
+    private const float BOTTOM_MOTORIZED_EXTRA = 0.260f; // 260mm
 
     // Cache last computed extra offset to trigger regen when parts change
     private float _lastSpecialOffset = 0f;
@@ -269,16 +269,8 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         if (_lineRenderer == null)
         {
             Debug.Log("Anas => Adding ClearacneLine ");
-            if (Type==RendererType.PetCTscan)
-            {
-                // Only PetCTscan uses the rectangle prefab
-                prefab = Resources.Load<GameObject>("Prefabs/ClearanceLinesRendererRectangle");
-            }
-            else
-            {
                 // All other types (including Allia) use the standard line renderer prefab
-                prefab = Resources.Load<GameObject>("Prefabs/ClearanceLinesRenderer");
-            }
+            prefab = Resources.Load<GameObject>("Prefabs/ClearanceLinesRenderer");
             var newObj = Instantiate(prefab, Type == RendererType.ArmAssembly ? _highestSelectable.transform : transform.root);
             newObj.name = gameObject.name;
             //newObj.transform.localPosition = new Vector3(newObj.transform.localPosition.x, newObj.transform.localPosition.y, _trackedParentSelectables[0].transform.localPosition.z);
@@ -441,7 +433,7 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         else if (Type == RendererType.Allia)
         {
             // Do NOT draw rectangle for Allia; use Azurion-style (circular) rendering
-            UpdateLineRendererAzurion();
+            UpdateLineRendererBedScannerAllia();
         }
     }
 
@@ -459,9 +451,18 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         {
             string n = sel.gameObject.name;
             // Top horizontal powered XL => +150mm
-            if (n.IndexOf("BoomSegment_2PoweredXL", StringComparison.OrdinalIgnoreCase) >= 0)
+
+            if (n.IndexOf("BoomSegment_1", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 offset = Mathf.Max(offset, TOP_HORIZONTAL_EXTRA);
+            }
+            if (n.IndexOf("BoomSegment_2PoweredXL", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                offset = Mathf.Max(offset, BOTTOM_MOTORIZED_EXTRA);
+            }
+            if (n.IndexOf("BoomSegment_2Powered", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                offset = Mathf.Max(offset, BOTTOM_MOTORIZED_EXTRA);
             }
             // Bottom spring XXL => +212.16mm
             if (n.IndexOf("1000SH_XXL_SpringBottom", StringComparison.OrdinalIgnoreCase) >= 0)
