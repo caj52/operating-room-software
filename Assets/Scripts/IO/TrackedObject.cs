@@ -17,6 +17,7 @@ public class TrackedObject : MonoBehaviour
         public string parent;
         public string attachedTo;
         public Selectable.ScaleLevel scaleLevel;
+        public List<Selectable.ScaleLevel> scaleLevels; // NEW: store all scale levels
         public List<string> materialNames;
         public string keepRelativePositionParentName;
         // Add separate local and world transforms
@@ -101,6 +102,7 @@ public class TrackedObject : MonoBehaviour
         {
             data.UIButtonname = s.UIButtonName;
             data.scaleLevel = s.ScaleLevels.Count() == 0 ? null : s.CurrentScaleLevel;
+            data.scaleLevels = s.ScaleLevels != null ? new List<Selectable.ScaleLevel>(s.ScaleLevels) : null; // NEW: store all scale levels
         }
         if (gameObject.TryGetComponent(out MaterialPalette palette))
         {
@@ -146,6 +148,23 @@ public class TrackedObject : MonoBehaviour
         if (!string.IsNullOrEmpty(d.sheetName) && gameObject.TryGetComponent(out SelectablePrice sp))
         {
             sp.sheetName = d.sheetName; sp.UIObjectName = d.UIObjectName; sp.Size = d.size; sp.pricingObjectName = d.priceObjectName;
+        }
+        // Restore scale levels for Selectable (including embedded selectables)
+        if (gameObject.TryGetComponent(out Selectable selectable))
+        {
+            if (d.scaleLevels != null && d.scaleLevels.Count > 0)
+            {
+                selectable.ScaleLevels = new List<Selectable.ScaleLevel>(d.scaleLevels);
+                selectable.ScaleLevelsRestoredFromSave = true;
+            }
+            if (d.scaleLevel != null)
+            {
+                var scale = selectable.ScaleLevels?.FirstOrDefault(x => x.Size == d.scaleLevel.Size);
+                if (scale != null)
+                {
+                    selectable.SetScaleLevel(scale, true, false);
+                }
+            }
         }
     }
 

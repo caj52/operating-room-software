@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Collections.Generic;
 using UnityEngine;
 using Newtonsoft.Json;
@@ -458,7 +458,7 @@ public class ConfigurationManager : MonoBehaviour
     // --- Multi pass state ---
     private Dictionary<string, GameObject> _guidToGameObject = new();
     private Queue<(GameObject obj, TrackedObject.Data data)> _pendingSetup = new();
-    private List<TrackedObject.Data> _pendingEmbedded = new();
+    public List<TrackedObject.Data> _pendingEmbedded = new();
     private List<TrackedObject.Data> _pendingAttachmentPoints = new();
 
     private async Task ProcessTrackedObjects(List<TrackedObject.Data> trackedObjects)
@@ -568,51 +568,7 @@ public class ConfigurationManager : MonoBehaviour
         // Pass 3: embedded selectables
         foreach (var emb in _pendingEmbedded)
         {
-            GameObject containerGO = null;
-            if (!string.IsNullOrEmpty(emb.parentGuid))
-                _guidToGameObject.TryGetValue(emb.parentGuid, out containerGO);
-            if (containerGO == null && !string.IsNullOrEmpty(emb.parentPath))
-                containerGO = GameObject.Find(NormalizeFindPath(emb.parentPath));
-
-            if (containerGO == null)
-            {
-                Debug.LogWarning($"[Embedded] Could not resolve parent for {emb.objectName} parentGuid={emb.parentGuid} parentPath={emb.parentPath}");
-                continue;
-            }
-
-            // Use selfPath for precise selection if available
-            Selectable sel = null;
-            if (!string.IsNullOrEmpty(emb.selfPath))
-            {
-                string full = NormalizeFindPath(emb.selfPath);
-                var candidateGO = GameObject.Find(full); // might work if names preserved
-                if (candidateGO != null)
-                    sel = candidateGO.GetComponent<Selectable>();
-            }
-
-            if (sel == null)
-            {
-                // Fallback: search by exact path under container
-                var allChildren = containerGO.GetComponentsInChildren<Selectable>(true);
-                sel = allChildren.FirstOrDefault(s => GetGameObjectPath(s.gameObject) == emb.selfPath)
-                      ?? allChildren.FirstOrDefault(s => s.gameObject.name == emb.objectName);
-            }
-
-            if (sel != null)
-            {
-                LogData(sel, emb);
-                var t = sel.transform;
-                t.localRotation = emb.localRotation;
-                t.localPosition = emb.localPosition;
-                t.localScale = emb.localScale;
-                var trackedObj = sel.GetComponent<TrackedObject>();
-                if (trackedObj != null && !_newObjects.Contains(trackedObj))
-                    _newObjects.Add(trackedObj);
-            }
-            else
-            {
-                Debug.LogWarning($"[Embedded] Selectable not found for {emb.objectName} under parent {containerGO.name}");
-            }
+            ProcessEmbeddedSelectable(emb);
         }
 
         // Pass 4: attachment points
@@ -620,7 +576,39 @@ public class ConfigurationManager : MonoBehaviour
             ProcessAttachmentPoint(apData);
     }
 
+    private GameObject ProcessEmbeddedSelectable(TrackedObject.Data to)
+    {
+        try
+        {
+            // Try to find the embedded object by selfPath, parent, or parentPath
+            GameObject go = null;
+            if (!string.IsNullOrEmpty(to.selfPath))
+                go = GameObject.Find(NormalizeFindPath(to.selfPath));
+            if (go == null && !string.IsNullOrEmpty(to.parent))
+                go = GameObject.Find(NormalizeFindPath(to.parent));
+            if (go == null && !string.IsNullOrEmpty(to.parentPath))
+                go = GameObject.Find(NormalizeFindPath(to.parentPath));
+            if (go == null)
+                throw new NullReferenceException($"Could not find embedded selectable for path: {to.selfPath} or parent: {to.parent}");
 
+            // Store all values from data
+            var trackedObj = go.GetComponent<TrackedObject>();
+            if (trackedObj != null)
+            {
+                trackedObj.StoreValues(to);
+                trackedObj.RestoreTransform();
+            }
+
+
+            return go;
+        }
+        catch (NullReferenceException nullException)
+        {
+            Debug.LogError($"ProcessEmbeddedSelectable failed to find {to.parent}");
+            Debug.LogError(nullException);
+            return null;
+        }
+    }
     private void ResetMaterialPalettes(TrackedObject obj)
     {
         if (obj == null)

@@ -201,6 +201,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     public bool Started { get; private set; }
     private bool _isRaycastingOnSelectable;
 
+    public bool ScaleLevelsRestoredFromSave { get; set; } = false;
     #endregion
 
     #region Monobehaviour
@@ -363,6 +364,21 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         transform.parent == null)
         {
             GenerateGuidName();
+        }
+
+        // If scale levels were restored from save, skip recalculation logic
+        if (ScaleLevelsRestoredFromSave)
+        {
+            //_originalRotation2 = transform.localRotation;
+            OriginalLocalPosition = transform.localPosition;
+            Started = true;
+            ToggleMeasurableActiveStates(true);
+            Measurers.AddRange(Measurables
+                    .SelectMany(m => m.Measurements)
+                    .Where(measurement => measurement.Measurer != null)
+                    .Select(measurement => measurement.Measurer)
+            );
+            return;
         }
 
         if (ScaleLevels.Count > 0)
