@@ -66,12 +66,39 @@ public class BoomHeadScaleHandler : MonoBehaviour
                     }
                 }
             }
+           
+            
             }
         }
 
         SetRailScale(scaleLevel);
     }
 
+
+    public void ReassembleRowsCount(int c)
+    {
+
+
+        for (int i = 1; i <= attachRow.Length; i++)
+        {
+            if (i <= c)
+            {
+                foreach (GameObject go in attachRow[i - 1].entries)
+                {
+                    go.SetActive(true);
+                    SetHeight(go, i - 1, c);
+                }
+            }
+            else
+            {
+                foreach (GameObject go in attachRow[i - 1].entries)
+                {
+                    go.SetActive(false);
+                }
+            }
+        }
+
+    }
 
     private void OnDestroy()
     {

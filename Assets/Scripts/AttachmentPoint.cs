@@ -92,6 +92,7 @@ public partial class AttachmentPoint : MonoBehaviour
     #region Monobehaviour
     private void Awake()
     {
+        RemoveNullSelectables(); // Clean up nulls on awake
         EmptyNullList();
 
         _collider = GetComponentInChildren<Collider>();
@@ -160,6 +161,7 @@ public partial class AttachmentPoint : MonoBehaviour
             HoveredAttachmentPoint = null;
             AttachmentPointHoverStateChanged?.Invoke(this,null);
         }
+        AttachedSelectable.Clear();
     }
 
     private void OnMouseEnter()
@@ -197,10 +199,26 @@ public partial class AttachmentPoint : MonoBehaviour
 
     public void SetAttachedSelectable(Selectable selectable)
     {
+        if (selectable == null || AttachedSelectable.Contains(selectable))
+            return;
         AttachedSelectable.Add(selectable);
+        // Subscribe to SelectableDestroyed event
+        selectable.SelectableDestroyed.AddListener(() => OnAttachedSelectableDestroyed(selectable));
         EndHoverStateIfHovered();
         UpdateComponentStatus();
     }
+
+    private void OnAttachedSelectableDestroyed(Selectable selectable)
+    {
+        if (AttachedSelectable.Contains(selectable))
+        {
+            AttachedSelectable.Remove(selectable);
+            AttachedSelectable.TrimExcess();
+            RemoveNullSelectables();
+            UpdateComponentStatus();
+        }
+    }
+
     public void MarkParentNormalized() => _hasNormalizedParent = true;
 
     public void DetachSelectable(Selectable selectable)
@@ -208,8 +226,15 @@ public partial class AttachmentPoint : MonoBehaviour
         if (_isDestroyed) return;
         AttachedSelectable.Remove(selectable);
         AttachedSelectable.TrimExcess();
+        RemoveNullSelectables(); // Clean up after detach
         SetToOriginalParent();
         UpdateComponentStatus();
+    }
+
+    private void RemoveNullSelectables()
+    {
+        AttachedSelectable.RemoveAll(item => item == null);
+        AttachedSelectable.TrimExcess();
     }
     //Anwar Edits
     public void SetToOriginalParent()
@@ -319,19 +344,25 @@ public partial class AttachmentPoint : MonoBehaviour
 
     private void UpdateComponentStatus()
     {
-        int multiAllowed = MultiAttach ? MultiLimit : 0; // check if this is a multiattach point and use the limit, otherwise use 0 for default points. 
-
+        RemoveNullSelectables(); // Ensure no nulls before updating status
+        int multiAllowed = MultiAttach ? MultiLimit : 0;
         bool isMouseOverAnyParentSelectable = ParentSelectables.FirstOrDefault(item => item.IsMouseOver) != default;
         bool areAnyParentSelectablesSelected = AreAnyParentSelectablesSelected;
         Renderer.enabled = (isMouseOverAnyParentSelectable || _attachmentPointHovered) && !areAnyParentSelectablesSelected && AttachedSelectable.Count <= multiAllowed;
         HighlightHovered.highlighted = _attachmentPointHovered && !areAnyParentSelectablesSelected && AttachedSelectable.Count <= multiAllowed;
         _collider.enabled = AttachedSelectable.Count <= multiAllowed && !areAnyParentSelectablesSelected;
-
         StatusUpdated?.Invoke(AttachedSelectable.Count > 0);
+    }
+
+    public void RefreshStatusForLoad()
+    {
+        RemoveNullSelectables(); // Clean up after loading
+        UpdateComponentStatus();
     }
 
     private void EmptyNullList()
     {
+        RemoveNullSelectables(); // Always clean up nulls
         if (AttachedSelectable.Count == 1)
         {
             if (AttachedSelectable[0] == null)
@@ -340,12 +371,6 @@ public partial class AttachmentPoint : MonoBehaviour
                 AttachedSelectable.TrimExcess();
             }
         }
-    }
-
-    // Call this after loading to ensure correct collider/highlight state
-    public void RefreshStatusForLoad()
-    {
-        UpdateComponentStatus();
     }
 }
 

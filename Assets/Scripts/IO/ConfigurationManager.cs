@@ -642,7 +642,7 @@ public class ConfigurationManager : MonoBehaviour
             Debug.LogError($"AssetBundle returned null prefab for guid {trackedObject.global_guid}");
             return null;
         }
-
+        int rowCount1 = 0;
         GameObject go = Instantiate(task.Result);
         var dolComps = go.GetComponentsInChildren<DestroyOnLoad>(true);
         Array.ForEach(dolComps, comp => { if (comp != null) Destroy(comp.gameObject); });
@@ -665,6 +665,27 @@ public class ConfigurationManager : MonoBehaviour
                 var wc = selectable.GetComponentInChildren<WallCutter>();
                 if (wc != null) wc.UpdateCuts();
             }
+
+
+            if (selectable != null && selectable.MetaData != null && selectable.MetaData.Name == "NewBoomHead")
+            {
+                var boomHeadHandler = selectable.GetComponent<BoomHeadScaleHandler>();
+                if (boomHeadHandler != null)
+                {
+                    var currentScale = selectable.CurrentPreviewScaleLevel;
+                    if (currentScale != null && currentScale.TryGetValue("rows", out string rowsStr))
+                    {
+                        if (int.TryParse(rowsStr, out int rowCount))
+                        {
+                           rowCount1 = rowCount;
+                        }
+                    }
+                    boomHeadHandler.ReassembleRowsCount(rowCount1);
+
+                }
+            }
+
+
             ObjectMenu.Instance.HandleOutletAndPricing(go, trackedObject.UIButtonname);
         }
         return go;

@@ -35,8 +35,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         public Metadata(string k = "", string v = "")
         {
-            key = "";
-            value = "";
+            key = k;
+            value = v;
         }
     }
 
