@@ -575,6 +575,10 @@ PrefabInstance:
       propertyPath: m_Layer
       value: 6
       objectReference: {fileID: 0}
+    - target: {fileID: 6325728736827892658, guid: 079e7b84b37433144b31b3d8dd253ae6, type: 3}
+      propertyPath: m_Layer
+      value: 6
+      objectReference: {fileID: 0}
     - target: {fileID: 6999129713623980300, guid: 079e7b84b37433144b31b3d8dd253ae6, type: 3}
       propertyPath: m_Layer
       value: 6
@@ -879,6 +883,10 @@ PrefabInstance:
     - target: {fileID: -6565122453228016778, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: rmsCount
       value: 15
+      objectReference: {fileID: 0}
+    - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
+      propertyPath: canBeDuplicated
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: <GUID>k__BackingField

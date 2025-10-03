@@ -251,6 +251,10 @@ PrefabInstance:
       value: 35
       objectReference: {fileID: 0}
     - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
+      propertyPath: canBeDuplicated
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: <GUID>k__BackingField
       value: gameobject_a6605af3a85eeee479e213743b52967d
       objectReference: {fileID: 0}
@@ -1346,6 +1350,10 @@ PrefabInstance:
       value: 6
       objectReference: {fileID: 0}
     - target: {fileID: 5286438034257021143, guid: d46b35ff1e0f74844a50f1aa7f4a6869, type: 3}
+      propertyPath: m_Layer
+      value: 6
+      objectReference: {fileID: 0}
+    - target: {fileID: 5311794051000489111, guid: d46b35ff1e0f74844a50f1aa7f4a6869, type: 3}
       propertyPath: m_Layer
       value: 6
       objectReference: {fileID: 0}

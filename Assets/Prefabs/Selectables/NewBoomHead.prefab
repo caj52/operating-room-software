@@ -543,6 +543,10 @@ PrefabInstance:
     m_TransformParent: {fileID: 77486103945529810}
     m_Modifications:
     - target: {fileID: 4198723288031836275, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
+      propertyPath: <MetaData>k__BackingField.<Guid>k__BackingField
+      value: e20ce5cc-fdea-457a-abcf-1f2a820a56a8
+      objectReference: {fileID: 0}
+    - target: {fileID: 4198723288031836275, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: <MetaData>k__BackingField.<AllowedSelectableAssetBundleNames>k__BackingField.Array.size
       value: 1
       objectReference: {fileID: 0}
@@ -553,6 +557,10 @@ PrefabInstance:
     - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Name
       value: NitrogenRegulatorAtachPoint
+      objectReference: {fileID: 0}
+    - target: {fileID: 5602850515556216235, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
+      propertyPath: m_Layer
+      value: 6
       objectReference: {fileID: 0}
     - target: {fileID: 8744416669904072873, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
       propertyPath: m_Materials.Array.data[0]
@@ -604,6 +612,17 @@ PrefabInstance:
       objectReference: {fileID: 0}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
+--- !u!114 &3564130813922543999 stripped
+MonoBehaviour:
+  m_CorrespondingSourceObject: {fileID: 4198723288031836275, guid: 7dd995b93b0bdce48be9ac048b9fcd6c, type: 3}
+  m_PrefabInstance: {fileID: 806859577787986188}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 79f4f1f4b77332e4582ec64224c3ac69, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!1001 &1300140097944470814
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -1577,7 +1596,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: <AttachmentPointDatas>k__BackingField.Array.size
-      value: 21
+      value: 22
       objectReference: {fileID: 0}
     - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: <MetaData>k__BackingField.<Enabled>k__BackingField
@@ -1785,7 +1804,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: <AttachmentPointDatas>k__BackingField.Array.data[21].<Guid>k__BackingField
-      value: eb2fbd85-366b-4cb2-9d7b-94d7f6816155
+      value: e20ce5cc-fdea-457a-abcf-1f2a820a56a8
       objectReference: {fileID: 0}
     - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: <AttachmentPointDatas>k__BackingField.Array.data[22].<Guid>k__BackingField
@@ -1897,7 +1916,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: <MetaData>k__BackingField.<AttachmentPointGuidMetaData>k__BackingField.Array.size
-      value: 21
+      value: 22
       objectReference: {fileID: 0}
     - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: <AttachmentPointDatas>k__BackingField.Array.data[0].<AttachmentPoint>k__BackingField
@@ -1986,7 +2005,7 @@ PrefabInstance:
     - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: <AttachmentPointDatas>k__BackingField.Array.data[21].<AttachmentPoint>k__BackingField
       value: 
-      objectReference: {fileID: 6738674445189402110}
+      objectReference: {fileID: 3564130813922543999}
     - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: <AttachmentPointDatas>k__BackingField.Array.data[22].<AttachmentPoint>k__BackingField
       value: 
@@ -2229,7 +2248,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: <MetaData>k__BackingField.<AttachmentPointGuidMetaData>k__BackingField.Array.data[21].<Guid>k__BackingField
-      value: eb2fbd85-366b-4cb2-9d7b-94d7f6816155
+      value: e20ce5cc-fdea-457a-abcf-1f2a820a56a8
       objectReference: {fileID: 0}
     - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: <MetaData>k__BackingField.<AttachmentPointGuidMetaData>k__BackingField.Array.data[22].<Guid>k__BackingField
@@ -2393,7 +2412,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: <MetaData>k__BackingField.<AttachmentPointGuidMetaData>k__BackingField.Array.data[21].<MetaData>k__BackingField.<Guid>k__BackingField
-      value: eb2fbd85-366b-4cb2-9d7b-94d7f6816155
+      value: e20ce5cc-fdea-457a-abcf-1f2a820a56a8
       objectReference: {fileID: 0}
     - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: <MetaData>k__BackingField.<AttachmentPointGuidMetaData>k__BackingField.Array.data[22].<MetaData>k__BackingField.<Guid>k__BackingField
@@ -2470,6 +2489,14 @@ PrefabInstance:
     - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: <MetaData>k__BackingField.<AttachmentPointGuidMetaData>k__BackingField.Array.data[40].<MetaData>k__BackingField.<Guid>k__BackingField
       value: 1fb5afb5-7ea0-4728-ac91-21beb3c06410
+      objectReference: {fileID: 0}
+    - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
+      propertyPath: <MetaData>k__BackingField.<AttachmentPointGuidMetaData>k__BackingField.Array.data[21].<MetaData>k__BackingField.<AllowedSelectableAssetBundleNames>k__BackingField.Array.size
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 788891966633474830, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
+      propertyPath: <MetaData>k__BackingField.<AttachmentPointGuidMetaData>k__BackingField.Array.data[21].<MetaData>k__BackingField.<AllowedSelectableAssetBundleNames>k__BackingField.Array.data[0]
+      value: gameobject_d868fe759d9878f4b9e2f29f2c640703
       objectReference: {fileID: 0}
     - target: {fileID: 3702329968397827254, guid: 85d8679646b1a2140b71e2dbe4709489, type: 3}
       propertyPath: m_RootOrder

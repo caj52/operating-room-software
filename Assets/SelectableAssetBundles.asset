@@ -2000,6 +2000,12 @@ MonoBehaviour:
           <Guid>k__BackingField: 43bf3ec4-2b82-4a3f-b8ec-edd51af06c0a
           <AllowedSelectableCategories>k__BackingField: []
           <AllowedSelectableAssetBundleNames>k__BackingField: []
+      - <Guid>k__BackingField: e20ce5cc-fdea-457a-abcf-1f2a820a56a8
+        <MetaData>k__BackingField:
+          <Guid>k__BackingField: e20ce5cc-fdea-457a-abcf-1f2a820a56a8
+          <AllowedSelectableCategories>k__BackingField: []
+          <AllowedSelectableAssetBundleNames>k__BackingField:
+          - gameobject_d868fe759d9878f4b9e2f29f2c640703
   - <PrefabName>k__BackingField: NitrogenRegulator
     <SaveLoadGuid>k__BackingField: gameobject_d868fe759d9878f4b9e2f29f2c640703
     <AssetBundleName>k__BackingField: gameobject_d868fe759d9878f4b9e2f29f2c640703

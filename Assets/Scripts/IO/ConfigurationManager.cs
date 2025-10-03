@@ -279,7 +279,7 @@ public class ConfigurationManager : MonoBehaviour
         }
 
         UI_DialogPrompt.Open(
-          $"Success! Enhanced screenshots saved to {folder}",
+          $"Success! Room saved to {folder}",
           new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = folder),
           new ButtonAction("Done"));
     }

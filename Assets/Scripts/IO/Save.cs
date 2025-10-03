@@ -174,18 +174,7 @@ public class Save : MonoBehaviour
         // Wait a small amount of time to let ConfigurationManager's dialog appear
         yield return new WaitForSeconds(0.1f);
         
-        // Close any open dialogs (including the one from ConfigurationManager)
-        UI_DialogPrompt.Close();
-        
-        // Wait another small amount of time
-        yield return new WaitForSeconds(0.1f);
-        
-        // Show our own clearer success message
-        string folder = Application.persistentDataPath + $"/Saved/";
-        UI_DialogPrompt.Open(
-            $"Room '{name}' saved successfully!",
-            new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = folder),
-            new ButtonAction("Done"));
+
     }
     
     private void CompleteSaveConfiguration(string name)
