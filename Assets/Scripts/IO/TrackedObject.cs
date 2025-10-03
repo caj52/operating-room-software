@@ -84,9 +84,15 @@ public class TrackedObject : MonoBehaviour
         {
             data.parentPath = ConfigurationManager.GetGameObjectPath(transform.parent.gameObject);
             var parentTracked = transform.parent.GetComponent<TrackedObject>();
-            if (parentTracked != null) data.parentGuid = parentTracked.data.instance_guid;
+            data.parentGuid = parentTracked != null ? parentTracked.data.instance_guid : null;
         }
-        if (gameObject.TryGetComponent<AttachmentPoint>(out var ap))
+        else
+        {
+            data.parentPath = null;
+            data.parentGuid = null;
+        }
+        // Only set isAttachmentPoint true if not root object
+        if (gameObject.TryGetComponent<AttachmentPoint>(out var ap) && transform.parent != null)
         {
             data.isAttachmentPoint = true;
             if (!_hasStoredOriginalTransform)
@@ -97,6 +103,10 @@ public class TrackedObject : MonoBehaviour
             }
             data.originalLocalPosition = _originalLocalPosition;
             data.originalLocalRotation = _originalLocalRotation;
+        }
+        else
+        {
+            data.isAttachmentPoint = false;
         }
         if (gameObject.TryGetComponent(out Selectable s))
         {
