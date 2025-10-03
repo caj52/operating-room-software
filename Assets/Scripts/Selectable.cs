@@ -378,6 +378,26 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                     .Where(measurement => measurement.Measurer != null)
                     .Select(measurement => measurement.Measurer)
             );
+
+            // Always set up gizmo event listeners for scale changes, even for restored objects
+            if (IsGizmoSettingAllowed(GizmoType.Scale, Axis.Z))
+            {
+                _gizmoHandler.GizmoDragEnded.AddListener(() =>
+                {
+                    if (GizmoSelector.CurrentGizmoMode == GizmoMode.Scale)
+                    {
+                        UpdateZScaling(true);
+                    }
+                });
+
+                _gizmoHandler.GizmoDragPostUpdate.AddListener(() =>
+                {
+                    if (GizmoSelector.CurrentGizmoMode == GizmoMode.Scale)
+                    {
+                        UpdateZScaling(false);
+                    }
+                });
+            }
             return;
         }
 
@@ -468,8 +488,6 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 .Where(measurement => measurement.Measurer != null)
                 .Select(measurement => measurement.Measurer)
         );
-
-   
 
     }
 
