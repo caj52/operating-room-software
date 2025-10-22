@@ -17,8 +17,14 @@ public partial class Selectable
 
         public bool TryGetValue(string key, out string value)
         {
-            value = metadata.SingleOrDefault(x => x.key == key).value;
-            return value != "";
+            if (metadata == null || metadata.Length == 0)
+            {
+                value = "";
+                return false;
+            }
+            var found = metadata.FirstOrDefault(x => x.key == key);
+            value = found.value;
+            return !string.IsNullOrEmpty(found.key) && !string.IsNullOrEmpty(found.value);
         }
     }
 }

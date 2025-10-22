@@ -36,11 +36,31 @@ public class BoomHeadScaleHandler : MonoBehaviour
         _selectable.OnScaleChange?.AddListener((x) => ReassembleRows(x));
     }
 
+
+    // AFTER (fixed):
     private void OnEnable()
     {
-        ReassembleRows(scale);
+        // Anwar_boom_Fix: Delay ReassembleRows to ensure ScaleLevels are restored first
+        StartCoroutine(DelayedReassembleRows());
     }
-   public void ReassembleRows(Selectable.ScaleLevel scaleLevel)
+    private System.Collections.IEnumerator DelayedReassembleRows()
+    {
+        // Wait for configuration loading to complete
+        yield return new WaitUntil(() => !ConfigurationManager.IsLoading);
+        // Wait one more frame to ensure TrackedObject.StoreValues has completed
+        yield return null;
+        // Now safely call ReassembleRows with the current scale level
+        if (_selectable != null && _selectable.CurrentScaleLevel != null)
+        {
+            Debug.Log($"[Anwar_boom_Fix] Delayed ReassembleRows for {gameObject.name} with Size={_selectable.CurrentScaleLevel.Size}");
+            ReassembleRows(_selectable.CurrentScaleLevel);
+        }
+        else
+        {
+            Debug.LogWarning($"[Anwar_boom_Fix] Delayed ReassembleRows failed - no valid CurrentScaleLevel for {gameObject.name}");
+        }
+    }
+    public void ReassembleRows(Selectable.ScaleLevel scaleLevel)
     {
         if (scaleLevel.TryGetValue("rows", out string s_rowCount))
         {

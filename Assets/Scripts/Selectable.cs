@@ -28,8 +28,9 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     [Serializable]
     public struct Metadata
     {
-        [field: SerializeField] public string key { get; private set; }
-        [field: SerializeField] public string value { get; private set; }
+        // AFTER (fixed):
+        [field: SerializeField] public string key { get; set; }
+        [field: SerializeField] public string value { get; set; }
 
 
 
