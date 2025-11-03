@@ -687,12 +687,12 @@ public class PdfExporterLocal
             stripe = !stripe;
         }
 
-        AddConditionalRows(fldTbl, asm.TableName, rowH, gray, white, itemFont, ref stripe);
+        AddConditionalRows(fldTbl, asm.TableName, rowH, TableStripeGray, white, itemFont, ref stripe);
         container.AddElement(fldTbl);
 
         if (serviceAttachments.Count > 0)
         {
-            ProcessServiceAttachments(container, serviceAttachments, serviceHeaderFont, itemFont, valueFont, rowH, gray, white);
+            ProcessServiceAttachments(container, serviceAttachments, serviceHeaderFont, itemFont, valueFont, rowH, TableStripeGray, white);
         }
 
         container.AddElement(new Paragraph(" "));
@@ -845,6 +845,7 @@ public class PdfExporterLocal
         {
             Border = Rectangle.NO_BORDER,
             Padding = 0f,
+            PaddingTop = -8f, // nudge beam upward a bit to sit closer to the images
             HorizontalAlignment = Element.ALIGN_LEFT,
             VerticalAlignment = Element.ALIGN_TOP
         });

@@ -7,6 +7,18 @@ PrefabInstance:
   m_Modification:
     m_TransformParent: {fileID: 6875778626302832728}
     m_Modifications:
+    - target: {fileID: 3319231398677291549, guid: 88e0c686581f7184d9d10350c342bcc3, type: 3}
+      propertyPath: m_LocalScale.x
+      value: 0.18
+      objectReference: {fileID: 0}
+    - target: {fileID: 3319231398677291549, guid: 88e0c686581f7184d9d10350c342bcc3, type: 3}
+      propertyPath: m_LocalScale.y
+      value: 0.18
+      objectReference: {fileID: 0}
+    - target: {fileID: 3319231398677291549, guid: 88e0c686581f7184d9d10350c342bcc3, type: 3}
+      propertyPath: m_LocalScale.z
+      value: 0.18
+      objectReference: {fileID: 0}
     - target: {fileID: 4575778834203773398, guid: 88e0c686581f7184d9d10350c342bcc3, type: 3}
       propertyPath: <ParentSelectable>k__BackingField
       value: 
@@ -711,6 +723,7 @@ MonoBehaviour:
     <ModelDefault>k__BackingField: 0
     <ScaleZ>k__BackingField: 0
     metadata: []
+  <UseScaleLevelSizeDirectly>k__BackingField: 1
   isDuplicated: 0
 --- !u!114 &8003327718135642489
 MonoBehaviour:

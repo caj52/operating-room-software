@@ -636,6 +636,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
 
 
+
+
         previous.ForEach(x =>
         {
             //Debug.Log($"Firing deselect event for {x.gameObject.name}");
@@ -1049,7 +1051,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     {
         var imageDatas = new List<PdfExporter.PdfImageData>();
 
-        for (int i = 0; i < 2; i++)
+        // Local helper to apply orientation for index (0=front,1=back) including ceiling avoidance
+        void ApplyOrientationForIndex(int i)
         {
             void FaceAllTowardGround()
             {
@@ -1059,7 +1062,6 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                     .ForEach(item => item.FaceZTowardGround());
             }
 
-            // your existing rotation/ceiling‐avoidance loop
             foreach (Selectable selectable in _assemblySelectables.Where(x => x.ChangeHeightForElevationPhoto))
             {
                 var newAngles = selectable.transform.localEulerAngles;
@@ -1094,12 +1096,36 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             }
 
             FaceAllTowardGround();
-            var bounds = GetAssemblyBounds();
+        }
 
-            // **only change**: pass invertDirection = (i == 1)
-            string path = GetElevationPhoto(
+        // First pass: compute unified bounds that fit both orientations including measurement overlays
+        Bounds? unionBoundsNullable = null;
+        for (int i = 0; i < 2; i++)
+        {
+            ApplyOrientationForIndex(i);
+            var baseBounds = GetAssemblyBounds();
+            var expanded = ComputeExpandedBoundsForOrientation(camera, baseBounds, invertDirection: (i == 1));
+            if (unionBoundsNullable == null)
+            {
+                unionBoundsNullable = expanded;
+            }
+            else
+            {
+                var ub = unionBoundsNullable.Value;
+                ub.Encapsulate(expanded);
+                unionBoundsNullable = ub;
+            }
+        }
+        var unionBounds = unionBoundsNullable ?? GetAssemblyBounds();
+
+        // Second pass: capture both images using the same bounds
+        for (int i = 0; i < 2; i++)
+        {
+            ApplyOrientationForIndex(i);
+
+            string path = CaptureElevationWithFixedBounds(
                 camera,
-                bounds,
+                unionBounds,
                 out var imageWidth,
                 out var imageHeight,
                 fileIndex: i,
@@ -1112,6 +1138,25 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 Width = imageWidth,
                 Height = imageHeight
             });
+        }
+
+        // Ensure both images share the same dimensions by padding the smaller to the larger
+        if (imageDatas.Count == 2)
+        {
+            int targetWidth = Mathf.Max(imageDatas[0].Width, imageDatas[1].Width);
+            int targetHeight = Mathf.Max(imageDatas[0].Height, imageDatas[1].Height);
+
+            for (int idx = 0; idx < imageDatas.Count; idx++)
+            {
+                var img = imageDatas[idx];
+                if (img.Width != targetWidth || img.Height != targetHeight)
+                {
+                    PadImageToSize(img.Path, img.Width, img.Height, targetWidth, targetHeight, Color.white);
+                    img.Width = targetWidth;
+                    img.Height = targetHeight;
+                    imageDatas[idx] = img;
+                }
+            }
         }
 
         return imageDatas;
@@ -1326,7 +1371,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         // read back
         RenderTexture.active = rt;
-        Texture2D tex = new Texture2D(imageWidth, imageHeight, TextureFormat.RGB24, false);
+        Texture2D tex = new Texture2D(imageWidth, imageHeight, TextureFormat.RGBA32, false);
         float minX = Mathf.Min(screenMin.x, screenMax.x);
         float minY = Mathf.Min(screenMin.y, screenMax.y);
         tex.ReadPixels(new Rect(minX, minY, imageWidth, imageHeight), 0, 0);
@@ -1342,6 +1387,158 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     // restore original camera position
     camera.transform.position = cameraOriginalPos;
 
+    return filenameImage;
+}
+
+    // Computes the expanded bounds for the current orientation (front/back) including measurement overlays without rendering
+    private Bounds ComputeExpandedBoundsForOrientation(Camera camera, Bounds bounds, bool invertDirection)
+    {
+        camera.enabled = true;
+        camera.orthographic = true;
+
+        Vector3 cameraOriginalPos = camera.transform.position;
+        Vector3 outwardDirection = cameraOriginalPos - transform.position;
+        if (invertDirection) outwardDirection = -outwardDirection;
+
+        camera.transform.position = bounds.center + (outwardDirection.normalized * bounds.extents.magnitude);
+        camera.transform.LookAt(bounds.center, Vector3.up);
+        camera.orthographicSize = bounds.extents.y;
+
+        float addedHeight = 0.1f;
+        _assemblySelectables.ForEach(item =>
+        {
+            if (item.Measurables.Count == 0) return;
+            item.Measurables.ForEach(measurable =>
+            {
+                if (measurable.Disabled) return;
+
+                var valid = measurable.Measurements
+                    .Where(m => m.Measurable.ShowInElevationPhoto)
+                    .ToList();
+                if (valid.Count == 0)
+                {
+                    measurable.SetActive(false);
+                    return;
+                }
+
+                measurable.SetActive(true);
+                measurable.UpdateMeasurements(ref addedHeight, camera);
+
+                valid.ForEach(measurement =>
+                {
+                    measurement.Measurer.MeasurementText
+                        .UpdateVisibilityAndPosition(camera, force: true);
+                    measurement.Measurer.UpdateTransform(camera);
+
+                    bounds.Encapsulate(measurement.Measurer.Renderer.bounds);
+                    var textBounds = new Bounds(measurement.Measurer.TextPosition, Vector3.one * 1f);
+                    bounds.Encapsulate(textBounds);
+                });
+            });
+        });
+
+        // Re-aim with expanded bounds
+        camera.transform.position = bounds.center + (outwardDirection.normalized * bounds.extents.magnitude);
+        camera.transform.LookAt(bounds.center, Vector3.up);
+        camera.orthographicSize = bounds.extents.y;
+
+        // Do not render. Restore camera position
+        camera.transform.position = cameraOriginalPos;
+
+        return bounds;
+    }
+
+    // Captures using a fixed bounds so both front/back share identical camera framing
+    private string CaptureElevationWithFixedBounds(
+        Camera camera,
+        Bounds fixedBounds,
+        out int imageWidth,
+        out int imageHeight,
+        int fileIndex,
+        bool invertDirection = false)
+    {
+        camera.enabled = true;
+        camera.orthographic = true;
+
+        Vector3 cameraOriginalPos = camera.transform.position;
+        Vector3 outwardDirection = cameraOriginalPos - transform.position;
+        if (invertDirection) outwardDirection = -outwardDirection;
+
+        // Position & aim with fixed bounds
+        camera.transform.position = fixedBounds.center + (outwardDirection.normalized * fixedBounds.extents.magnitude);
+        camera.transform.LookAt(fixedBounds.center, Vector3.up);
+        camera.orthographicSize = fixedBounds.extents.y;
+
+        // Update measurement transforms for current camera so they render in right place (but don't change bounds)
+        float addedHeight = 0.1f;
+        _assemblySelectables.ForEach(item =>
+        {
+            if (item.Measurables.Count == 0) return;
+            item.Measurables.ForEach(measurable =>
+            {
+                if (measurable.Disabled) return;
+                var valid = measurable.Measurements.Where(m => m.Measurable.ShowInElevationPhoto).ToList();
+                if (valid.Count == 0)
+                {
+                    measurable.SetActive(false);
+                    return;
+                }
+                measurable.SetActive(true);
+                measurable.UpdateMeasurements(ref addedHeight, camera);
+                valid.ForEach(measurement =>
+                {
+                    measurement.Measurer.MeasurementText.UpdateVisibilityAndPosition(camera, force: true);
+                    measurement.Measurer.UpdateTransform(camera);
+                });
+            });
+        });
+
+        // Fit fixed bounds into RT
+        int safetyCounter = 1000;
+        Vector2 screenMin = camera.WorldToScreenPoint(fixedBounds.min);
+        Vector2 screenMax = camera.WorldToScreenPoint(fixedBounds.max);
+        RenderTexture rt = camera.targetTexture;
+        bool InShot(Vector2 p) => p.x > 0 && p.y > 0 && p.x < rt.width && p.y < rt.height;
+
+        while (--safetyCounter > 0)
+        {
+            camera.orthographicSize += 1f;
+            screenMin = camera.WorldToScreenPoint(fixedBounds.min);
+            screenMax = camera.WorldToScreenPoint(fixedBounds.max);
+            if (InShot(screenMin) && InShot(screenMax)) break;
+        }
+        if (safetyCounter == 0)
+            throw new Exception("Could not get bounds of Arm Assembly for photo (fixed)");
+
+        imageWidth = Mathf.CeilToInt(Mathf.Abs(screenMax.x - screenMin.x));
+        imageHeight = Mathf.CeilToInt(Mathf.Abs(screenMax.y - screenMin.y));
+
+        Canvas.ForceUpdateCanvases();
+        InGameLight.ToggleLights(false);
+        var camLight = camera.GetComponentInChildren<Light>(true);
+        camLight.gameObject.SetActive(true);
+
+        camera.Render();
+        camera.enabled = false;
+
+        camLight.gameObject.SetActive(false);
+        InGameLight.ToggleLights(true);
+
+        RenderTexture.active = rt;
+        Texture2D tex = new Texture2D(imageWidth, imageHeight, TextureFormat.RGBA32, false);
+        float minX = Mathf.Min(screenMin.x, screenMax.x);
+        float minY = Mathf.Min(screenMin.y, screenMax.y);
+        tex.ReadPixels(new Rect(minX, minY, imageWidth, imageHeight), 0, 0);
+        RenderTexture.active = null;
+
+        // save PNG
+        byte[] pngData = tex.EncodeToPNG();
+        string filenameImage = Path.Combine(
+            Application.persistentDataPath,
+            $"ExportedArmAssemblyElevationShot{fileIndex}{(invertDirection ? "_back" : "_front")}.png");
+    File.WriteAllBytes(filenameImage, pngData);
+
+    camera.transform.position = cameraOriginalPos;
     return filenameImage;
 }
 
@@ -1923,5 +2120,46 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             EditorUtility.SetDirty(gameObject);
         }
 #endif
+    }
+
+    // Pads an existing PNG image on disk to the target size (centered) with the given background color.
+    private static void PadImageToSize(string path, int currentWidth, int currentHeight, int targetWidth, int targetHeight, Color background)
+    {
+        try
+        {
+            byte[] bytes = File.ReadAllBytes(path);
+            var src = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            if (!src.LoadImage(bytes)) return;
+
+            if (src.width == targetWidth && src.height == targetHeight)
+            {
+                UnityEngine.Object.Destroy(src);
+                return;
+            }
+
+            var dst = new Texture2D(targetWidth, targetHeight, TextureFormat.RGBA32, false);
+
+            // Fill background
+            Color32 bg = background;
+            var fill = new Color32[targetWidth * targetHeight];
+            for (int i = 0; i < fill.Length; i++) fill[i] = bg;
+            dst.SetPixels32(fill);
+
+            // Blit centered
+            int xOffset = Mathf.Max(0, (targetWidth - src.width) / 2);
+            int yOffset = Mathf.Max(0, (targetHeight - src.height) / 2);
+            var pixels = src.GetPixels(0, 0, src.width, src.height);
+            dst.SetPixels(xOffset, yOffset, src.width, src.height, pixels);
+            dst.Apply();
+
+            File.WriteAllBytes(path, dst.EncodeToPNG());
+
+            UnityEngine.Object.Destroy(src);
+            UnityEngine.Object.Destroy(dst);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"Failed to pad image '{path}': {ex.Message}");
+        }
     }
 }

@@ -100,14 +100,9 @@ MonoBehaviour:
     <ModelDefault>k__BackingField: 0
     <ScaleZ>k__BackingField: 0
     metadata: []
-  - <Size>k__BackingField: 1
+  - <Size>k__BackingField: 1.1
     <Selected>k__BackingField: 1
     <ModelDefault>k__BackingField: 1
-    <ScaleZ>k__BackingField: 0
-    metadata: []
-  - <Size>k__BackingField: 1.1
-    <Selected>k__BackingField: 0
-    <ModelDefault>k__BackingField: 0
     <ScaleZ>k__BackingField: 0
     metadata: []
   - <Size>k__BackingField: 1.25
