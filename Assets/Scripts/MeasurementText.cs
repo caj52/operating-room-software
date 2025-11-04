@@ -4,6 +4,7 @@ using System.Collections;
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
+using System.Globalization;
 
 public class MeasurementText : MonoBehaviour
 {
@@ -117,25 +118,41 @@ public class MeasurementText : MonoBehaviour
 
     string NormalizeFeetInches(string input)
     {
-        // Expected format: "32'6\""
-        int footIndex = input.IndexOf('\'');
-        int inchIndex = input.IndexOf('\"');
+        // Expected base format similar to: "1' 10.7\"" but be forgiving with spaces
+        int footIndex = input.IndexOf('\''); // Find the index of the foot (') symbol
+        int inchIndex = input.IndexOf('"'); // Find the index of the inch (") symbol
 
-        if (footIndex == -1 || inchIndex == -1)
-            return input; // format not as expected
+        if (footIndex == -1 || inchIndex == -1 || inchIndex <= footIndex)
+            return input; // Return the input unmodified if the format is not as expected
 
-        // Extract numbers
-        string feetStr = input.Substring(0, footIndex);
-        string inchesStr = input.Substring(footIndex + 1, inchIndex - footIndex - 1);
+        // Extract numbers (allow decimals in inches)
+        string feetStr = input.Substring(0, footIndex).Trim(); // Extract and trim the feet part
+        string inchesStr = input.Substring(footIndex + 1, inchIndex - footIndex - 1).Trim(); // Extract and trim the inches part
 
-        if (!int.TryParse(feetStr, out int feet) || !int.TryParse(inchesStr, out int inches))
-            return input;
+        // Try parsing the feet part as an integer
+        if (!int.TryParse(feetStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out int feet))
+            return input; // Return unmodified if parsing fails
 
-        // Normalize inches
-        feet += inches / 12;
-        inches = inches % 12;
+        // Try parsing the inches part as a float (to allow decimals)
+        if (!float.TryParse(inchesStr, NumberStyles.Float, CultureInfo.InvariantCulture, out float inches))
+            return input; // Return unmodified if parsing fails
 
-        return $"{feet}'{inches}\"";
+        // Convert to total inches and normalize
+        float totalInches = feet * 12f + inches; // Convert the entire measurement to inches
+        // Round to a single decimal overall, then split into feet/inches
+        totalInches = (float)Math.Round(totalInches, 1, MidpointRounding.AwayFromZero);
+
+        int normFeet = Mathf.FloorToInt(totalInches / 12f); // Calculate normalized feet
+        float normInches = totalInches - normFeet * 12f; // Calculate normalized inches
+
+        // Guard against rounding up to exactly 12.0"
+        if (normInches >= 12f)
+        {
+            normFeet += 1;
+            normInches -= 12f;
+        }
+
+        return $"{normFeet}' {normInches:0.0}\""; // Return in the format of "X' Y.Z\""
     }
 
 }

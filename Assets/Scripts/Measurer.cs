@@ -50,6 +50,35 @@ public class Measurer : MonoBehaviour
         return measurer;
     }
 
+    private float TryGetArmLengthMetersFromHierarchy()
+    {
+        // Walk up the hierarchy to find a Selectable that represents an arm
+        var parents = Measurement?.Measurable ?
+            Measurement.Measurable.GetComponentsInParent<Selectable>(true) : null;
+
+        if (parents == null || parents.Length == 0) return -1f;
+
+        bool NameHas(Selectable s, string token) => s != null && s.gameObject.name.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0;
+        bool HasSize(Selectable s) => s != null && s.CurrentScaleLevel != null && s.CurrentScaleLevel.Size > 0f;
+
+        // Support multiple common naming schemes for arm segments
+        string[] bottomHints = { "BottomArm", "BoomSegment_2", "Segment_2", "Arm2", "LowerArm", "Lower_Arm" };
+        string[] topHints    = { "TopArm", "BoomSegment_1", "Segment_1", "Arm1", "UpperArm", "Upper_Arm" };
+
+        // Prefer distal (bottom/segment_2) if present, otherwise top/segment_1, else any ancestor with a size
+        Selectable bottom = parents.FirstOrDefault(s => HasSize(s) && bottomHints.Any(h => NameHas(s, h)));
+        Selectable top    = parents.FirstOrDefault(s => HasSize(s) && topHints.Any(h => NameHas(s, h)));
+        Selectable armSel = bottom ?? top ?? parents.FirstOrDefault(HasSize);
+
+        if (armSel != null)
+        {
+            // Size is in meters
+            return armSel.CurrentScaleLevel.Size;
+        }
+
+        return -1f;
+    }
+
     public void UpdateTransform(Camera camera = null)
     {
         if (camera == null)
@@ -59,11 +88,30 @@ public class Measurer : MonoBehaviour
 
         transform.position = Measurement.Origin;
         transform.LookAt(Measurement.HitPoint);
-        float distanceMeters = Vector3.Distance(Measurement.Origin, Measurement.HitPoint);
+
+        // For ToArmAssemblyOrigin, prefer configured arm length (ScaleLevel.Size) instead of world-space distance
+        float distanceMeters;
+        if (Measurement != null && Measurement.MeasurementType == MeasurementType.ToArmAssemblyOrigin)
+        {
+            float armLen = TryGetArmLengthMetersFromHierarchy();
+            if (armLen > 0f)
+            {
+                distanceMeters = armLen;
+            }
+            else
+            {
+                distanceMeters = Vector3.Distance(Measurement.Origin, Measurement.HitPoint);
+            }
+        }
+        else
+        {
+            distanceMeters = Vector3.Distance(Measurement.Origin, Measurement.HitPoint);
+        }
+
         float distanceFeet = Mathf.Floor(distanceMeters.ToFeet());
         float distanceInches = Mathf.Round((distanceMeters.ToFeet() - distanceFeet) * 12f * 10f) / 10f;
         Distance = $"{distanceFeet}' {distanceInches}\"";
-        transform.localScale = new Vector3(transform.localScale.x, transform.localScale.y, distanceMeters);
+        transform.localScale = new Vector3(transform.localScale.x, transform.localScale.y, Vector3.Distance(Measurement.Origin, Measurement.HitPoint));
         MeasurementText.UpdateVisibilityAndPosition(camera);
 
         // Update the horizontal line position if the measurement is related to the floor
