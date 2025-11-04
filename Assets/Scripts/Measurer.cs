@@ -79,6 +79,14 @@ public class Measurer : MonoBehaviour
         return -1f;
     }
 
+    private bool IsBoomArmFromHierarchy()
+    {
+        var parents = Measurement?.Measurable ?
+            Measurement.Measurable.GetComponentsInParent<Selectable>(true) : null;
+        if (parents == null || parents.Length == 0) return false;
+        return parents.Any(s => s != null && s.gameObject != null && s.gameObject.name.IndexOf("Boom", StringComparison.OrdinalIgnoreCase) >= 0);
+    }
+
     public void UpdateTransform(Camera camera = null)
     {
         if (camera == null)
@@ -89,14 +97,22 @@ public class Measurer : MonoBehaviour
         transform.position = Measurement.Origin;
         transform.LookAt(Measurement.HitPoint);
 
-        // For ToArmAssemblyOrigin, prefer configured arm length (ScaleLevel.Size) instead of world-space distance
+        // For ToArmAssemblyOrigin, if a Boom arm is detected in the hierarchy, prefer configured arm length (ScaleLevel.Size).
+        // Otherwise, fall back to the world-space distance as before.
         float distanceMeters;
         if (Measurement != null && Measurement.MeasurementType == MeasurementType.ToArmAssemblyOrigin)
         {
-            float armLen = TryGetArmLengthMetersFromHierarchy();
-            if (armLen > 0f)
+            if (IsBoomArmFromHierarchy())
             {
-                distanceMeters = armLen;
+                float armLen = TryGetArmLengthMetersFromHierarchy();
+                if (armLen > 0f)
+                {
+                    distanceMeters = armLen;
+                }
+                else
+                {
+                    distanceMeters = Vector3.Distance(Measurement.Origin, Measurement.HitPoint);
+                }
             }
             else
             {
