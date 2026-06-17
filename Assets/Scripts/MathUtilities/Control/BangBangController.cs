@@ -8,9 +8,9 @@ public class BangBangController : MonoBehaviour {
 
   void FixedUpdate() {
     Vector3 acceleration =
-          new Vector3(bangBangControllerWithZero(body.position.x, body.velocity.x, target.position.x, force / body.mass) * force,
-                      bangBangControllerWithZero(body.position.y, body.velocity.y, target.position.y, force / body.mass) * force,
-                      bangBangControllerWithZero(body.position.z, body.velocity.z, target.position.z, force / body.mass) * force);
+          new Vector3(bangBangControllerWithZero(body.position.x, body.linearVelocity.x, target.position.x, force / body.mass) * force,
+                      bangBangControllerWithZero(body.position.y, body.linearVelocity.y, target.position.y, force / body.mass) * force,
+                      bangBangControllerWithZero(body.position.z, body.linearVelocity.z, target.position.z, force / body.mass) * force);
     //    new Vector3(bangBangController(body.position.x, body.velocity.x, target.position.x, force / body.mass) ? force : -force,
     //                bangBangController(body.position.y, body.velocity.y, target.position.y, force / body.mass) ? force : -force,
     //                bangBangController(body.position.z, body.velocity.z, target.position.z, force / body.mass) ? force : -force);

@@ -89,7 +89,7 @@ public class FreeLookCam : MonoBehaviour
 
     private void HandleMovement()
     {
-        Vector3 velVector = new Vector3(0, Rigidbody.velocity.y, 0);
+        Vector3 velVector = new Vector3(0, Rigidbody.linearVelocity.y, 0);
 
         if (Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.UpArrow))
         {
@@ -108,7 +108,7 @@ public class FreeLookCam : MonoBehaviour
             velVector += transform.right;
         }
 
-        Rigidbody.velocity = velVector;
+        Rigidbody.linearVelocity = velVector;
     }
 
     private void HandleRotation()

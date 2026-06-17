@@ -91,7 +91,7 @@ public class OrbitCamera : MonoBehaviour
 
         if (Input.GetMouseButtonUp(1))
         {
-            orbitRigidBody.velocity = Vector3.zero;
+            orbitRigidBody.linearVelocity = Vector3.zero;
         }
 
         float fov = VirtualCamera.m_Lens.OrthographicSize;

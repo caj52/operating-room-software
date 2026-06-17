@@ -29,8 +29,8 @@ public class AccelerationDamping : MonoBehaviour {
     body.position = Vector3.Lerp(body.position, position + (Time.fixedDeltaTime * velocity), dampingRatio);
     transform.position = body.position;
     position = body.position;
-    body.velocity = Vector3.Lerp(body.velocity, velocity /*+ (Physics.gravity * Mathf.Pow(Time.fixedDeltaTime, 2f) * 2f)*/, dampingRatio);
-    velocity = body.velocity;
+    body.linearVelocity = Vector3.Lerp(body.linearVelocity, velocity /*+ (Physics.gravity * Mathf.Pow(Time.fixedDeltaTime, 2f) * 2f)*/, dampingRatio);
+    velocity = body.linearVelocity;
 
 
     body.rotation = Quaternion.Slerp(body.rotation, Quaternion.Euler(angularVelocity*Time.fixedDeltaTime)*rotation, dampingRatio);

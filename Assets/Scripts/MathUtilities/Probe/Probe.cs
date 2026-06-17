@@ -9,8 +9,8 @@ public class Probe : MonoBehaviour {
 	}
 
 	void FixedUpdate () {
-    body.velocity = (Target.position - body.position) / Time.fixedDeltaTime;
-    body.velocity = body.velocity.normalized * Mathf.Clamp(body.velocity.magnitude, 0f, 20f);
+    body.linearVelocity = (Target.position - body.position) / Time.fixedDeltaTime;
+    body.linearVelocity = body.linearVelocity.normalized * Mathf.Clamp(body.linearVelocity.magnitude, 0f, 20f);
 
     body.maxAngularVelocity = 20;
     Quaternion rotation = Target.rotation * Quaternion.Inverse(body.rotation);

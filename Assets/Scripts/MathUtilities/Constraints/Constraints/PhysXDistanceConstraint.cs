@@ -10,11 +10,11 @@ public class VelocityConstraint : MonoBehaviour {
     ConstrainRigidbodies(body, otherBody, Dist * Dist);
   }
   void ConstrainRigidbodies(Rigidbody body, Rigidbody otherBody, float sqrDist) {
-    Vector3 offset = (otherBody.position + otherBody.velocity * Time.fixedDeltaTime) - (body.position + body.velocity * Time.fixedDeltaTime);
+    Vector3 offset = (otherBody.position + otherBody.linearVelocity * Time.fixedDeltaTime) - (body.position + body.linearVelocity * Time.fixedDeltaTime);
     if ((offset).sqrMagnitude > sqrDist) {
       offset *= sqrDist / (offset.sqrMagnitude + sqrDist) - 0.5f;
-      body.velocity -= offset / Time.fixedDeltaTime;
-      otherBody.velocity += offset / Time.fixedDeltaTime;
+      body.linearVelocity -= offset / Time.fixedDeltaTime;
+      otherBody.linearVelocity += offset / Time.fixedDeltaTime;
     }
   }
 }
