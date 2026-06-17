@@ -1,7 +1,7 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
-using UnityEditor;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 public class SplashScreen : MonoBehaviour
 {
@@ -45,6 +45,7 @@ public class SplashScreen : MonoBehaviour
         //whiteFill = new Texture2D(1, 1);
         //  whiteFill.SetPixel(0, 0, Color.white);
         // whiteFill.Apply();
+        whiteFill = Texture2D.whiteTexture;
 
         GameObject storageGB = new GameObject("Flash");
         storageGB.transform.localScale = new Vector3(0, 0, 1);
@@ -71,10 +72,17 @@ public class SplashScreen : MonoBehaviour
         DontDestroyOnLoad(this);
         DontDestroyOnLoad(Camera.main);
 
-        if (Application.levelCount <= 1)
+        if (SceneManager.sceneCountInBuildSettings <= 1)
         {
             Debug.LogWarning("Invalid levelToLoad value.");
         }
+
+        SceneManager.sceneLoaded += OnSceneLoaded;
+    }
+
+    private void OnDestroy()
+    {
+        SceneManager.sceneLoaded -= OnSceneLoaded;
     }
 
     public void ClearRoomPrefs()
@@ -130,15 +138,15 @@ public class SplashScreen : MonoBehaviour
                 oldCam.depth = -1000;
                 loadingNextLevel = true;
 
-                if (Application.levelCount >= 1)
+                if (SceneManager.sceneCountInBuildSettings >= 1)
                 {
                     if (levelToLoad != "")
                     {
-                        Application.LoadLevel(levelToLoad);
+                        SceneManager.LoadScene(levelToLoad);
                     }
                     else
                     {
-                        Application.LoadLevel(1);
+                        SceneManager.LoadScene(1);
                     }
                 }
             }
@@ -151,7 +159,7 @@ public class SplashScreen : MonoBehaviour
         }
     }
 
-    void OnLevelWasLoaded(int lvlIdx)
+    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
         if (loadingNextLevel)
         {

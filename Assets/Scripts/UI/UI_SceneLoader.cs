@@ -58,7 +58,9 @@ public class UI_SceneLoader : MonoBehaviour
     private void LoadScene()
     {
         Debug.LogError("LoadScene");
+        TMP_RuntimeFontRepair.RepairAll();
         SceneManager.LoadScene("Start");
+        TMP_RuntimeFontRepair.RepairAll();
     }
 
 
