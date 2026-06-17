@@ -77,7 +77,7 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
     /// <summary>
     /// Adds a buffer amount to clearance lines to account for inaccuracies
     /// </summary>
-    [SerializeField] private float BufferSize { get; set; }
+    [field: SerializeField] private float BufferSize { get; set; }
 
     /// <summary>Only takes XZ data</summary>
     [field: SerializeField]private Transform DoorHinge { get; set; }
