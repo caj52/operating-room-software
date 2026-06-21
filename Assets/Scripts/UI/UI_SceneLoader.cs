@@ -49,9 +49,6 @@ public class UI_SceneLoader : MonoBehaviour
     private void CheckVideoEnd()
     {
         AutoInstantiator.OnAppStart();
-#if UNITY_EDITOR
-        SceneManager.LoadScene("Start");
-#endif
         AutoInstantiator.OnJobsFinished.AddListener(LoadScene);
     }
 

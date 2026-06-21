@@ -11,11 +11,9 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: f6a018f972d949340abbdf58fa667d98, type: 3}
   m_Name: TriLibSettings
-  m_EditorClassIdentifier: 
+  m_EditorClassIdentifier: Assembly-CSharp::TriLibCore.TriLibSettings
   _dictionaryBoolKeys:
   - StandardMaterialMapper
-  - HDRPMaterialMapper
-  - UniversalRPMaterialMapper
   - 
   - 
   - 
@@ -77,5 +75,7 @@ MonoBehaviour:
   - 
   - 
   - 
-  _dictionaryBoolValues: 00000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-  _settingsCount: 3
+  - 
+  - 
+  _dictionaryBoolValues: 01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+  _settingsCount: 1

@@ -38,9 +38,14 @@ public class Save : MonoBehaviour
 
     void Start()
     {
-        UI_LoadingScreensSwitcher LoadingScreen = FindObjectOfType<UI_LoadingScreensSwitcher>(true);
-        LoadingScreen.itemLoadingScreen.SetActive(true);
-        LoadingScreen.mainLoadingScreen.SetActive(false);
+        var loadingScreen = FindObjectOfType<UI_LoadingScreensSwitcher>(true);
+        if (loadingScreen != null)
+        {
+            if (loadingScreen.itemLoadingScreen != null)
+                loadingScreen.itemLoadingScreen.SetActive(true);
+            if (loadingScreen.mainLoadingScreen != null)
+                loadingScreen.mainLoadingScreen.SetActive(false);
+        }
 
         b_Save.onClick.AddListener(() =>
         {
