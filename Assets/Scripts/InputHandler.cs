@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -9,76 +8,67 @@ using UnityEngine.EventSystems;
 /// </summary>
 public class InputHandler : MonoBehaviour
 {
+    private static readonly KeyCode[] TrackedKeys = { KeyCode.Escape, KeyCode.Delete };
+    private static readonly int UILayer = LayerMask.NameToLayer("UI");
+    private static PointerEventData _pointerEventData;
+    private static readonly List<RaycastResult> RaycastResults = new List<RaycastResult>();
+
     private static InputHandler Instance { get; set; }
     public static Vector2 MouseDeltaPixels { get; private set; }
     public static Vector2 MouseDeltaScreenPercentage { get; private set; }
     public static EventHandler<KeyStateChangedEventArgs> KeyStateChanged;
     public static bool MouseWasDownOverUI { get; private set; }
 
-    private int[] values;
-    private KeyState[] keys;
+    private KeyState[] _keyStates;
     private static float _timeClickHeldDown;
     private bool _isClicking;
     private Vector2 _mousePosLastFrame;
     private static float _mouseTotalScreenPercentageDistanceWhileClicked;
-    
-    static int UILayer => LayerMask.NameToLayer("UI");
 
-    public static bool WasProperClick => _timeClickHeldDown < 0.25f && 
+    public static bool WasProperClick => _timeClickHeldDown < 0.25f &&
         _mouseTotalScreenPercentageDistanceWhileClicked < 0.1f;
 
-    //Returns 'true' if we touched or hovering on Unity UI element.
     public static bool IsPointerOverUIElement()
     {
-        return IsPointerOverUIElement(GetEventSystemRaycastResults());
-    }
+        if (EventSystem.current == null) return false;
 
-    //Returns 'true' if we touched or hovering on Unity UI element.
-    private static bool IsPointerOverUIElement(List<RaycastResult> eventSystemRaysastResults)
-    {
-        for (int index = 0; index < eventSystemRaysastResults.Count; index++)
+        if (_pointerEventData == null)
+            _pointerEventData = new PointerEventData(EventSystem.current);
+
+        _pointerEventData.position = Input.mousePosition;
+        RaycastResults.Clear();
+        EventSystem.current.RaycastAll(_pointerEventData, RaycastResults);
+
+        for (int index = 0; index < RaycastResults.Count; index++)
         {
-            RaycastResult curRaysastResult = eventSystemRaysastResults[index];
-            if (curRaysastResult.gameObject.layer == UILayer)
+            if (RaycastResults[index].gameObject.layer == UILayer)
                 return true;
         }
-        return false;
-    }
 
-    //Gets all event system raycast results of current mouse or touch position.
-    static List<RaycastResult> GetEventSystemRaycastResults()
-    {
-        PointerEventData eventData = new PointerEventData(EventSystem.current);
-        eventData.position = Input.mousePosition;
-        List<RaycastResult> raycastResults = new List<RaycastResult>();
-        EventSystem.current.RaycastAll(eventData, raycastResults);
-        return raycastResults;
+        return false;
     }
 
     private void Awake()
     {
         Instance = this;
-        values = (int[])System.Enum.GetValues(typeof(KeyCode));
-        keys = new KeyState[values.Length];
+        _keyStates = new KeyState[TrackedKeys.Length];
     }
 
     private void Update()
     {
-        for (int i = 0, n = values.Length; i < n; i++)
+        for (int i = 0; i < TrackedKeys.Length; i++)
         {
-            var keyCode = (KeyCode)values[i];
+            var keyCode = TrackedKeys[i];
 
-            var newValue = Input.GetKeyDown(keyCode) ? KeyState.PressedThisFrame : 
-                Input.GetKeyUp(keyCode) ? KeyState.ReleasedThisFrame : 
-                Input.GetKey(keyCode) ? KeyState.HeldThisFrame : 
+            var newValue = Input.GetKeyDown(keyCode) ? KeyState.PressedThisFrame :
+                Input.GetKeyUp(keyCode) ? KeyState.ReleasedThisFrame :
+                Input.GetKey(keyCode) ? KeyState.HeldThisFrame :
                 KeyState.None;
 
-            bool valueChanged = newValue != keys[i];
-            keys[i] = newValue;
+            bool valueChanged = newValue != _keyStates[i];
+            _keyStates[i] = newValue;
             if (valueChanged)
-            {
                 KeyStateChanged?.Invoke(this, new KeyStateChangedEventArgs(keyCode, newValue));
-            }
         }
 
         if (Input.GetMouseButtonDown(0))
@@ -105,7 +95,7 @@ public class InputHandler : MonoBehaviour
     {
         MouseDeltaPixels = (Vector2)Input.mousePosition - _mousePosLastFrame;
         _mousePosLastFrame = Input.mousePosition;
-        MouseDeltaScreenPercentage =  new Vector2(MouseDeltaPixels.x / Screen.width, MouseDeltaPixels.y / Screen.height);
+        MouseDeltaScreenPercentage = new Vector2(MouseDeltaPixels.x / Screen.width, MouseDeltaPixels.y / Screen.height);
     }
 }
 
