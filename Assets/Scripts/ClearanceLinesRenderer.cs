@@ -117,8 +117,11 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
     private const float BOTTOM_SPRING_EXTRA = 0.21216f;     // 212.16mm
     private const float BOTTOM_MOTORIZED_EXTRA = 0.260f; // 260mm
 
-    // Cache last computed extra offset to trigger regen when parts change
     private float _lastSpecialOffset = 0f;
+    private Vector3[] _positionsBuffer;
+    private Camera _cachedCamera;
+    private MaterialPropertyBlock _colorBlock;
+    private float _lastLineWidth = -1f;
     #endregion
 
     #region Monobehaviour
@@ -189,15 +192,36 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
 
         if (FreeLookCam.IsActive)
         {
-            float distanceToCamera = Vector3.Distance(gameObject.transform.position, Camera.main.transform.position);
-            _lineRenderer.startWidth = _sizeScalar * distanceToCamera;
-            _lineRenderer.endWidth = _sizeScalar * distanceToCamera;
+            if (_cachedCamera == null)
+                _cachedCamera = Camera.main;
+
+            if (_cachedCamera != null)
+            {
+                float distanceToCamera = Vector3.Distance(gameObject.transform.position, _cachedCamera.transform.position);
+                float width = _sizeScalar * distanceToCamera;
+                if (!Mathf.Approximately(width, _lastLineWidth))
+                {
+                    _lastLineWidth = width;
+                    _lineRenderer.startWidth = width;
+                    _lineRenderer.endWidth = width;
+                }
+            }
         }
         else
         {
-            float size = Mathf.Min(_sizeScalarOrthoMax, _sizeScalarOrtho * Camera.main.orthographicSize);
-            _lineRenderer.startWidth = size;
-            _lineRenderer.endWidth = size;
+            if (_cachedCamera == null)
+                _cachedCamera = Camera.main;
+
+            if (_cachedCamera != null)
+            {
+                float size = Mathf.Min(_sizeScalarOrthoMax, _sizeScalarOrtho * _cachedCamera.orthographicSize);
+                if (!Mathf.Approximately(size, _lastLineWidth))
+                {
+                    _lastLineWidth = size;
+                    _lineRenderer.startWidth = size;
+                    _lineRenderer.endWidth = size;
+                }
+            }
         }
 
         // For arm assemblies, if special-offset presence changes (parts added/removed), regenerate
@@ -412,6 +436,19 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         CheckStatus();
     }
 
+    private void ApplyPositionsToLineRenderer()
+    {
+        int count = _positions.Count;
+        if (_positionsBuffer == null || _positionsBuffer.Length < count)
+            _positionsBuffer = new Vector3[count];
+
+        for (int i = 0; i < count; i++)
+            _positionsBuffer[i] = _positions[i];
+
+        _lineRenderer.positionCount = count;
+        _lineRenderer.SetPositions(_positionsBuffer);
+    }
+
     public void UpdateLineRenderer()
     {
         if (Type == RendererType.ArmAssembly)
@@ -532,11 +569,7 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
             _positions[i] = newPos;
         }
 
-        _lineRenderer.positionCount = _positions.Count;
-        _lineRenderer.SetPositions(_positions.ToArray());
-
-        //Debug.Log("Array: " + string.Join(", ", _positions.ToArray()));
-
+        ApplyPositionsToLineRenderer();
 
         _taskRunning = false;
         _cancelTask = false;
@@ -563,8 +596,7 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         }
         _positions.Add(Vector3.zero);
 
-        _lineRenderer.positionCount = _positions.Count;
-        _lineRenderer.SetPositions(_positions.ToArray());
+        ApplyPositionsToLineRenderer();
 
         _needsUpdate = false;
     }
@@ -599,16 +631,13 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         _positions.Add(corner4);
         _positions.Add(corner1); // Close the loop
 
-        _lineRenderer.positionCount = _positions.Count;
-        _lineRenderer.SetPositions(_positions.ToArray());
+        ApplyPositionsToLineRenderer();
 
         _lineRenderer.widthMultiplier = 0.01f;
         _lineRenderer.textureMode = LineTextureMode.Tile;
 
         if (renderMaterialColor != null)
-        {
-            _lineRenderer.material = renderMaterialColor;
-        }
+            _lineRenderer.sharedMaterial = renderMaterialColor;
 
         _needsUpdate = false;
     }
@@ -642,16 +671,13 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         _positions.Add(corner4);
         _positions.Add(corner1); // Close the loop
 
-        _lineRenderer.positionCount = _positions.Count;
-        _lineRenderer.SetPositions(_positions.ToArray());
+        ApplyPositionsToLineRenderer();
 
         _lineRenderer.widthMultiplier = 0.01f;
         _lineRenderer.textureMode = LineTextureMode.Tile;
 
         if (renderMaterialColor != null)
-        {
-            _lineRenderer.material = renderMaterialColor;
-        }
+            _lineRenderer.sharedMaterial = renderMaterialColor;
 
         _needsUpdate = false;
     }
@@ -683,8 +709,7 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
 
         _positions.Add(_positions[0]);
 
-        _lineRenderer.positionCount = _positions.Count;
-        _lineRenderer.SetPositions(_positions.ToArray());
+        ApplyPositionsToLineRenderer();
 
         if (!UI_ToggleClearanceLines.IsActive) 
         {
