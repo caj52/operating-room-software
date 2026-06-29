@@ -13,11 +13,14 @@ public class ClearanceLineCollisionMinimal : MonoBehaviour
     private LineRenderer lr;
     private SphereCollider trig;
     private int wallLayer;
+    private MaterialPropertyBlock _colorBlock;
+    private Color _currentColor;
 
     private void Awake()
     {
         lr = GetComponent<LineRenderer>();
-        if (!lr.material) lr.material = new Material(Shader.Find("Sprites/Default"));
+        if (lr.sharedMaterial == null)
+            lr.sharedMaterial = new Material(Shader.Find("Sprites/Default"));
         SetColor(normalColor);
 
         trig = GetComponent<SphereCollider>();
@@ -88,6 +91,8 @@ public class ClearanceLineCollisionMinimal : MonoBehaviour
 
     private void SetColor(Color c)
     {
-        if (lr && lr.material) lr.material.color = c;
+        if (lr == null || _currentColor == c) return;
+        _currentColor = c;
+        MaterialColorUtility.SetLineRendererColor(lr, c, ref _colorBlock);
     }
 }

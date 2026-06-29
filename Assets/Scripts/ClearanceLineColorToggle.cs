@@ -12,6 +12,8 @@ public class ClearanceLineColorToggle : MonoBehaviour
     private int wallLayer;
     private bool _subscribed;
     private Selectable _selectable;
+    private MaterialPropertyBlock _colorBlock;
+    private Color _currentColor;
 
     void Awake()
     {
@@ -135,11 +137,8 @@ public class ClearanceLineColorToggle : MonoBehaviour
 
     void ApplyColor(Color c)
     {
-        if (!rend) return;
-
-        if (rend.material.HasProperty("_BaseColor"))
-            rend.material.SetColor("_BaseColor", c);
-        else
-            rend.material.color = c;
+        if (!rend || _currentColor == c) return;
+        _currentColor = c;
+        MaterialColorUtility.SetColor(rend, c, ref _colorBlock);
     }
 }
