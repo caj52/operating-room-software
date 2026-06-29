@@ -73,6 +73,8 @@ public class ObjectMenu : MonoBehaviour
 
     private List<string> _currentCategoryFilters = new();
     private List<string> _allCategories = new();
+    private Coroutine _searchDebounceCoroutine;
+    private const float SearchDebounceSeconds = 0.15f;
 
     #region Monobehaviour
 
@@ -249,6 +251,29 @@ public class ObjectMenu : MonoBehaviour
     }
 
     private void UpdateSearchFilter(string searchText)
+    {
+        if (!gameObject.activeSelf) return;
+
+        if (_searchDebounceCoroutine != null)
+            StopCoroutine(_searchDebounceCoroutine);
+
+        if (string.IsNullOrWhiteSpace(searchText))
+        {
+            ApplySearchFilter(searchText);
+            return;
+        }
+
+        _searchDebounceCoroutine = StartCoroutine(DebouncedSearch(searchText));
+    }
+
+    private IEnumerator DebouncedSearch(string searchText)
+    {
+        yield return new WaitForSeconds(SearchDebounceSeconds);
+        ApplySearchFilter(searchText);
+        _searchDebounceCoroutine = null;
+    }
+
+    private void ApplySearchFilter(string searchText)
     {
         if (!gameObject.activeSelf) return;
 
