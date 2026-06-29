@@ -15,8 +15,8 @@ public class EnforceZScale : MonoBehaviour
     private Selectable _selectable;
     private List<Selectable> _upperSelectables = new();
     private Selectable _directParent;
-    private List<ScaleLevel> _sortedSelectableLevels = new();
-    private List<ScaleLevel> _sortedParentLevels = new();
+    private List<Selectable.ScaleLevel> _sortedSelectableLevels = new();
+    private List<Selectable.ScaleLevel> _sortedParentLevels = new();
     /// <summary>
     /// Used to prevent stack overflow
     /// </summary>
@@ -111,7 +111,7 @@ public class EnforceZScale : MonoBehaviour
         float parentScale = _directParent.CurrentScaleLevel.Size;
         if (parentScale <= _selectable.CurrentScaleLevel.Size)
         {
-            ScaleLevel level = FindLargestBelow(_sortedSelectableLevels, parentScale);
+            Selectable.ScaleLevel level = FindLargestBelow(_sortedSelectableLevels, parentScale);
             if (level != null)
             {
                 _selectable.SetScaleLevel(level, true);
@@ -125,7 +125,7 @@ public class EnforceZScale : MonoBehaviour
         }
     }
 
-    private static ScaleLevel FindLargestBelow(List<ScaleLevel> sortedDescending, float maxSize)
+    private static Selectable.ScaleLevel FindLargestBelow(List<Selectable.ScaleLevel> sortedDescending, float maxSize)
     {
         for (int i = 0; i < sortedDescending.Count; i++)
         {
@@ -135,7 +135,7 @@ public class EnforceZScale : MonoBehaviour
         return null;
     }
 
-    private static ScaleLevel FindSmallestAbove(List<ScaleLevel> sortedAscending, float minSize)
+    private static Selectable.ScaleLevel FindSmallestAbove(List<Selectable.ScaleLevel> sortedAscending, float minSize)
     {
         for (int i = 0; i < sortedAscending.Count; i++)
         {
