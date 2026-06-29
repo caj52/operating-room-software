@@ -47,6 +47,9 @@ public class Cuttable : MonoBehaviour
 
     public UnityEvent OnCutComplete { get; } = new();
     private static List<Cuttable> ActiveCuttables { get; } = new();
+    private static readonly List<WallCutter> CachedWallCutters = new();
+    private static bool _wallCuttersCacheDirty = true;
+    private static readonly ThrottledInvoker DragCutThrottle = new ThrottledInvoker(0.125f);
 
     private MeshFilter _filter;
     private MeshRenderer _meshRenderer;
@@ -85,9 +88,11 @@ public class Cuttable : MonoBehaviour
         if (_gizmoHandler != null)
         {
             _eventManager.RegisterEvents
-                ((_gizmoHandler.GizmoDragEnded, Cut),
-                (_gizmoHandler.GizmoDragPostUpdate, Cut));
+                ((_gizmoHandler.GizmoDragEnded, CutImmediate),
+                (_gizmoHandler.GizmoDragPostUpdate, CutThrottled));
         }
+
+        Selectable.ActiveSelectablesInSceneChanged.AddListener(MarkWallCuttersCacheDirty);
 
         if (_selectable != null)
         {
@@ -107,9 +112,40 @@ public class Cuttable : MonoBehaviour
     private void OnDestroy()
     {
         ActiveCuttables.Remove(this);
+        MarkWallCuttersCacheDirty();
 
         _eventManager.RemoveListeners();
+        Selectable.ActiveSelectablesInSceneChanged.RemoveListener(MarkWallCuttersCacheDirty);
     }
+
+    private static void MarkWallCuttersCacheDirty() => _wallCuttersCacheDirty = true;
+
+    private static void RebuildWallCuttersCacheIfNeeded()
+    {
+        if (!_wallCuttersCacheDirty) return;
+
+        CachedWallCutters.Clear();
+        var seen = new HashSet<WallCutter>();
+        foreach (var selectable in Selectable.ActiveSelectables)
+        {
+            int before = CachedWallCutters.Count;
+            selectable.GetComponentsInChildren(true, CachedWallCutters);
+            for (int i = before; i < CachedWallCutters.Count; i++)
+            {
+                if (!seen.Add(CachedWallCutters[i]))
+                {
+                    CachedWallCutters.RemoveAt(i);
+                    i--;
+                }
+            }
+        }
+
+        _wallCuttersCacheDirty = false;
+    }
+
+    private void CutThrottled() => DragCutThrottle.Invoke(Cut);
+
+    private void CutImmediate() => DragCutThrottle.InvokeImmediate(Cut);
 
     private void Start()
     {
@@ -149,12 +185,9 @@ public class Cuttable : MonoBehaviour
             meshCollider.convex = true;
         }
 
-        // Get all wallcutters in scene
-        var wallCutters = Selectable.ActiveSelectables
-            .SelectMany(x => x.GetComponentsInChildren<WallCutter>())
-            .ToList();
+        RebuildWallCuttersCacheIfNeeded();
 
-        foreach (var wallCutter in wallCutters)
+        foreach (var wallCutter in CachedWallCutters)
         {
             // Not sure if this saves any performance, but its
             // probably the most cost-effective way to determine

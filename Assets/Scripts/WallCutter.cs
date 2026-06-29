@@ -8,6 +8,8 @@ using UnityEngine;
 
 public class WallCutter : MonoBehaviour
 {
+    private static readonly ThrottledInvoker DragCutThrottle = new ThrottledInvoker(0.125f);
+
     private UnityEventManager _eventManager = new();
     public Selectable Selectable { get; private set; }
     private GizmoHandler _gizmoHandler;
@@ -30,8 +32,8 @@ public class WallCutter : MonoBehaviour
         _eventManager.RegisterEvents(
             (ConfigurationManager.OnRoomLoadComplete, UpdateCuts),
             (Selectable.OnPlaced, UpdateCuts),
-            (_gizmoHandler.GizmoDragEnded, UpdateCuts),
-            (_gizmoHandler.GizmoDragPostUpdate, UpdateCuts));
+            (_gizmoHandler.GizmoDragEnded, UpdateCutsImmediate),
+            (_gizmoHandler.GizmoDragPostUpdate, UpdateCutsThrottled));
 
         _eventManager.AddListeners();
     }
@@ -52,6 +54,10 @@ public class WallCutter : MonoBehaviour
         if (_wallCuttersOnSelectable[0] == this)
             Cuttable.UpdateCuts();
     }
+
+    private void UpdateCutsThrottled() => DragCutThrottle.Invoke(UpdateCuts);
+
+    private void UpdateCutsImmediate() => DragCutThrottle.InvokeImmediate(UpdateCuts);
 
 #if UNITY_EDITOR
     [CustomEditor(typeof(WallCutter))]
