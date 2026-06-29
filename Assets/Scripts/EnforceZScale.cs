@@ -15,6 +15,8 @@ public class EnforceZScale : MonoBehaviour
     private Selectable _selectable;
     private List<Selectable> _upperSelectables = new();
     private Selectable _directParent;
+    private List<ScaleLevel> _sortedSelectableLevels = new();
+    private List<ScaleLevel> _sortedParentLevels = new();
     /// <summary>
     /// Used to prevent stack overflow
     /// </summary>
@@ -29,7 +31,6 @@ public class EnforceZScale : MonoBehaviour
     private IEnumerator Start()
     {
         yield return new WaitUntil(() => !ConfigurationManager.IsLoading);
-        List<Selectable> upperSelectables = new List<Selectable>();
 
         if (!_selectable.TryGetArmAssemblyRoot(out GameObject rootObj))
         {
@@ -46,30 +47,45 @@ public class EnforceZScale : MonoBehaviour
         {
             _directParent = _upperSelectables[index];
         }
+
+        CacheSortedScaleLevels();
         Subscribe();
         Enforce();
+    }
+
+    private void CacheSortedScaleLevels()
+    {
+        _sortedSelectableLevels = _selectable.ScaleLevels.OrderByDescending(x => x.Size).ToList();
+        if (_directParent != null)
+            _sortedParentLevels = _directParent.ScaleLevels.OrderBy(x => x.Size).ToList();
     }
 
     private void Subscribe()
     {
         if (_directParent != null) 
         {
-            _directParent.ScaleUpdated.AddListener(Enforce);
+            _directParent.ScaleUpdated.AddListener(OnScaleUpdated);
         }
 
-        _selectable.ScaleUpdated.AddListener(Enforce);
+        _selectable.ScaleUpdated.AddListener(OnScaleUpdated);
+    }
+
+    private void OnScaleUpdated()
+    {
+        CacheSortedScaleLevels();
+        Enforce();
     }
 
     private void Unsubscribe()
     {
         if (_directParent != null && !_directParent.IsDestroyed)
         {
-            _directParent.ScaleUpdated.RemoveListener(Enforce);
+            _directParent.ScaleUpdated.RemoveListener(OnScaleUpdated);
         }
 
         if (_selectable != null && !_selectable.IsDestroyed) 
         {
-            _selectable.ScaleUpdated.RemoveListener(Enforce);
+            _selectable.ScaleUpdated.RemoveListener(OnScaleUpdated);
         }
     }
 
@@ -95,20 +111,37 @@ public class EnforceZScale : MonoBehaviour
         float parentScale = _directParent.CurrentScaleLevel.Size;
         if (parentScale <= _selectable.CurrentScaleLevel.Size)
         {
-            //try get lower scale level
-            var validLevels = _selectable.ScaleLevels.Where(x => x.Size < parentScale).OrderByDescending(x => x.Size).ToList();
-            if (validLevels.Count > 0) 
+            ScaleLevel level = FindLargestBelow(_sortedSelectableLevels, parentScale);
+            if (level != null)
             {
-                _selectable.SetScaleLevel(validLevels[0], true);
+                _selectable.SetScaleLevel(level, true);
             }
-            else // force parent to be bigger
+            else
             {
-                validLevels = _directParent.ScaleLevels.Where(x => x.Size > _selectable.CurrentScaleLevel.Size).OrderBy(x => x.Size).ToList();
-                if (validLevels.Count > 0 )
-                {
-                    _directParent.SetScaleLevel(validLevels[0], true);
-                }
+                level = FindSmallestAbove(_sortedParentLevels, _selectable.CurrentScaleLevel.Size);
+                if (level != null)
+                    _directParent.SetScaleLevel(level, true);
             }
         }
+    }
+
+    private static ScaleLevel FindLargestBelow(List<ScaleLevel> sortedDescending, float maxSize)
+    {
+        for (int i = 0; i < sortedDescending.Count; i++)
+        {
+            if (sortedDescending[i].Size < maxSize)
+                return sortedDescending[i];
+        }
+        return null;
+    }
+
+    private static ScaleLevel FindSmallestAbove(List<ScaleLevel> sortedAscending, float minSize)
+    {
+        for (int i = 0; i < sortedAscending.Count; i++)
+        {
+            if (sortedAscending[i].Size > minSize)
+                return sortedAscending[i];
+        }
+        return null;
     }
 }
