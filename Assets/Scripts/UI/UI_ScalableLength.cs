@@ -11,6 +11,7 @@ public class UI_ScalableLength : MonoBehaviour
     private TextMeshProUGUI TextLength { get; set; }
 
     private bool _isActive;
+    private string _lastLengthText = string.Empty;
 
     private void Awake()
     {
@@ -37,7 +38,12 @@ public class UI_ScalableLength : MonoBehaviour
         {
             var selectable = Selectable.SelectedSelectables.First(x => x.ScaleLevels.Count > 0);
             var scale = selectable.CurrentPreviewScaleLevel.Size;
-            TextLength.text = $"{scale * 1000f} mm";
+            string text = $"{scale * 1000f} mm";
+            if (text != _lastLengthText)
+            {
+                _lastLengthText = text;
+                TextLength.text = text;
+            }
         }
     }
 }

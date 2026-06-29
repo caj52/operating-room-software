@@ -14,6 +14,8 @@ public class UI_LoadingScreen : MonoBehaviour
     [SerializeField] private TextMeshProUGUI progress;
     [SerializeField] private TextMeshProUGUI progress1;
 
+    private int _lastProgressPercent = -1;
+
     private void Awake()
     {
         if (_instance != null && _instance != this)
@@ -37,9 +39,17 @@ public class UI_LoadingScreen : MonoBehaviour
 
     private void Update()
     {
-        LoadingBar.fillAmount = Loading.GetTotalProgress01();
-        progress.text = "Please wait ...: " + Loading.GetTotalProgress01()*100 +"%";
-        progress1.text = "Please wait ...: " + Loading.GetTotalProgress01() * 100 + "%";
+        float progress01 = Loading.GetTotalProgress01();
+        LoadingBar.fillAmount = progress01;
+
+        int percent = Mathf.RoundToInt(progress01 * 100f);
+        if (percent != _lastProgressPercent)
+        {
+            _lastProgressPercent = percent;
+            string text = "Please wait ...: " + percent + "%";
+            progress.text = text;
+            progress1.text = text;
+        }
     }
 
     private void OnDestroy()

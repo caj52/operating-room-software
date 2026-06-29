@@ -9,6 +9,10 @@ public class UI_ExtraWallDimensions : MonoBehaviour
     [field: SerializeField] private TextMeshProUGUI TextWidth { get; set; }
     [field: SerializeField] private TextMeshProUGUI TextDepth { get; set; }
 
+    private string _lastHeightText = string.Empty;
+    private string _lastWidthText = string.Empty;
+    private string _lastDepthText = string.Empty;
+
     private void Awake()
     {
         ExtraWall.ExtraWallSelectionChanged.AddListener(() =>
@@ -32,9 +36,25 @@ public class UI_ExtraWallDimensions : MonoBehaviour
         if (ExtraWall.SelectedExtraWall != null)
         {
             var scale = ExtraWall.SelectedExtraWall.transform.localScale;
-            TextHeight.text = $"H: {GetDimensionFeetInches(scale.z)}";
-            TextWidth.text = $"W: {GetDimensionFeetInches(scale.x)}";
-            TextDepth.text = $"D: {GetDimensionFeetInches(scale.y)}";
+            string heightText = $"H: {GetDimensionFeetInches(scale.z)}";
+            string widthText = $"W: {GetDimensionFeetInches(scale.x)}";
+            string depthText = $"D: {GetDimensionFeetInches(scale.y)}";
+
+            if (heightText != _lastHeightText)
+            {
+                _lastHeightText = heightText;
+                TextHeight.text = heightText;
+            }
+            if (widthText != _lastWidthText)
+            {
+                _lastWidthText = widthText;
+                TextWidth.text = widthText;
+            }
+            if (depthText != _lastDepthText)
+            {
+                _lastDepthText = depthText;
+                TextDepth.text = depthText;
+            }
         }
     }
 }
