@@ -219,6 +219,16 @@ public class Measurable : MonoBehaviour
         { RoomBoundaryType.WallWest, -Vector3.forward }
     };
 
+    private static readonly int WallLayer = LayerMask.NameToLayer("Wall");
+    private static RoomBoundary _cachedFloorBoundary;
+
+    private static RoomBoundary GetFloorBoundary()
+    {
+        if (_cachedFloorBoundary == null)
+            _cachedFloorBoundary = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor);
+        return _cachedFloorBoundary;
+    }
+
     private void UpdateMeasurementViaRaycast(Vector3 direction, Measurement measurement, bool ignoreSelectables = false)
     {
         Ray ray = new Ray(transform.position, direction);
@@ -228,17 +238,15 @@ public class Measurable : MonoBehaviour
             mask = LayerMask.GetMask("Wall");
         }
 
-        bool floorIsOn = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor).gameObject.activeSelf;
+        bool floorIsOn = GetFloorBoundary().gameObject.activeSelf;
 
         if (!floorIsOn)
-        {
-            RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor).gameObject.SetActive(true);
-        }
+            GetFloorBoundary().gameObject.SetActive(true);
 
         if (Physics.Raycast(ray, out RaycastHit raycastHit, 1000f, mask))
         {
             var obj = raycastHit.collider.gameObject;
-            if (obj.layer == LayerMask.NameToLayer("Wall") || obj.CompareTag("Wall") || obj.CompareTag("Baseboard"))
+            if (obj.layer == WallLayer || obj.CompareTag("Wall") || obj.CompareTag("Baseboard"))
             {
                 measurement.Origin = ray.origin;
                 measurement.HitPoint = raycastHit.point;
@@ -246,9 +254,7 @@ public class Measurable : MonoBehaviour
         }
 
         if (!floorIsOn)
-        {
-            RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor).gameObject.SetActive(false);
-        }
+            GetFloorBoundary().gameObject.SetActive(false);
     }
 
     private float GetDistanceToCameraPlane(Vector3 point, Camera camera = null)
