@@ -38,7 +38,7 @@ public class RoomConfigLoader : MonoBehaviour
                                                     .Replace("_", " ");
         go.GetComponent<Button>().onClick.AddListener(() =>
         {
-            ConfigurationManager.Instance.LoadRoom(f);
+            _ = ConfigurationManager.Instance.LoadRoomAsync(f);
             Instance.gameObject.SetActive(false);
             transform.root.gameObject.SetActive(false);
         });

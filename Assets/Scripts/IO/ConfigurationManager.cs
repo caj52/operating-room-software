@@ -133,7 +133,7 @@ public class ConfigurationManager : MonoBehaviour
         {
             progress?.Report(0f);
             await Task.Yield();
-            LoadRoom(path);
+            await LoadRoomAsync(path);
             progress?.Report(1f);
             return true;
         }
@@ -294,7 +294,7 @@ public class ConfigurationManager : MonoBehaviour
             if (File.Exists(file))
             {
                 CreateTracker();
-                string json = File.ReadAllText(file);
+                string json = await File.ReadAllTextAsync(file);
                 _tracker = JsonConvert.DeserializeObject<Tracker>(json);
 
                 _newPoints = new List<AttachmentPoint>();
@@ -330,8 +330,13 @@ public class ConfigurationManager : MonoBehaviour
         }
     }
 
-    public void LoadRoom(string file)
+    public void LoadRoom(string file) => _ = LoadRoomAsync(file);
+
+    public async Task LoadRoomAsync(string file)
     {
+        IsLoading = true;
+        try
+        {
         Debug.Log($"Clearing default room objects");
         List<TrackedObject> existingObjects = FindObjectsOfType<TrackedObject>().ToList();
 
@@ -352,15 +357,19 @@ public class ConfigurationManager : MonoBehaviour
         if (File.Exists(file))
         {
             CreateTracker();
-            string json = File.ReadAllText(file);
+            string json = await File.ReadAllTextAsync(file);
 
             _roomConfiguration = JsonConvert
                 .DeserializeObject<RoomConfiguration>(json);
 
-            // restore client metadata into UI
             TryRestoreClientMetaData();
 
-            LoadRoom();
+            await LoadRoomCollections();
+        }
+        }
+        finally
+        {
+            IsLoading = false;
         }
     }
 
@@ -412,7 +421,7 @@ public class ConfigurationManager : MonoBehaviour
         }
     }
 
-    private async void LoadRoom()
+    private async Task LoadRoomCollections()
     {
         IsLoading = true;
         var token = Loading.GetLoadingToken();
@@ -457,6 +466,7 @@ public class ConfigurationManager : MonoBehaviour
 
     // --- Multi pass state ---
     private Dictionary<string, GameObject> _guidToGameObject = new();
+    private Dictionary<string, GameObject> _pathToGameObject = new();
     private Queue<(GameObject obj, TrackedObject.Data data)> _pendingSetup = new();
     public List<TrackedObject.Data> _pendingEmbedded = new();
     private List<TrackedObject.Data> _pendingAttachmentPoints = new();
@@ -464,6 +474,8 @@ public class ConfigurationManager : MonoBehaviour
     private async Task ProcessTrackedObjects(List<TrackedObject.Data> trackedObjects)
     {
         _guidToGameObject.Clear();
+        _pathToGameObject.Clear();
+        CacheScenePaths();
         _pendingSetup.Clear();
         _pendingEmbedded.Clear();
         _pendingAttachmentPoints.Clear();
@@ -523,6 +535,7 @@ public class ConfigurationManager : MonoBehaviour
             }
 
             _pendingSetup.Enqueue((go, data));
+            RegisterGameObjectPaths(go, data);
 
             var trackedObj = go.GetComponent<TrackedObject>();
             if (trackedObj != null)
@@ -546,7 +559,7 @@ public class ConfigurationManager : MonoBehaviour
             // Fallback to parentPath
             if (parent == null && !string.IsNullOrEmpty(data.parentPath))
             {
-                var parentGO2 = GameObject.Find(NormalizeFindPath(data.parentPath));
+                var parentGO2 = TryFindGameObject(data.parentPath);
                 if (parentGO2 != null)
                     parent = parentGO2.transform;
             }
@@ -583,11 +596,11 @@ public class ConfigurationManager : MonoBehaviour
             // Try to find the embedded object by selfPath, parent, or parentPath
             GameObject go = null;
             if (!string.IsNullOrEmpty(to.selfPath))
-                go = GameObject.Find(NormalizeFindPath(to.selfPath));
+                go = TryFindGameObject(to.selfPath);
             if (go == null && !string.IsNullOrEmpty(to.parent))
-                go = GameObject.Find(NormalizeFindPath(to.parent));
+                go = TryFindGameObject(to.parent);
             if (go == null && !string.IsNullOrEmpty(to.parentPath))
-                go = GameObject.Find(NormalizeFindPath(to.parentPath));
+                go = TryFindGameObject(to.parentPath);
             if (go == null)
                 throw new NullReferenceException($"Could not find embedded selectable for path: {to.selfPath} or parent: {to.parent}");
 
@@ -698,7 +711,7 @@ public class ConfigurationManager : MonoBehaviour
             _guidToGameObject.TryGetValue(to.instance_guid, out apGO);
 
         if (apGO == null && !string.IsNullOrEmpty(to.parentPath))
-            apGO = GameObject.Find(NormalizeFindPath(to.parentPath));
+            apGO = TryFindGameObject(to.parentPath);
 
         if (apGO == null)
         {
@@ -759,8 +772,70 @@ public class ConfigurationManager : MonoBehaviour
     private static bool IsBaseboard(TrackedObject.Data to) => IsBaseboard(to.global_guid);
     public static bool IsWallProtector(TrackedObject.Data to) => IsWallProtector(to.global_guid);
     public static bool IsRoomBoundary(TrackedObject.Data to) => IsRoomBoundary(to.global_guid);
-    private static GameObject GetRoomBoundary(TrackedObject.Data to) => GameObject.Find("RoomBoundary_" + to.global_guid);
-    private static GameObject GetGameObjectWithGuidName(TrackedObject.Data to) => GameObject.Find(to.global_guid);
+    private static GameObject GetRoomBoundary(TrackedObject.Data to)
+    {
+        string key = "RoomBoundary_" + to.global_guid;
+        if (Instance != null && Instance._pathToGameObject.TryGetValue(key, out var cached))
+            return cached;
+
+        var go = GameObject.Find(key);
+        if (go != null && Instance != null)
+            Instance._pathToGameObject[key] = go;
+        return go;
+    }
+
+    private static GameObject GetGameObjectWithGuidName(TrackedObject.Data to)
+    {
+        if (Instance != null)
+        {
+            if (Instance._guidToGameObject.TryGetValue(to.global_guid, out var byGuid))
+                return byGuid;
+            if (Instance._pathToGameObject.TryGetValue(to.global_guid, out var byPath))
+                return byPath;
+        }
+
+        var go = GameObject.Find(to.global_guid);
+        if (go != null && Instance != null)
+            Instance._pathToGameObject[to.global_guid] = go;
+        return go;
+    }
+
+    private void CacheScenePaths()
+    {
+        foreach (var boundary in FindObjectsOfType<RoomBoundary>(true))
+            RegisterPath(boundary.gameObject.name, boundary.gameObject);
+
+        foreach (var tracked in FindObjectsOfType<TrackedObject>(true))
+        {
+            RegisterPath(GetGameObjectPath(tracked.gameObject), tracked.gameObject);
+            if (!string.IsNullOrEmpty(tracked.gameObject.name))
+                RegisterPath(tracked.gameObject.name, tracked.gameObject);
+        }
+    }
+
+    private void RegisterGameObjectPaths(GameObject go, TrackedObject.Data data)
+    {
+        RegisterPath(GetGameObjectPath(go), go);
+        if (!string.IsNullOrEmpty(data.selfPath))
+            RegisterPath(data.selfPath, go);
+        if (!string.IsNullOrEmpty(data.parentPath))
+            RegisterPath(data.parentPath, go);
+    }
+
+    private void RegisterPath(string path, GameObject go)
+    {
+        if (string.IsNullOrEmpty(path) || go == null) return;
+        _pathToGameObject[NormalizeFindPath(path)] = go;
+    }
+
+    private GameObject TryFindGameObject(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return null;
+        string normalized = NormalizeFindPath(path);
+        if (_pathToGameObject.TryGetValue(normalized, out var cached))
+            return cached;
+        return GameObject.Find(normalized);
+    }
 
     public static string GetGameObjectPath(GameObject obj)
     {
