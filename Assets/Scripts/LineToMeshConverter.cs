@@ -4,34 +4,41 @@ using UnityEngine;
 
 public class LineToMeshConverter : MonoBehaviour
 {
+    private static readonly int WallLayer = LayerMask.NameToLayer("Wall");
+    private static readonly Collider[] OverlapBuffer = new Collider[32];
+
     private LineRenderer lineRenderer;
     private MeshFilter meshFilter;
     private SphereCollider sphereCollider;
     private Mesh mesh;
+    private MaterialPropertyBlock _colorBlock;
 
     public float lineThickness = 0.1f;
     public float widthScale = 0.5f;
     public int circleResolution = 8;
     Selectable selectable;
 
-    // Special case: allow same-parent collisions for this parent Selectable
     private const string TandemCoverName = "Boom - Tandem Ceiling Cover";
 
-    // Track active, relevant clearance-line collisions for this object
     private readonly HashSet<Collider> _activeRelevantCollisions = new HashSet<Collider>();
+
+    private Vector3[] _cachedLinePositions;
+    private Vector3[] _previousLinePositions;
+    private int _cachedPointCount;
+    private Quaternion _cachedRotation;
+    private Vector3[] _verticesBuffer;
+    private int[] _trianglesBuffer;
+    private Color _currentColor = new Color(0f, 1f, 0f, 0.5f);
 
     void Start()
     {
-
         lineRenderer = GetComponent<LineRenderer>();
         meshFilter = GetComponent<MeshFilter>();
         selectable = transform.parent.GetComponent<Selectable>();
-        // Get or add a SphereCollider component
+
         sphereCollider = GetComponent<SphereCollider>();
         if (sphereCollider == null)
-        {
             sphereCollider = gameObject.AddComponent<SphereCollider>();
-        }
         sphereCollider.isTrigger = true;
 
         if (mesh == null)
@@ -40,17 +47,13 @@ public class LineToMeshConverter : MonoBehaviour
             meshFilter.mesh = mesh;
         }
 
-        // Ensure initial state is green
-        SetRendererColor(this, new Color(0f, 1f, 0f, 0.5f));
-
-        UpdateMesh();
+        SetRendererColor(this, _currentColor);
+        UpdateMeshIfDirty();
     }
 
     void Update()
     {
-        UpdateMesh();
-
-        // Fallback: if no relevant collisions are currently around, ensure color goes back to green.
+        UpdateMeshIfDirty();
         UpdateCollisionColorFallback();
     }
 
@@ -73,21 +76,20 @@ public class LineToMeshConverter : MonoBehaviour
     {
         if (sphereCollider == null) return;
 
-        // Clean up destroyed/invalid colliders from the set
         _activeRelevantCollisions.RemoveWhere(c => c == null);
 
         Vector3 center = transform.TransformPoint(sphereCollider.center);
         float radius = Mathf.Max(sphereCollider.radius, 0.1f);
-        Collider[] colliders = Physics.OverlapSphere(center, radius);
+        int count = Physics.OverlapSphereNonAlloc(center, radius, OverlapBuffer);
 
         bool touchingWall = false;
 
-        for (int i = 0; i < colliders.Length; i++)
+        for (int i = 0; i < count; i++)
         {
-            Collider other = colliders[i];
+            Collider other = OverlapBuffer[i];
             if (other == null || other.gameObject == gameObject) continue;
 
-            if (other.gameObject.layer == LayerMask.NameToLayer("Wall") &&
+            if (other.gameObject.layer == WallLayer &&
                 !other.gameObject.name.Contains("Ceil") &&
                 !other.gameObject.name.Contains("Floor"))
             {
@@ -96,34 +98,61 @@ public class LineToMeshConverter : MonoBehaviour
             }
         }
 
-        // If we are not colliding with any relevant line and not touching a wall, ensure color returns to green
         if (_activeRelevantCollisions.Count == 0 && !touchingWall)
-        {
             SetRendererColor(this, new Color(0f, 1f, 0f, 0.5f));
-        }
     }
 
-    void UpdateMesh()
+    void UpdateMeshIfDirty()
     {
         int pointCount = lineRenderer.positionCount;
         if (pointCount < 2) return;
 
-        Vector3[] positions = new Vector3[pointCount];
-        lineRenderer.GetPositions(positions);
+        if (_cachedLinePositions == null || _cachedLinePositions.Length < pointCount)
+            _cachedLinePositions = new Vector3[pointCount];
 
-        GenerateMesh(positions);
+        lineRenderer.GetPositions(_cachedLinePositions);
+
+        Quaternion rotation = transform.rotation;
+        if (PositionsUnchanged(_cachedLinePositions, pointCount, rotation))
+            return;
+
+        if (_previousLinePositions == null || _previousLinePositions.Length < pointCount)
+            _previousLinePositions = new Vector3[pointCount];
+        for (int i = 0; i < pointCount; i++)
+            _previousLinePositions[i] = _cachedLinePositions[i];
+
+        _cachedPointCount = pointCount;
+        _cachedRotation = rotation;
+        GenerateMesh(_cachedLinePositions, pointCount);
     }
 
-    void GenerateMesh(Vector3[] positions)
+    private bool PositionsUnchanged(Vector3[] positions, int count, Quaternion rotation)
     {
-        mesh.Clear();
+        if (_cachedPointCount != count || _cachedRotation != rotation)
+            return false;
 
-        int segmentCount = positions.Length - 1;
+        if (_previousLinePositions == null || _previousLinePositions.Length < count)
+            return false;
+
+        for (int i = 0; i < count; i++)
+        {
+            if (_previousLinePositions[i] != positions[i])
+                return false;
+        }
+
+        return true;
+    }
+
+    void GenerateMesh(Vector3[] positions, int pointCount)
+    {
+        int segmentCount = pointCount - 1;
         int vertexCount = segmentCount * circleResolution * 2;
         int triangleCount = segmentCount * circleResolution * 6;
 
-        Vector3[] vertices = new Vector3[vertexCount];
-        int[] triangles = new int[triangleCount];
+        if (_verticesBuffer == null || _verticesBuffer.Length < vertexCount)
+            _verticesBuffer = new Vector3[vertexCount];
+        if (_trianglesBuffer == null || _trianglesBuffer.Length < triangleCount)
+            _trianglesBuffer = new int[triangleCount];
 
         Quaternion rotation = transform.rotation;
 
@@ -142,8 +171,8 @@ public class LineToMeshConverter : MonoBehaviour
                 float x = Mathf.Cos(angle) * lineThickness * widthScale;
                 float z = Mathf.Sin(angle) * lineThickness * widthScale;
 
-                vertices[i * circleResolution + j] = positions[i] + up * x + right * z;
-                vertices[i * circleResolution + j + circleResolution] = positions[i + 1] + up * x + right * z;
+                _verticesBuffer[i * circleResolution + j] = positions[i] + up * x + right * z;
+                _verticesBuffer[i * circleResolution + j + circleResolution] = positions[i + 1] + up * x + right * z;
             }
 
             for (int j = 0; j < circleResolution; j++)
@@ -158,19 +187,19 @@ public class LineToMeshConverter : MonoBehaviour
 
                 int baseIndex = (i * circleResolution + j) * 6;
 
-                triangles[baseIndex] = front1;
-                triangles[baseIndex + 1] = back1;
-                triangles[baseIndex + 2] = front2;
+                _trianglesBuffer[baseIndex] = front1;
+                _trianglesBuffer[baseIndex + 1] = back1;
+                _trianglesBuffer[baseIndex + 2] = front2;
 
-                triangles[baseIndex + 3] = front2;
-                triangles[baseIndex + 4] = back1;
-                triangles[baseIndex + 5] = back2;
+                _trianglesBuffer[baseIndex + 3] = front2;
+                _trianglesBuffer[baseIndex + 4] = back1;
+                _trianglesBuffer[baseIndex + 5] = back2;
             }
         }
 
-        mesh.vertices = vertices;
-        mesh.triangles = triangles;
-
+        mesh.Clear();
+        mesh.SetVertices(_verticesBuffer, 0, vertexCount);
+        mesh.SetTriangles(_trianglesBuffer, 0, triangleCount, 0);
         mesh.RecalculateNormals();
         mesh.RecalculateBounds();
 
@@ -179,22 +208,19 @@ public class LineToMeshConverter : MonoBehaviour
             sphereCollider.center = mesh.bounds.center;
             sphereCollider.radius = Mathf.Max(mesh.bounds.extents.x, mesh.bounds.extents.y, mesh.bounds.extents.z);
         }
-        DestroyImmediate(GetComponent<MeshFilter>());
-        DestroyImmediate(GetComponent<MeshRenderer>());
     }
 
     private void OnTriggerEnter(Collider other)
     {
         if (other.CompareTag("ClearanceLine"))
         {
-            // Valid collision if from different parent OR same parent with special Tandem Cover parent
             bool differentParent = this.transform.parent != other.transform.parent;
             bool sameParentTandem = this.transform.parent == other.transform.parent && IsTandemParent(this.transform.parent);
             if (differentParent || sameParentTandem)
             {
                 _activeRelevantCollisions.Add(other);
                 Debug.Log("Anas => Collision between clearance lines (valid context)");
-                SetRendererColor(this, new Color(1f, 0f, 0f, 0.5f)); // Red
+                SetRendererColor(this, new Color(1f, 0f, 0f, 0.5f));
                 SetRendererColor(other.GetComponent<LineToMeshConverter>(), new Color(1f, 0f, 0f, 0.5f));
 
                 if (UI_ToggleProximityAlerts.IsActive)
@@ -205,10 +231,7 @@ public class LineToMeshConverter : MonoBehaviour
                         new ButtonAction
                         {
                             ButtonText = "Ok",
-                            Action = () =>
-                            {
-                                UI_DialogPrompt.Close();
-                            },
+                            Action = () => { UI_DialogPrompt.Close(); },
                         });
                     }
                     else
@@ -219,37 +242,29 @@ public class LineToMeshConverter : MonoBehaviour
                         new ButtonAction
                         {
                             ButtonText = "Ok",
-                            Action = () =>
-                            {
-                                UI_DialogPrompt.Close();
-                            },
+                            Action = () => { UI_DialogPrompt.Close(); },
                         });
                     }
                 }
-               
             }
         }
-        if (other.gameObject.layer == LayerMask.NameToLayer("Wall") && !other.gameObject.name.Contains("Ceil") && !other.gameObject.name.Contains("Floor"))
+        if (other.gameObject.layer == WallLayer && !other.gameObject.name.Contains("Ceil") && !other.gameObject.name.Contains("Floor"))
         {
             Debug.Log("Anas => Touching the Wall!");
             SetRendererColor(this, new Color(1f, 0f, 0f, 0.5f));
 
             if (UI_ToggleProximityAlerts.IsActive)
             {
-           UI_DialogPrompt.Open($"{selectable.UIButtonName} is touching the wall!",
-           new ButtonAction
-           {
-               ButtonText = "Ok",
-               Action = () =>
-               {
-                   UI_DialogPrompt.Close();
-               },
-           });
+                UI_DialogPrompt.Open($"{selectable.UIButtonName} is touching the wall!",
+                new ButtonAction
+                {
+                    ButtonText = "Ok",
+                    Action = () => { UI_DialogPrompt.Close(); },
+                });
             }
-           
         }
-     
     }
+
     private void OnTriggerStay(Collider other)
     {
         if (other.CompareTag("ClearanceLine"))
@@ -259,11 +274,12 @@ public class LineToMeshConverter : MonoBehaviour
             if (differentParent || sameParentTandem)
             {
                 _activeRelevantCollisions.Add(other);
-                SetRendererColor(this, new Color(1f, 0f, 0f, 0.5f)); // Red
+                SetRendererColor(this, new Color(1f, 0f, 0f, 0.5f));
                 SetRendererColor(other.GetComponent<LineToMeshConverter>(), new Color(1f, 0f, 0f, 1f));
             }
         }
     }
+
     private void OnTriggerExit(Collider other)
     {
         Debug.Log("Anas=> Collision not Detected", other.gameObject);
@@ -272,26 +288,18 @@ public class LineToMeshConverter : MonoBehaviour
             _activeRelevantCollisions.Remove(other);
             Debug.Log("Anas not Detected with another LineObject!");
             if (_activeRelevantCollisions.Count == 0)
-            {
-                SetRendererColor(this, new Color(0, 1, 0, 0.5f)); // Green
-            }
-            // Optionally set the other to green as well, but it may still be colliding with something else
-            // SetRendererColor(other.GetComponent<LineToMeshConverter>(), new Color(0, 1, 0, 0.5f));
+                SetRendererColor(this, new Color(0, 1, 0, 0.5f));
         }
-        if (other.gameObject.layer == LayerMask.NameToLayer("Wall") && !other.gameObject.name.Contains("Ceil") && !other.gameObject.name.Contains("Floor"))
+        if (other.gameObject.layer == WallLayer && !other.gameObject.name.Contains("Ceil") && !other.gameObject.name.Contains("Floor"))
         {
             Debug.Log("Anas => Exited from wall contact");
-            // Only set to green if no relevant line collisions remain
             if (_activeRelevantCollisions.Count == 0)
-            {
                 SetRendererColor(this, new Color(0, 1, 0, 0.5f));
-            }
         }
     }
 
     private void OnDisable()
     {
-        // Ensure we don't leave stale red color when object gets disabled/destroyed
         SetRendererColor(this, new Color(0f, 1f, 0f, 0.5f));
         _activeRelevantCollisions.Clear();
     }
@@ -299,19 +307,12 @@ public class LineToMeshConverter : MonoBehaviour
     private void SetRendererColor(LineToMeshConverter renderer, Color color)
     {
         if (renderer == null) return;
-        var lr = renderer.GetComponent<LineRenderer>();
+        var lr = renderer.lineRenderer != null ? renderer.lineRenderer : renderer.GetComponent<LineRenderer>();
         if (lr == null) return;
 
-        // Set LineRenderer colors directly (more reliable than material color alone)
-        lr.startColor = color;
-        lr.endColor = color;
+        if (renderer._currentColor == color) return;
+        renderer._currentColor = color;
 
-        // Also try to set material color if supported by the shader
-        var mat = lr.material;
-        if (mat != null && mat.HasProperty("_Color"))
-        {
-            mat.color = color;
-        }
+        MaterialColorUtility.SetLineRendererColor(lr, color, ref renderer._colorBlock);
     }
-
 }
