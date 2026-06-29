@@ -202,6 +202,17 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     public bool Started { get; private set; }
     private bool _isRaycastingOnSelectable;
 
+    private static readonly RaycastHit[] PlacementRaycastBuffer = new RaycastHit[128];
+    private static int _selectableLayerMask = -1;
+    private static int _wallLayerMask = -1;
+    private Camera _cachedMainCamera;
+
+    private Bounds? _cachedBounds;
+    private Vector3 _cachedBoundsPosition;
+    private Quaternion _cachedBoundsRotation;
+    private Vector3 _cachedBoundsLossyScale;
+    private MeshRenderer[] _cachedMeshRenderers;
+
     public bool ScaleLevelsRestoredFromSave { get; set; } = false;
     #endregion
 
@@ -494,8 +505,38 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
     private void Update()
     {
-        UpdateRaycastPlacementMode();
-        FaceZTowardGround();
+        bool needsPlacement = _isRaycastPlacementMode && !_hasBeenPlaced;
+        bool needsGroundFacing = ZAlwaysFacesGround ||
+            (ZAlwaysFacesGroundElevationOnly && IsInElevationPhotoMode);
+
+        if (!needsPlacement && !needsGroundFacing)
+            return;
+
+        if (needsPlacement)
+            UpdateRaycastPlacementMode();
+        if (needsGroundFacing)
+            FaceZTowardGround();
+    }
+
+    private static void EnsurePlacementLayerMasks()
+    {
+        if (_selectableLayerMask < 0)
+            _selectableLayerMask = 1 << LayerMask.NameToLayer("Selectable");
+        if (_wallLayerMask < 0)
+            _wallLayerMask = 1 << LayerMask.NameToLayer("Wall");
+    }
+
+    private Camera GetMainCamera()
+    {
+        if (_cachedMainCamera == null)
+            _cachedMainCamera = Camera.main;
+        return _cachedMainCamera;
+    }
+
+    private sealed class RaycastHitDistanceComparer : System.Collections.Generic.IComparer<RaycastHit>
+    {
+        public static readonly RaycastHitDistanceComparer Instance = new RaycastHitDistanceComparer();
+        public int Compare(RaycastHit x, RaycastHit y) => x.distance.CompareTo(y.distance);
     }
     #endregion
 
@@ -555,23 +596,38 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
     public Bounds GetBounds()
     {
-        MeshRenderer[] meshRenderers = GetComponentsInChildren<MeshRenderer>();
+        bool transformUnchanged = _cachedBounds.HasValue &&
+            transform.position == _cachedBoundsPosition &&
+            transform.rotation == _cachedBoundsRotation &&
+            transform.lossyScale == _cachedBoundsLossyScale;
 
-        if (meshRenderers.Length == 0)
-        {
+        if (transformUnchanged)
+            return _cachedBounds.Value;
+
+        if (_cachedMeshRenderers == null || _cachedMeshRenderers.Length == 0)
+            _cachedMeshRenderers = GetComponentsInChildren<MeshRenderer>();
+
+        if (_cachedMeshRenderers.Length == 0)
             throw new Exception($"Selectable {gameObject.name} had 0 mesh renderers.");
-        }
 
         Bounds bounds = new Bounds(
-            meshRenderers[0].bounds.center,
-            meshRenderers[0].bounds.size);
+            _cachedMeshRenderers[0].bounds.center,
+            _cachedMeshRenderers[0].bounds.size);
 
-        for (int i = 1; i < meshRenderers.Length; i++)
-        {
-            bounds.Encapsulate(meshRenderers[i].bounds);
-        }
+        for (int i = 1; i < _cachedMeshRenderers.Length; i++)
+            bounds.Encapsulate(_cachedMeshRenderers[i].bounds);
 
+        _cachedBounds = bounds;
+        _cachedBoundsPosition = transform.position;
+        _cachedBoundsRotation = transform.rotation;
+        _cachedBoundsLossyScale = transform.lossyScale;
         return bounds;
+    }
+
+    public void InvalidateBoundsCache()
+    {
+        _cachedBounds = null;
+        _cachedMeshRenderers = null;
     }
 
     public bool TryGetArmAssemblyRoot(out GameObject rootObj)
@@ -1714,6 +1770,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         if (!Application.isPlaying) return;
 
         _isRaycastPlacementMode = true;
+        _cachedMainCamera = Camera.main;
         Debug.Log($"Selectable: Raycast placement mode = true");
     }
 
@@ -1737,16 +1794,15 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling).Collider.enabled = true;
         }
 
-        var ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+        var ray = GetMainCamera().ScreenPointToRay(Input.mousePosition);
 
         _isRaycastingOnSelectable = false;
+        EnsurePlacementLayerMasks();
 
         if (CanPlaceAnywhere)
         {
-            int maskSelectable = 1 << LayerMask.NameToLayer("Selectable");
-
             if (Physics.Raycast(ray, out RaycastHit hit,
-                float.MaxValue, maskSelectable))
+                float.MaxValue, _selectableLayerMask))
             {
                 transform.position = hit.point;
                 transform.LookAt(transform.position + hit.normal, Vector3.up);
@@ -1770,10 +1826,12 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         if (!_isRaycastingOnSelectable)
         {
-            //int mask = 1 << LayerMask.NameToLayer("Wall");
-            var hits = Physics.RaycastAll(ray, float.MaxValue);
-            foreach (var hit in hits)
+            int hitCount = Physics.RaycastNonAlloc(ray, PlacementRaycastBuffer, float.MaxValue);
+            System.Array.Sort(PlacementRaycastBuffer, 0, hitCount, RaycastHitDistanceComparer.Instance);
+
+            for (int h = 0; h < hitCount; h++)
             {
+                var hit = PlacementRaycastBuffer[h];
                 void SetPosition(RaycastHit hit)
                 {
                     Vector3 destination = hit.point;
@@ -1856,7 +1914,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                     var ray2 = new Ray(Vector3.zero + Vector3.up, direction);
 
                     if (Physics.Raycast(ray2, out RaycastHit raycastHit2,
-                        float.MaxValue, 1 << LayerMask.NameToLayer("Wall")))
+                        float.MaxValue, _wallLayerMask))
                     {
                         SetPosition(raycastHit2);
                         break;
