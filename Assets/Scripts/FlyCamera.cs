@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 
 public class FlyCamera : MonoBehaviour
@@ -16,6 +15,8 @@ public class FlyCamera : MonoBehaviour
     private float yaw = 0.0f;
     private float pitch = 0.0f;
     private bool isRotating = false;
+    private readonly List<Selectable> _ceilingSelectables = new();
+    private bool _wasAboveCeiling;
 
     void Start()
     {
@@ -24,6 +25,25 @@ public class FlyCamera : MonoBehaviour
         pitch = angles.x;
         lastMouse = Input.mousePosition;
 
+        RebuildCeilingList();
+        Selectable.ActiveSelectablesInSceneChanged.AddListener(RebuildCeilingList);
+    }
+
+    private void OnDestroy()
+    {
+        Selectable.ActiveSelectablesInSceneChanged.RemoveListener(RebuildCeilingList);
+    }
+
+    private void RebuildCeilingList()
+    {
+        _ceilingSelectables.Clear();
+        if (Selectable.ActiveSelectables == null) return;
+
+        foreach (var selectable in Selectable.ActiveSelectables)
+        {
+            if (selectable.name.ToLower().Contains("roomboundary_ceil"))
+                _ceilingSelectables.Add(selectable);
+        }
     }
 
     void Update()
@@ -57,26 +77,30 @@ public class FlyCamera : MonoBehaviour
         pitch = Mathf.Clamp(pitch, -89f, 89f); // Prevent flipping
 
         transform.rotation = Quaternion.Euler(pitch, yaw, 0f);
+        UpdateCeilingVisibility();
+    }
 
-        List<Selectable> ceilings = Selectable.ActiveSelectables?
-           .Where(x => x.name.ToLower().Contains("roomboundary_ceil"))
-           .ToList() ?? new List<Selectable>();
-        if (transform.GetComponent<Camera>().enabled)
+    private void UpdateCeilingVisibility()
+    {
+        var cam = transform.GetComponent<Camera>();
+        if (cam == null) return;
+
+        if (!cam.enabled)
         {
-            if (transform.position.y > 10)
+            if (_wasAboveCeiling)
             {
-                ChangeCeilingLayer(ceilings, "HiddenCeilings");
+                _wasAboveCeiling = false;
+                ChangeCeilingLayer(_ceilingSelectables, "Wall");
             }
-            else
-            {
-                ChangeCeilingLayer(ceilings, "Wall");
-            }
+            return;
         }
-        else
-        {
-            ChangeCeilingLayer(ceilings, "Wall");
-        }
-     
+
+        bool aboveCeiling = transform.position.y > 10f;
+        if (aboveCeiling == _wasAboveCeiling)
+            return;
+
+        _wasAboveCeiling = aboveCeiling;
+        ChangeCeilingLayer(_ceilingSelectables, aboveCeiling ? "HiddenCeilings" : "Wall");
     }
 
     void HandleMovement()
@@ -97,6 +121,7 @@ public class FlyCamera : MonoBehaviour
 
         p *= Time.deltaTime;
         transform.Translate(p, Space.Self);
+        UpdateCeilingVisibility();
     }
 
     private Vector3 GetBaseInput()
