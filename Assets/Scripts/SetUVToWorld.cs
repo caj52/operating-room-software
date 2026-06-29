@@ -129,18 +129,10 @@ public class SetUVToWorld : MonoBehaviour
     private IEnumerator Start()
 	{
         yield return new WaitUntil(() => _selectable.Started);
-        yield return new WaitForSeconds(5);
         UpdateMaterials();
     }
 
-    private void OnBecameVisible()
-    {
-        UpdateMaterials();
-    }
-
-    private void UpdateMaterials
-    (Selectable.ScaleLevel scaleLevel) 
-        => UpdateMaterials();
+    private void UpdateMaterials(Selectable.ScaleLevel scaleLevel) => UpdateMaterials();
 
 	private void UpdateMaterials()
 	{
