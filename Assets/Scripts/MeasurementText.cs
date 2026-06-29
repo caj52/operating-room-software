@@ -11,7 +11,8 @@ public class MeasurementText : MonoBehaviour
     private static GameObject Prefab { get; set; }
 
     [SerializeField, ReadOnly] private Measurer _measurer;
-    public TextMeshProUGUI Text; 
+    public TextMeshProUGUI Text;
+    private string _lastDisplayedText = string.Empty;
 
     private void Awake()
     {
@@ -92,7 +93,12 @@ public class MeasurementText : MonoBehaviour
         }
 
 
-        Text.text = NormalizeFeetInches(_measurer.Distance);
+        string displayText = NormalizeFeetInches(_measurer.Distance);
+        if (displayText != _lastDisplayedText)
+        {
+            _lastDisplayedText = displayText;
+            Text.text = displayText;
+        }
 
         // Get the direction from camera to text position
         Vector3 directionFromCamera = (_measurer.TextPosition - camera.transform.position).normalized;

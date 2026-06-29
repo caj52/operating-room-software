@@ -126,7 +126,9 @@ public class Measurer : MonoBehaviour
 
         float distanceFeet = Mathf.Floor(distanceMeters.ToFeet());
         float distanceInches = Mathf.Round((distanceMeters.ToFeet() - distanceFeet) * 12f * 10f) / 10f;
-        Distance = $"{distanceFeet}' {distanceInches}\"";
+        string newDistance = $"{distanceFeet}' {distanceInches}\"";
+        if (newDistance != Distance)
+            Distance = newDistance;
         transform.localScale = new Vector3(transform.localScale.x, transform.localScale.y, Vector3.Distance(Measurement.Origin, Measurement.HitPoint));
         MeasurementText.UpdateVisibilityAndPosition(camera);
 
