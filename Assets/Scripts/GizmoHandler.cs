@@ -33,6 +33,8 @@ public class GizmoHandler : MonoBehaviour
     private Vector3 _lastCircleIntersectPoint;
     //private static readonly Color _colorTransparent = new(0, 0, 0, 0);
     public bool IsDestroyed { get; private set; }
+    private Vector3 _lastSyncedPosition;
+    private Quaternion _lastSyncedRotation;
 
     private bool RotateGizmoEnabled() => GizmoSelector.CurrentGizmoMode ==
         GizmoMode.Rotate && _selectable.IsSelected;
@@ -184,6 +186,14 @@ private IEnumerator Start()
     {
         if (!_selectable.IsSelected)
             return;
+
+        if (!GizmoUsedLastFrame &&
+            transform.position == _lastSyncedPosition &&
+            transform.rotation == _lastSyncedRotation)
+            return;
+
+        _lastSyncedPosition = transform.position;
+        _lastSyncedRotation = transform.rotation;
 
         _translateGizmo.Gizmo.Transform.Position3D = transform.position;
         _translateGizmo.Gizmo.Transform.LocalRotation3D = transform.localRotation;
