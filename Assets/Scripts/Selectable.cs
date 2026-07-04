@@ -1731,7 +1731,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         bool isOrbitalCam = OperatingRoomCamera.LiveCamera
             .CameraType == OperatingRoomCameraType.Orbital;
 
-        if (WallRestrictions[0] == RoomBoundaryType.Ceiling &&
+        if (WallRestrictions.Count > 0 &&
+            WallRestrictions[0] == RoomBoundaryType.Ceiling &&
             (isCeilingCam || isOrbitalCam))
         {
             RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling).Collider.enabled = true;
@@ -1779,7 +1780,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                     Vector3 destination = hit.point;
                     Vector3 normal = hit.normal;
 
-                    if (WallRestrictions[0] == RoomBoundaryType.Ceiling
+                    if (WallRestrictions.Count > 0 &&
+                        WallRestrictions[0] == RoomBoundaryType.Ceiling
                         && (isCeilingCam || isOrbitalCam))
                     {
                         destination += RoomBoundary.DefaultWallThickness * Vector3.down;
@@ -1849,8 +1851,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
                 if (_virtualParent == null)
                 {
-                    Vector3 direction = WallRestrictions[0] == RoomBoundaryType.Ceiling ? Vector3.up :
-                        WallRestrictions[0] == RoomBoundaryType.Floor ? Vector3.down :
+                    Vector3 direction = WallRestrictions.Count > 0 && WallRestrictions[0] == RoomBoundaryType.Ceiling ? Vector3.up :
+                        WallRestrictions.Count > 0 && WallRestrictions[0] == RoomBoundaryType.Floor ? Vector3.down :
                         Vector3.right;
 
                     var ray2 = new Ray(Vector3.zero + Vector3.up, direction);
@@ -1915,7 +1917,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                     Debug.LogWarning("No virtual parent detected.");
                 }
 
-                if (WallRestrictions[0] == RoomBoundaryType.Ceiling &&
+                if (WallRestrictions.Count > 0 &&
+                    WallRestrictions[0] == RoomBoundaryType.Ceiling &&
                     (isCeilingCam || isOrbitalCam))
                 {
                     RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling).Collider.enabled = false;
