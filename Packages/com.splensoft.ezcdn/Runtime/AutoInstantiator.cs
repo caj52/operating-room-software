@@ -108,6 +108,14 @@ namespace SplenSoft.AssetBundles
         public static UnityEvent OnJobsFinished
         { get; } = new UnityEvent();
 
+        /// <summary>
+        /// Optional hook for external pipeline diagnostics (phase, message).
+        /// </summary>
+        public static Action<string, string> DiagnosticLog;
+
+        private static void Diag(string phase, string message)
+            => DiagnosticLog?.Invoke(phase, message);
+
         [field: SerializeField,
         AssetBundleReference(typeof(GameObject), "Add Prefab")]
         private string AssetBundleNameToAdd { get; set; }
@@ -119,6 +127,7 @@ namespace SplenSoft.AssetBundles
     
         public static async void OnAppStart()
         {
+            Diag("AutoInstantiator", "OnAppStart — loading UI prefab AutoInstantiator SO bundles");
 
             // get the scriptable objects
             var task = AssetBundleManager
@@ -128,6 +137,8 @@ namespace SplenSoft.AssetBundles
             if (!Application.isPlaying) return;
 
             if (task.Result.Length == 0) return;
+
+            Diag("AutoInstantiator", $"Found {task.Result.Length} AutoInstantiator bundle(s)");
 
             var tasks =
                 new List<Task<AutoInstantiator>>();
@@ -193,10 +204,20 @@ namespace SplenSoft.AssetBundles
 
             instantiationTasks.ForEach(finalTask =>
             {
-                var newObj = Instantiate(finalTask.Result);
+                if (finalTask.Result != null)
+                {
+                    Diag("AutoInstantiator", $"Loaded UI prefab '{finalTask.Result.name}' — instantiating");
+                    var newObj = Instantiate(finalTask.Result);
+                    Diag("AutoInstantiator", $"Instantiated UI prefab '{newObj.name}' childCount={newObj.transform.childCount}");
+                }
+                else
+                {
+                    Diag("AutoInstantiator", "WARNING: UI prefab load returned null");
+                }
             });
 
             OnJobsFinished?.Invoke();
+            Diag("AutoInstantiator", "OnAppStart complete");
         }
     }
 }

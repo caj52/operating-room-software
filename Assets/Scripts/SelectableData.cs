@@ -1,4 +1,4 @@
-﻿using SplenSoft.AssetBundles;
+using SplenSoft.AssetBundles;
 using System;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -42,6 +42,8 @@ public class SelectableData
     ){
         loadingToken ??= Loading.GetLoadingToken();
 
+        AssetPipelineDiagnostics.LogSelectableData("GetPrefab", this, "requesting prefab");
+
         if (progress == null) 
         {
             progress = new Progress<AssetRetrievalProgress>();
@@ -58,6 +60,11 @@ public class SelectableData
         if (!Application.isPlaying) return null;
 
         loadingToken.Done();
+
+        if (task.Result == null)
+            AssetPipelineDiagnostics.LogSelectableData("GetPrefab", this, "result=NULL");
+        else
+            AssetPipelineDiagnostics.LogPrefabSnapshot("GetPrefab", task.Result, $"result for {PrefabName}");
 
         return task.Result;
     }

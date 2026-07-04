@@ -99,6 +99,8 @@ namespace SplenSoft.AssetBundles
         private static float _currentSelfInitializerTimeout = 0f;
         private static int _currentDownloads;
 
+        private const string LocalMirrorFolder = "TestData/CdnMirror";
+
         /// <summary>
         /// Set to false to disable the auto initialization (retrieval of 
         /// <see cref="AssetBundleManifest"/> and caching dependencies). Note: 
@@ -107,6 +109,14 @@ namespace SplenSoft.AssetBundles
         /// a gameobject that calls awake in the inital scene in the game
         /// </summary>
         public static bool AutoInitialize { get; set; } = true;
+
+        /// <summary>
+        /// Optional hook for external pipeline diagnostics (phase, message).
+        /// </summary>
+        public static Action<string, string> DiagnosticLog;
+
+        private static void Diag(string phase, string message)
+            => DiagnosticLog?.Invoke(phase, message);
 
         [RuntimeInitializeOnLoadMethod, Preserve]
         private static async void OnAppStart()
@@ -176,11 +186,6 @@ namespace SplenSoft.AssetBundles
         {
             result = null;
             AssetBundleManagerSettings settings = AssetBundleManagerSettings.Get();
-            if (settings.UseEditorAssetsIfAble && Application.isEditor)
-            {
-                result = new AssetRetrievalResult(200, UnityWebRequest.Result.Success);
-                return true;
-            }
 
             if (!settings.BuildTargetsByPlatform.TryGetValue(Application.platform, out int buildtarget))
             {
@@ -267,13 +272,8 @@ namespace SplenSoft.AssetBundles
         private static async Task GetManifestAndCacheDependencyData()
         {
             AssetBundleManagerSettings settings = AssetBundleManagerSettings.Get();
-            if (settings.UseEditorAssetsIfAble && Application.isEditor)
-            {
-                Log.Write(LogLevel.Verbose, $"Asset bundle manager initialized (Editor Mode)");
-                Initialized = true;
-                IsInitializing = false;
-                return;
-            }
+
+            Diag("ABM.Initialize", $"Loading manifest — isEditor={Application.isEditor}");
 
             if (!settings.BuildTargetsByPlatform.TryGetValue(Application.platform, out int buildtarget))
             {
@@ -314,6 +314,7 @@ namespace SplenSoft.AssetBundles
             Initialized = true;
             IsInitializing = false;
             Log.Write(LogLevel.Verbose, $"Asset bundle manager initialized");
+            Diag("ABM.Initialize", $"CDN manifest cached — {_assetBundleData.Count} bundle entries for platform {Application.platform}");
         }
 
         /// <summary>
@@ -356,8 +357,7 @@ namespace SplenSoft.AssetBundles
         public static async Task<string[]> GetAssetBundleNames(string regexPattern)
         {
 #if UNITY_EDITOR
-            if (!Application.isPlaying || 
-                AssetBundleManagerSettings.Get().UseEditorAssetsIfAble)
+            if (!Application.isPlaying)
             {
                 return AssetDatabase.GetAllAssetBundleNames()
                     .Where(x => Regex.IsMatch(x, regexPattern))
@@ -435,39 +435,13 @@ namespace SplenSoft.AssetBundles
                 {
                     Log.Write(LogLevel.Log, $"Retrieving loaded asset {data.Asset.name}");
                 }
+                Diag("ABM.GetAsset", $"CACHE HIT {name} -> {data.Asset.name} ({typeof(T).Name})");
                 progress?.Report(new AssetRetrievalProgress(AssetRetrievalStatus.Done, 1));
                 onSuccess?.Invoke((T)data.Asset);
                 return (T)data.Asset;
             }
 
-#if UNITY_EDITOR
-            if (AssetBundleManagerSettings.Get().UseEditorAssetsIfAble && typeof(T) != typeof(AssetBundleManifest))
-            {
-                if (TryGetEditorAsset(name, out T editorAsset))
-                {
-                    Log.Write(LogLevel.Log, $"Loaded asset {name} from editor asset database");
-                    if (data != null)
-                    {
-                        data.Loaded = true;
-                        data.Asset = editorAsset;
-                        if (data.Asset != null)
-                        {
-                            Log.Write(LogLevel.Log, $"Loaded asset {data.Asset.name}");
-                        }
-                        data.LastResponseCode = 200;
-                    }
-                    _downloadResponseCodePerAssetBundleName[name] = new AssetRetrievalResult(200, UnityWebRequest.Result.Success);
-                    progress?.Report(new AssetRetrievalProgress(AssetRetrievalStatus.Done, 1));
-                    onSuccess?.Invoke(editorAsset);
-                    AssetLoaded?.Invoke(name);
-                    return editorAsset;
-                }
-                else
-                {
-                    Log.Write(LogLevel.Warning, $"Unable to get asset {name} from editor asset database. Falling back to downloaded asset bundle ...");
-                }
-            }
-#endif
+            Diag("ABM.GetAsset", $"LOAD {name} ({typeof(T).Name})");
             var getBundleProgress = new Progress<AssetRetrievalProgress>();
             void GetBundleProgress_ProgressChanged(object sender, AssetRetrievalProgress e)
             {
@@ -483,6 +457,7 @@ namespace SplenSoft.AssetBundles
             if (bundle == null)
             {
                 Debug.LogError($"Asset bundle {name} returned null after attempted download");
+                Diag("ABM.GetAsset", $"CDN FAILED {name} — bundle download returned null");
                 var res = new AssetRetrievalResult(404, UnityWebRequest.Result.ProtocolError);
                 onFailure.Invoke(res);
                 _downloadResponseCodePerAssetBundleName[name] = res;
@@ -539,6 +514,7 @@ namespace SplenSoft.AssetBundles
             progress?.Report(new AssetRetrievalProgress(AssetRetrievalStatus.Done, 1));
             onSuccess?.Invoke((T)loadAsset.asset);
             AssetLoaded?.Invoke(name);
+            Diag("ABM.GetAsset", $"LOADED {name} -> '{loadAsset.asset?.name}' ({typeof(T).Name})");
             return (T)loadAsset.asset;
         }
 
@@ -600,6 +576,30 @@ namespace SplenSoft.AssetBundles
             progress2.ProgressChanged += Progress2_ProgressChanged;
             await DownloadAndCacheDependencies(name, progress2);
 
+            if (data != null && data.AssetBundle != null)
+            {
+                progress?.Report(new AssetRetrievalProgress(AssetRetrievalStatus.Done, 1));
+                onSuccess?.Invoke(data.AssetBundle);
+                AssetBundleDownloadFinished?.Invoke(name);
+                return data.AssetBundle;
+            }
+
+            var localBundle = TryGetLocalAssetBundle(name);
+            if (localBundle.Success)
+            {
+                progress?.Report(new AssetRetrievalProgress(AssetRetrievalStatus.Done, 1));
+                onSuccess?.Invoke(localBundle.AssetBundle);
+                if (data != null)
+                {
+                    data.AssetBundle = localBundle.AssetBundle;
+                    data.LastResponseCode = 200;
+                }
+                _downloadResponseCodePerAssetBundleName[name] =
+                    new AssetRetrievalResult(200, UnityWebRequest.Result.Success);
+                AssetBundleDownloadFinished?.Invoke(name);
+                return localBundle.AssetBundle;
+            }
+
             bool useHash = data != null && data.Hash != default;
             var settings = AssetBundleManagerSettings.Get();
 
@@ -647,16 +647,11 @@ namespace SplenSoft.AssetBundles
 
             if (request.result != UnityWebRequest.Result.Success)
             {
-                // can get local copy?
-                var task = TryGetAssetBundleStreamingAssets(name);
+                var fallback = TryGetLocalAssetBundle(name);
 
-                await Task.Yield();
-                if (!Application.isPlaying)
-                    throw new Exception(_quitWhileRetrievingMessage);
-
-                if (task.Result.Success)
+                if (fallback.Success)
                 {
-                    var bundle = task.Result.AssetBundle;
+                    var bundle = fallback.AssetBundle;
                     onSuccess?.Invoke(bundle);
                     if (data != null)
                     {
@@ -706,6 +701,55 @@ namespace SplenSoft.AssetBundles
                 Debug.LogError($"Web request failed, code {request.responseCode}");
                 return null;
             }
+        }
+
+        private static string GetLocalMirrorBundlePath(string name)
+        {
+            string projectRoot = Directory.GetParent(Application.dataPath)?.FullName;
+            if (string.IsNullOrEmpty(projectRoot))
+                return null;
+
+            return Path.Combine(projectRoot, LocalMirrorFolder, name);
+        }
+
+        private static StreamingAssetBundleRequestResult TryGetLocalAssetBundle(string name)
+        {
+            string streamingPath = Path.Combine(
+                Application.streamingAssetsPath, "AssetBundles", name);
+
+            var streamingResult = TryLoadAssetBundleFromFile(
+                streamingPath, name, "StreamingAssets");
+            if (streamingResult.Success)
+                return streamingResult;
+
+            string mirrorPath = GetLocalMirrorBundlePath(name);
+            if (!string.IsNullOrEmpty(mirrorPath))
+            {
+                var mirrorResult = TryLoadAssetBundleFromFile(
+                    mirrorPath, name, "CdnMirror");
+                if (mirrorResult.Success)
+                    return mirrorResult;
+            }
+
+            return new StreamingAssetBundleRequestResult(false, null);
+        }
+
+        private static StreamingAssetBundleRequestResult TryLoadAssetBundleFromFile(
+            string path, string name, string source)
+        {
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                return new StreamingAssetBundleRequestResult(false, null);
+
+            AssetBundle bundle = AssetBundle.LoadFromFile(path);
+            if (bundle == null)
+            {
+                Debug.LogError($"Could not load asset bundle {name} from {source}: {path}");
+                return new StreamingAssetBundleRequestResult(false, null);
+            }
+
+            Log.Write(LogLevel.Log, $"Loaded asset bundle {name} from {source}: {path}");
+            Diag("ABM.GetAssetBundle", $"LOCAL {source} {name} from {path}");
+            return new StreamingAssetBundleRequestResult(true, bundle);
         }
 
         private static async Task<StreamingAssetBundleRequestResult> TryGetAssetBundleStreamingAssets(string name)
@@ -800,46 +844,6 @@ namespace SplenSoft.AssetBundles
                 data.DownloadStarted = true;
             }
 
-#if UNITY_EDITOR
-            if (AssetBundleManagerSettings.Get().UseEditorAssetsIfAble)
-            {
-                if (TryGetEditorAsset(name, out UnityEngine.Object editorAsset, out string path))
-                {
-                    Log.Write(LogLevel.Log, $"Loaded asset {name} from editor asset database");
-                    if (data != null)
-                    {
-                        data.Loaded = true;
-                        data.Asset = editorAsset;
-                        if (data.Asset != null)
-                        {
-                            Log.Write(LogLevel.Log, $"Loaded asset {data.Asset.name}");
-                        }
-                    }
-
-                    var asyncOperation = EditorSceneManager.LoadSceneAsyncInPlayMode(path, new LoadSceneParameters(LoadSceneMode.Single));
-                    float lastProgress = 0;
-                    while (!asyncOperation.isDone)
-                    {
-                        if (asyncOperation.progress != lastProgress)
-                        {
-                            progress?.Report(new AssetRetrievalProgress(AssetRetrievalStatus.Loading, asyncOperation.progress));
-                            lastProgress = asyncOperation.progress;
-                        }
-
-                        await Task.Yield();
-                        if (!Application.isPlaying) return;
-                    }
-                    progress?.Report(new AssetRetrievalProgress(AssetRetrievalStatus.Done, 1));
-                    onSuccess?.Invoke();
-                    SceneAssetLoaded?.Invoke(name);
-                    return;
-                }
-                else
-                {
-                    Log.Write(LogLevel.Warning, $"Unable to get asset {name} from editor asset database. Falling back to downloaded asset bundle ...");
-                }
-            }
-#endif
             var getBundleTask = GetAssetBundle(name, progress);
             await getBundleTask;
             var bundle = getBundleTask.Result;
@@ -894,7 +898,7 @@ namespace SplenSoft.AssetBundles
         /// <returns>A <see cref="Task"/> object</returns>
         public static async Task DownloadAndCacheDependencies(string assetBundleName, IProgress<AssetRetrievalProgress> progress = null)
         {
-            var tasks = new List<Task<AssetBundleManifest>>();
+            var tasks = new List<Task<AssetBundle>>();
             if (_assetBundleData.TryGetValue(assetBundleName, out AssetBundleData data) && data.Dependencies.Count > 0)
             {
                 for (int i = 0; i < data.Dependencies.Count; i++)
@@ -910,7 +914,7 @@ namespace SplenSoft.AssetBundles
                             progress?.Report(new AssetRetrievalProgress(AssetRetrievalStatus.Downloading, prog));
                         }
                         progress2.ProgressChanged += progressChanged;
-                        var task = GetAsset<AssetBundleManifest>(dependency, progress2);
+                        var task = GetAssetBundle(dependency, progress2);
                         tasks.Add(task);
                     }
                 }

@@ -2,8 +2,8 @@ using SplenSoft.AssetBundles;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
 using UnityEngine;
 
 #if UNITY_EDITOR
@@ -26,6 +26,9 @@ using UnityEditor;
     order = 1)]
 public class SelectableAssetBundles : ScriptableObject, IPreprocessAssetBundle
 {
+    private const string CatalogAssetPath = "Assets/SelectableAssetBundles.asset";
+    private const string CatalogBundleName = "selectableassetbundles_837398f6c50183d4f80b5c0c2f0daa33";
+
     public static bool Initialized { get; private set; }
 
     private static List<SelectableData> SelectableData { get; } = new();
@@ -46,55 +49,74 @@ public class SelectableAssetBundles : ScriptableObject, IPreprocessAssetBundle
     }
 
     /// <summary>
-    /// Populates <see cref="SelectableData"/> from CDN. 
+    /// Populates <see cref="SelectableData"/> from the local catalog asset. 
     /// Runs on app start. 
     /// Track <see cref="Initialized"/> to know when it's finished
     /// </summary>
-    private static async void GetDatas()
+    private static void GetDatas()
     {
         Debug.Log("Getting SelectableAssetBundles datas");
+        AssetPipelineDiagnostics.Log("Catalog", "GetDatas started — loading local catalog");
         var loadingToken = Loading.GetLoadingToken();
 
-        // get all SelectableAssetBundles asset bundles from CDN
-        var task = AssetBundleManager.GetAssetBundleNames(typeof(SelectableAssetBundles));
-        await task;
-        if (!Application.isPlaying) return;
-
-        List<Task<SelectableAssetBundles>> tasks = new();
-        var progresses = new float[task.Result.Length];
-
-        for (int i = 0; i < task.Result.Length; i++)
+        if (!TryLoadLocalCatalog(out SelectableAssetBundles catalog))
         {
-            string assetBundleName = task.Result[i];
-
-            // track download/load progress for loadingToken
-            var progress = new Progress<AssetRetrievalProgress>();
-            int index = i;
-            progress.ProgressChanged += (_, p) =>
-            {
-                progresses[index] = p.Progress;
-                float prog = progresses.Sum() / task.Result.Length;
-                loadingToken.SetProgress(prog);
-            };
-
-            var assetRetrievalTask = AssetBundleManager
-                .GetAsset<SelectableAssetBundles>
-                (assetBundleName, progress);
-
-            tasks.Add(assetRetrievalTask);
+            Debug.LogError("Failed to load local SelectableAssetBundles catalog");
+            AssetPipelineDiagnostics.Log("Catalog", "Failed — local catalog not found");
+            loadingToken.Done();
+            return;
         }
 
-        // wait for all download/load tasks to complete
-        while (tasks.Any(x => !x.IsCompleted)) await Task.Yield();
-        if (!Application.isPlaying) return;
-
-        // cache all Selectable Data
-        tasks.ForEach(x => SelectableData
-                           .AddRange(x.Result._selectableData));
-
+        SelectableData.AddRange(catalog._selectableData);
         Initialized = true;
         loadingToken.Done();
         Debug.Log("SelectableAssetBundles initialized");
+        AssetPipelineDiagnostics.Log("Catalog", $"Initialized — {SelectableData.Count} SelectableData entries cached from local catalog");
+    }
+
+    private static bool TryLoadLocalCatalog(out SelectableAssetBundles catalog)
+    {
+        catalog = null;
+
+#if UNITY_EDITOR
+        catalog = AssetDatabase.LoadAssetAtPath<SelectableAssetBundles>(CatalogAssetPath);
+        if (catalog != null)
+        {
+            AssetPipelineDiagnostics.Log("Catalog", $"Loaded from {CatalogAssetPath}");
+            return true;
+        }
+#endif
+
+        foreach (string path in GetLocalCatalogBundlePaths())
+        {
+            if (!File.Exists(path))
+                continue;
+
+            AssetBundle bundle = AssetBundle.LoadFromFile(path);
+            if (bundle == null)
+                continue;
+
+            catalog = bundle.LoadAsset<SelectableAssetBundles>("SelectableAssetBundles");
+            if (catalog == null)
+                catalog = bundle.LoadAllAssets<SelectableAssetBundles>().FirstOrDefault();
+
+            if (catalog != null)
+            {
+                AssetPipelineDiagnostics.Log("Catalog", $"Loaded from bundle {path}");
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static IEnumerable<string> GetLocalCatalogBundlePaths()
+    {
+        yield return Path.Combine(Application.streamingAssetsPath, "AssetBundles", CatalogBundleName);
+
+        string projectRoot = Directory.GetParent(Application.dataPath)?.FullName;
+        if (!string.IsNullOrEmpty(projectRoot))
+            yield return Path.Combine(projectRoot, "TestData", "CdnMirror", CatalogBundleName);
     }
 
     /// <param name="query">Can be SaveLoadGuid or AssetBundleName</param>
@@ -104,6 +126,9 @@ public class SelectableAssetBundles : ScriptableObject, IPreprocessAssetBundle
             .FirstOrDefault(x =>
                 string.Compare(x.SaveLoadGuid, query, true) == 0 ||
                 string.Compare(x.AssetBundleName, query, true) == 0);
+
+        if (data == default)
+            AssetPipelineDiagnostics.Log("Catalog.Lookup", $"MISS query='{query}' (catalog has {SelectableData.Count} entries, initialized={Initialized})");
 
         return data != default;
     }

@@ -200,7 +200,7 @@ namespace SplenSoft.AssetBundles
 
         public string UnityProjectId { get; set; }
         public string ActiveEnvironmentId { get; set; }
-        public bool UseEditorAssetsIfAble { get; set; } = true;
+        public bool UseEditorAssetsIfAble { get; set; } = false;
 
         public Dictionary<string, EnvironmentVariables> VariablesByEnvironment 
             { get; set; } = new Dictionary<string, EnvironmentVariables>();

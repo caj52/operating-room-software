@@ -366,6 +366,8 @@ public class ObjectMenu : MonoBehaviour
         for (int i = 0; i < ObjectMenuItems.Count; i++)
             ObjectMenuItems[i].GameObject.transform.SetSiblingIndex(i);
 
+        AssetPipelineDiagnostics.Log("ObjectMenu", $"Initialize complete — {ObjectMenuItems.Count} menu items");
+
         AddSavedRoomConfigs();
         ItemTemplate.SetActive(false);
         GenerateCategories();
@@ -419,6 +421,7 @@ public class ObjectMenu : MonoBehaviour
         }
 
         gameObject.SetActive(false);
+        AssetPipelineDiagnostics.LogSelectableData("ObjectMenu.Click", data, $"menuLabel='{objectName}'");
         DebugMetaData(data, newMenuItem);
 
         var task = data.GetPrefab();
@@ -426,7 +429,15 @@ public class ObjectMenu : MonoBehaviour
         if (!Application.isPlaying) return;
 
         GameObject prefab = task.Result;
+        if (prefab == null)
+        {
+            AssetPipelineDiagnostics.Log("ObjectMenu.Click", $"GetPrefab returned null for '{objectName}'");
+            return;
+        }
+
+        AssetPipelineDiagnostics.LogPrefabSnapshot("ObjectMenu.Click", prefab, "prefab before Instantiate");
         GameObject newObj = Instantiate(prefab);
+        AssetPipelineDiagnostics.LogPrefabSnapshot("ObjectMenu.Click", newObj, "instance after Instantiate");
         var selectable = newObj.GetComponent<Selectable>();
         selectable.UIButtonName = newMenuItem.GetComponentInChildren<TextMeshProUGUI>().text;
         LastOpenedSelectable = selectable;

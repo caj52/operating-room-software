@@ -332,6 +332,7 @@ public class ConfigurationManager : MonoBehaviour
 
     public void LoadRoom(string file)
     {
+        AssetPipelineDiagnostics.Log("RoomLoad", $"LoadRoom file='{file}' exists={File.Exists(file)}");
         Debug.Log($"Clearing default room objects");
         List<TrackedObject> existingObjects = FindObjectsOfType<TrackedObject>().ToList();
 
@@ -416,6 +417,7 @@ public class ConfigurationManager : MonoBehaviour
     {
         IsLoading = true;
         var token = Loading.GetLoadingToken();
+        AssetPipelineDiagnostics.Log("RoomLoad", $"LoadRoom async — {_roomConfiguration.collections.Count} collection(s), platform={Application.platform}");
 
         try
         {
@@ -446,6 +448,7 @@ public class ConfigurationManager : MonoBehaviour
             }
 
             OnRoomLoadComplete?.Invoke();
+            AssetPipelineDiagnostics.Log("RoomLoad", "LoadRoom complete");
         }
         catch { throw; }
         finally
@@ -628,6 +631,8 @@ public class ConfigurationManager : MonoBehaviour
     }
     private async Task<GameObject> InstantiateObject(TrackedObject.Data trackedObject)
     {
+        AssetPipelineDiagnostics.Log("RoomLoad.Instantiate", $"objectName='{trackedObject.objectName}' global_guid='{trackedObject.global_guid}' instance_guid='{trackedObject.instance_guid}'");
+
         if (!SelectableAssetBundles.TryGetSelectableData(trackedObject.global_guid, out SelectableData data))
         {
             Debug.LogError($"Could not find selectable data for {trackedObject.objectName} with guid {trackedObject.global_guid}");
@@ -640,10 +645,14 @@ public class ConfigurationManager : MonoBehaviour
         if (task.Result == null)
         {
             Debug.LogError($"AssetBundle returned null prefab for guid {trackedObject.global_guid}");
+            AssetPipelineDiagnostics.Log("RoomLoad.Instantiate", $"GetPrefab NULL for guid {trackedObject.global_guid}");
             return null;
         }
+
+        AssetPipelineDiagnostics.LogPrefabSnapshot("RoomLoad.Instantiate", task.Result, "prefab before Instantiate");
         int rowCount1 = 0;
         GameObject go = Instantiate(task.Result);
+        AssetPipelineDiagnostics.LogPrefabSnapshot("RoomLoad.Instantiate", go, $"instance '{trackedObject.objectName}'");
         var dolComps = go.GetComponentsInChildren<DestroyOnLoad>(true);
         Array.ForEach(dolComps, comp => { if (comp != null) Destroy(comp.gameObject); });
 
@@ -776,6 +785,7 @@ public class ConfigurationManager : MonoBehaviour
     private async Task LoadAllObjectsIntoCache(List<TrackedObject.Data> trackedObjects)
     {
         var missingGuids = new List<string>();
+        int cacheCount = 0;
         foreach (TrackedObject.Data to in trackedObjects)
         {
             if (IsRoomBoundary(to) || IsBaseboard(to) || IsWallProtector(to)) continue;
@@ -788,7 +798,9 @@ public class ConfigurationManager : MonoBehaviour
             }
             await AssetBundleManager.GetAsset<GameObject>(data.AssetBundleName);
             if (!Application.isPlaying) throw new AppQuitInTaskException();
+            cacheCount++;
         }
+        AssetPipelineDiagnostics.Log("RoomLoad.Cache", $"Preloaded {cacheCount} prefab bundle(s) for {trackedObjects.Count} tracked object(s)");
         if (missingGuids.Count > 0)
             Debug.LogWarning($"Load cache completed with missing selectable data for {missingGuids.Count} GUID(s). First missing: {missingGuids.First()}");
     }
