@@ -1,5 +1,6 @@
 using SplenSoft.AssetBundles;
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -30,7 +31,7 @@ public static class AssetPipelineDiagnostics
     public static void Log(string phase, string message)
     {
         string line = $"[{DateTime.UtcNow:HH:mm:ss.fff}] [{phase}] {message}";
-        Debug.Log($"[AssetPipeline] {line}");
+        UnityEngine.Debug.Log($"[AssetPipeline] {line}");
 
         lock (_lock)
         {
@@ -46,7 +47,7 @@ public static class AssetPipelineDiagnostics
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[AssetPipeline] Failed to write log: {ex.Message}");
+                UnityEngine.Debug.LogWarning($"[AssetPipeline] Failed to write log: {ex.Message}");
             }
         }
     }
@@ -79,9 +80,29 @@ public static class AssetPipelineDiagnostics
         var meshFilters = go.GetComponentsInChildren<MeshFilter>(true);
         var meshRenderers = go.GetComponentsInChildren<MeshRenderer>(true);
         var skinned = go.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+        var meshColliders = go.GetComponentsInChildren<MeshCollider>(true);
         int enabledRenderers = meshRenderers.Count(r => r != null && r.enabled);
+        int convexMeshColliders = meshColliders.Count(c => c != null && c.convex);
+        int enabledConvexMeshColliders = meshColliders.Count(c => c != null && c.convex && c.enabled);
+
+        int totalVerts = 0;
+        int totalTris = 0;
+        foreach (var mf in meshFilters)
+        {
+            if (mf?.sharedMesh == null) continue;
+            totalVerts += mf.sharedMesh.vertexCount;
+            totalTris += mf.sharedMesh.triangles.Length / 3;
+        }
+        foreach (var smr in skinned)
+        {
+            if (smr?.sharedMesh == null) continue;
+            totalVerts += smr.sharedMesh.vertexCount;
+            totalTris += smr.sharedMesh.triangles.Length / 3;
+        }
 
         sb.Append($" | MeshFilter={meshFilters.Length} MeshRenderer={meshRenderers.Length}(enabled={enabledRenderers}) Skinned={skinned.Length}");
+        sb.Append($" | verts={totalVerts} tris={totalTris}");
+        sb.Append($" | MeshCollider={meshColliders.Length}(convex={convexMeshColliders}, enabledConvex={enabledConvexMeshColliders})");
 
         if (meshFilters.Length > 0)
         {
@@ -126,7 +147,15 @@ public static class AssetPipelineDiagnostics
         if (meshRenderers.Length == 0 && skinned.Length == 0)
             sb.Append(" | WARNING: no renderers — likely invisible or placeholder mesh");
 
+        if (enabledConvexMeshColliders > 0 && totalVerts > 100_000)
+            sb.Append(" | WARNING: enabled convex MeshCollider on high-poly mesh — Instantiate may stall on hull cooking");
+
         Log(phase, sb.ToString());
+    }
+
+    public static void LogElapsed(string phase, string label, Stopwatch stopwatch)
+    {
+        Log(phase, $"{label}: {stopwatch.ElapsedMilliseconds}ms");
     }
 
     private static void SubscribeToAssetBundleManager()

@@ -64,7 +64,10 @@ public class SelectableData
         if (task.Result == null)
             AssetPipelineDiagnostics.LogSelectableData("GetPrefab", this, "result=NULL");
         else
+        {
+            PlacementLoadOptimizer.PrepareCachedPrefab(task.Result);
             AssetPipelineDiagnostics.LogPrefabSnapshot("GetPrefab", task.Result, $"result for {PrefabName}");
+        }
 
         return task.Result;
     }

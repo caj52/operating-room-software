@@ -651,7 +651,10 @@ public class ConfigurationManager : MonoBehaviour
 
         AssetPipelineDiagnostics.LogPrefabSnapshot("RoomLoad.Instantiate", task.Result, "prefab before Instantiate");
         int rowCount1 = 0;
+        var instantiateTimer = System.Diagnostics.Stopwatch.StartNew();
         GameObject go = Instantiate(task.Result);
+        instantiateTimer.Stop();
+        AssetPipelineDiagnostics.LogElapsed("RoomLoad.Instantiate", "Instantiate", instantiateTimer);
         AssetPipelineDiagnostics.LogPrefabSnapshot("RoomLoad.Instantiate", go, $"instance '{trackedObject.objectName}'");
         var dolComps = go.GetComponentsInChildren<DestroyOnLoad>(true);
         Array.ForEach(dolComps, comp => { if (comp != null) Destroy(comp.gameObject); });

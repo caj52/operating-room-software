@@ -1940,7 +1940,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
             if (CanPlaceAnywhere)
             {
-                GetComponentInChildren<Collider>().enabled = true;
+                PlacementLoadOptimizer.EnablePostPlacementCollider(gameObject);
             }
 
             await Task.Yield();

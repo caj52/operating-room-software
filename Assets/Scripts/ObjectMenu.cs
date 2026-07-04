@@ -436,7 +436,12 @@ public class ObjectMenu : MonoBehaviour
         }
 
         AssetPipelineDiagnostics.LogPrefabSnapshot("ObjectMenu.Click", prefab, "prefab before Instantiate");
+
+        var instantiateTimer = System.Diagnostics.Stopwatch.StartNew();
         GameObject newObj = Instantiate(prefab);
+        instantiateTimer.Stop();
+        AssetPipelineDiagnostics.LogElapsed("ObjectMenu.Click", "Instantiate", instantiateTimer);
+
         AssetPipelineDiagnostics.LogPrefabSnapshot("ObjectMenu.Click", newObj, "instance after Instantiate");
         var selectable = newObj.GetComponent<Selectable>();
         selectable.UIButtonName = newMenuItem.GetComponentInChildren<TextMeshProUGUI>().text;
