@@ -1042,12 +1042,20 @@ public class ConfigurationManager : MonoBehaviour
         {
             if (IsRoomBoundary(to) || IsBaseboard(to) || IsWallProtector(to)) continue;
             if (to.isAttachmentPoint || to.global_guid == _attachPointGUID || string.IsNullOrEmpty(to.global_guid)) continue;
+
             if (!SelectableAssetBundles.TryGetSelectableData(to.global_guid, out SelectableData data))
             {
-                Debug.LogError($"Could not find selectable data for {to.objectName} with guid {to.global_guid}");
-                missingGuids.Add(to.global_guid);
-                continue;
+                await SelectableAssetBundles.EnsureCdnCatalogMerged();
+                if (!Application.isPlaying) throw new AppQuitInTaskException();
+
+                if (!SelectableAssetBundles.TryGetSelectableData(to.global_guid, out data))
+                {
+                    Debug.LogError($"Could not find selectable data for {to.objectName} with guid {to.global_guid}");
+                    missingGuids.Add(to.global_guid);
+                    continue;
+                }
             }
+
             bundleNames.Add(data.AssetBundleName);
         }
 

@@ -83,11 +83,15 @@ public class ObjectMenu : MonoBehaviour
         InputField_Search.onValueChanged
             .AddListener(UpdateSearchFilter);
 
+        SelectableAssetBundles.CatalogUpdated += OnCatalogUpdated;
+
         DontDestroyOnLoad(gameObject);
     }
 
     private void OnDestroy()
     {
+        SelectableAssetBundles.CatalogUpdated -= OnCatalogUpdated;
+
         _initialized = false;
         _selectCompatibleObjectsMode = false;
 
@@ -117,6 +121,29 @@ public class ObjectMenu : MonoBehaviour
     private void OnEnable()
     {
         ActiveStateChanged?.Invoke();
+    }
+
+    private static bool _initializing;
+    private static bool _pendingCatalogRefresh;
+
+    private void OnCatalogUpdated()
+    {
+        if (!_initialized || _initializing)
+        {
+            _pendingCatalogRefresh = true;
+            return;
+        }
+
+        Regenerate();
+    }
+
+    private async Task DeferredCatalogRefreshRegenerate()
+    {
+        await Task.Yield();
+        if (!Application.isPlaying || !_initialized || _initializing)
+            return;
+
+        Regenerate();
     }
 
     #endregion
@@ -335,45 +362,59 @@ public class ObjectMenu : MonoBehaviour
     #region Initialization
     private async void Initialize()
     {
+        _initializing = true;
         var loadingToken = Loading.GetLoadingToken();
 
-        while (!Database.Initialized || !SelectableAssetBundles.Initialized)
+        try
         {
-            await Task.Yield();
-            if (!Application.isPlaying) return;
+            while (!Database.Initialized || !SelectableAssetBundles.Initialized)
+            {
+                await Task.Yield();
+                if (!Application.isPlaying) return;
+            }
+
+            int activeTasks = 0;
+            var dataList = SelectableAssetBundles.GetSelectableData().ToList();
+
+            foreach (var data in dataList)
+            {
+                activeTasks++;
+                _ = SetupObjectMenuItem(data, () => activeTasks--);
+            }
+
+            while (activeTasks > 0)
+            {
+                await Task.Yield();
+                if (!Application.isPlaying)
+                    throw new AppQuitInTaskException();
+            }
+
+            ObjectMenuItems = ObjectMenuItems
+                .OrderBy(x => x.GameObject.GetComponentInChildren<TextMeshProUGUI>().text)
+                .ToList();
+
+            for (int i = 0; i < ObjectMenuItems.Count; i++)
+                ObjectMenuItems[i].GameObject.transform.SetSiblingIndex(i);
+
+            AssetPipelineDiagnostics.Log("ObjectMenu", $"Initialize complete — {ObjectMenuItems.Count} menu items");
+
+            AddSavedRoomConfigs();
+            ItemTemplate.SetActive(false);
+            GenerateCategories();
+            _initialized = true;
+            Database.SetIsUpToDate();
+
+            if (_pendingCatalogRefresh)
+            {
+                _pendingCatalogRefresh = false;
+                _ = DeferredCatalogRefreshRegenerate();
+            }
         }
-
-        int activeTasks = 0;
-        var dataList = SelectableAssetBundles.GetSelectableData().ToList();
-
-        foreach (var data in dataList)
+        finally
         {
-            activeTasks++;
-            _ = SetupObjectMenuItem(data, () => activeTasks--);
+            _initializing = false;
+            loadingToken.Done();
         }
-
-        while (activeTasks > 0)
-        {
-            await Task.Yield();
-            if (!Application.isPlaying)
-                throw new AppQuitInTaskException();
-        }
-
-        ObjectMenuItems = ObjectMenuItems
-            .OrderBy(x => x.GameObject.GetComponentInChildren<TextMeshProUGUI>().text)
-            .ToList();
-
-        for (int i = 0; i < ObjectMenuItems.Count; i++)
-            ObjectMenuItems[i].GameObject.transform.SetSiblingIndex(i);
-
-        AssetPipelineDiagnostics.Log("ObjectMenu", $"Initialize complete — {ObjectMenuItems.Count} menu items");
-
-        AddSavedRoomConfigs();
-        ItemTemplate.SetActive(false);
-        GenerateCategories();
-        _initialized = true;
-        loadingToken.Done();
-        Database.SetIsUpToDate();
     }
 
     private async Task SetupObjectMenuItem(SelectableData data, Action onComplete)

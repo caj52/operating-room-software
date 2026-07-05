@@ -1,9 +1,9 @@
 using SplenSoft.AssetBundles;
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using UnityEngine;
 
 #if UNITY_EDITOR
@@ -31,6 +31,15 @@ public class SelectableAssetBundles : ScriptableObject, IPreprocessAssetBundle
 
     public static bool Initialized { get; private set; }
 
+    /// <summary>True after a successful CDN catalog merge (player builds).</summary>
+    public static bool CdnCatalogMerged { get; private set; }
+
+    /// <summary>Fired when CDN catalog entries are merged (player builds).</summary>
+    public static event Action CatalogUpdated;
+
+    private static Task _cdnRefreshTask;
+    private static readonly object _cdnLock = new();
+
     private static List<SelectableData> SelectableData { get; } = new();
 
     public static IReadOnlyList<SelectableData> 
@@ -49,29 +58,199 @@ public class SelectableAssetBundles : ScriptableObject, IPreprocessAssetBundle
     }
 
     /// <summary>
-    /// Populates <see cref="SelectableData"/> from the local catalog asset. 
-    /// Runs on app start. 
-    /// Track <see cref="Initialized"/> to know when it's finished
+    /// Player: local catalog seed for fast room load, then merge online catalog for the menu.
+    /// Prefab bundles stay local-first via <see cref="AssetBundleManager"/>, CDN on click when not shipped.
     /// </summary>
-    private static void GetDatas()
+    private static async void GetDatas()
     {
         Debug.Log("Getting SelectableAssetBundles datas");
-        AssetPipelineDiagnostics.Log("Catalog", "GetDatas started — loading local catalog");
+        AssetPipelineDiagnostics.Log("Catalog", "GetDatas started");
         var loadingToken = Loading.GetLoadingToken();
 
-        if (!TryLoadLocalCatalog(out SelectableAssetBundles catalog))
+        if (TryLoadLocalCatalog(out SelectableAssetBundles localCatalog))
         {
-            Debug.LogError("Failed to load local SelectableAssetBundles catalog");
-            AssetPipelineDiagnostics.Log("Catalog", "Failed — local catalog not found");
-            loadingToken.Done();
-            return;
+            SelectableData.AddRange(localCatalog._selectableData);
+            AssetPipelineDiagnostics.Log("Catalog", $"Local seed — {localCatalog._selectableData.Count} entries");
         }
 
-        SelectableData.AddRange(catalog._selectableData);
+        // Room load + menu can proceed on local catalog; CDN refresh adds online entries afterward.
         Initialized = true;
         loadingToken.Done();
-        Debug.Log("SelectableAssetBundles initialized");
-        AssetPipelineDiagnostics.Log("Catalog", $"Initialized — {SelectableData.Count} SelectableData entries cached from local catalog");
+        AssetPipelineDiagnostics.Log("Catalog", $"Initialized — local ready ({SelectableData.Count} entries)");
+
+        if (ShouldUseLocalCatalogOnly())
+            return;
+
+        lock (_cdnLock)
+        {
+            _cdnRefreshTask ??= RefreshCdnCatalogAsync();
+        }
+
+        await _cdnRefreshTask;
+        Debug.Log("SelectableAssetBundles CDN refresh finished");
+    }
+
+    /// <summary>
+    /// Room load may call this when a GUID is missing from the local seed catalog.
+    /// </summary>
+    public static async Task EnsureCdnCatalogMerged(int timeoutMs = 120_000)
+    {
+        if (CdnCatalogMerged || ShouldUseLocalCatalogOnly())
+            return;
+
+        Task refreshTask;
+        lock (_cdnLock)
+        {
+            refreshTask = _cdnRefreshTask ??= RefreshCdnCatalogAsync();
+        }
+
+        var timeoutTask = Task.Delay(timeoutMs);
+        if (await Task.WhenAny(refreshTask, timeoutTask) == timeoutTask)
+            AssetPipelineDiagnostics.Log("Catalog", "EnsureCdnCatalogMerged timed out waiting for CDN catalog");
+    }
+
+    private static async Task RefreshCdnCatalogAsync()
+    {
+        int beforeCdn = SelectableData.Count;
+        var loadingToken = Loading.GetLoadingToken();
+
+        try
+        {
+            bool cdnMerged = await TryMergeCdnCatalogAsync(loadingToken);
+            if (!cdnMerged)
+            {
+                AssetPipelineDiagnostics.Log("Catalog",
+                    $"CDN unavailable — staying on local catalog ({SelectableData.Count} entries)");
+                return;
+            }
+
+            CdnCatalogMerged = true;
+            AssetPipelineDiagnostics.Log("Catalog",
+                $"CDN merged — {SelectableData.Count} entries (+{SelectableData.Count - beforeCdn} from online)");
+            CatalogUpdated?.Invoke();
+        }
+        finally
+        {
+            loadingToken.Done();
+        }
+    }
+
+    private static bool ShouldUseLocalCatalogOnly()
+    {
+#if UNITY_EDITOR
+        return AssetBundleManagerSettings.Get().UseEditorAssetsIfAble;
+#else
+        return false;
+#endif
+    }
+
+    private static async Task<bool> TryMergeCdnCatalogAsync(Loading.LoadingToken loadingToken)
+    {
+        const int maxWaitMs = 60_000;
+        int waitedMs = 0;
+        while (!AssetBundleManager.Initialized)
+        {
+            await Task.Yield();
+            if (!Application.isPlaying)
+                return false;
+
+            waitedMs += 16;
+            if (waitedMs >= maxWaitMs)
+            {
+                AssetPipelineDiagnostics.Log("Catalog", "CDN catalog — timed out waiting for AssetBundleManager");
+                return false;
+            }
+        }
+
+        var namesTask = AssetBundleManager.GetAssetBundleNames(typeof(SelectableAssetBundles));
+        await namesTask;
+        if (!Application.isPlaying)
+            return false;
+
+        string[] bundleNames = namesTask.Result;
+        if (bundleNames == null || bundleNames.Length == 0)
+        {
+            AssetPipelineDiagnostics.Log("Catalog", "CDN catalog — no SelectableAssetBundles bundles in manifest");
+            return false;
+        }
+
+        AssetPipelineDiagnostics.Log("Catalog", $"CDN catalog — fetching {bundleNames.Length} bundle(s) from CDN (not local copy)");
+
+        var tasks = new List<Task<SelectableAssetBundles>>();
+        var progresses = new float[bundleNames.Length];
+
+        for (int i = 0; i < bundleNames.Length; i++)
+        {
+            string assetBundleName = bundleNames[i];
+            var progress = new Progress<AssetRetrievalProgress>();
+            int index = i;
+            progress.ProgressChanged += (_, p) =>
+            {
+                progresses[index] = p.Progress;
+                loadingToken.SetProgress(progresses.Sum() / bundleNames.Length);
+            };
+
+            // Online catalog is source of truth for the menu; local seed stays for fast room load.
+            tasks.Add(AssetBundleManager.GetAsset<SelectableAssetBundles>(
+                assetBundleName, progress, allowLocalFallback: false));
+        }
+
+        while (tasks.Any(x => !x.IsCompleted))
+        {
+            await Task.Yield();
+            if (!Application.isPlaying)
+                return false;
+        }
+
+        int merged = 0;
+        foreach (Task<SelectableAssetBundles> task in tasks)
+        {
+            if (task.Result == null)
+                continue;
+
+            merged += MergeCatalogEntries(task.Result._selectableData);
+        }
+
+        AssetPipelineDiagnostics.Log("Catalog", $"CDN catalog — merged {merged} entry update(s), total {SelectableData.Count}");
+        return merged > 0 || tasks.Any(t => t.Result != null);
+    }
+
+    private static int MergeCatalogEntries(IEnumerable<SelectableData> entries)
+    {
+        int changes = 0;
+        foreach (SelectableData entry in entries)
+        {
+            if (entry == null)
+                continue;
+
+            int idx = FindEntryIndex(entry);
+            if (idx >= 0)
+            {
+                SelectableData[idx] = entry;
+            }
+            else
+            {
+                SelectableData.Add(entry);
+            }
+
+            changes++;
+        }
+
+        return changes;
+    }
+
+    private static int FindEntryIndex(SelectableData entry)
+    {
+        if (!string.IsNullOrEmpty(entry.SaveLoadGuid))
+        {
+            int byGuid = SelectableData.FindIndex(x =>
+                string.Equals(x.SaveLoadGuid, entry.SaveLoadGuid, StringComparison.OrdinalIgnoreCase));
+            if (byGuid >= 0)
+                return byGuid;
+        }
+
+        return SelectableData.FindIndex(x =>
+            string.Equals(x.AssetBundleName, entry.AssetBundleName, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool TryLoadLocalCatalog(out SelectableAssetBundles catalog)

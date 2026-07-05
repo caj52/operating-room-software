@@ -426,7 +426,8 @@ namespace SplenSoft.AssetBundles
             IProgress<AssetRetrievalProgress> progress = null,
             Action<T> onSuccess = null,
             Action<AssetRetrievalResult> onFailure = null,
-            bool waitForInitialize = true)
+            bool waitForInitialize = true,
+            bool allowLocalFallback = true)
             where T : UnityEngine.Object
         {
             if (waitForInitialize)
@@ -444,7 +445,9 @@ namespace SplenSoft.AssetBundles
                 return null;
             }
 
-            if (_assetBundleData.TryGetValue(name, out AssetBundleData data) && data.Asset != null)
+            _assetBundleData.TryGetValue(name, out AssetBundleData data);
+
+            if (allowLocalFallback && data != null && data.Asset != null)
             {
                 if (data.Asset != null)
                 {
@@ -463,7 +466,11 @@ namespace SplenSoft.AssetBundles
                 progress?.Report(new AssetRetrievalProgress(AssetRetrievalStatus.Downloading, e.Progress * 0.4f));
             }
             getBundleProgress.ProgressChanged += GetBundleProgress_ProgressChanged;
-            var getBundleTask = GetAssetBundle(name, getBundleProgress, waitForInitialize: waitForInitialize);
+            var getBundleTask = GetAssetBundle(
+                name,
+                getBundleProgress,
+                waitForInitialize: waitForInitialize,
+                allowLocalFallback: allowLocalFallback);
             await getBundleTask;
             if (!Application.isPlaying) return null;
 
@@ -551,7 +558,8 @@ namespace SplenSoft.AssetBundles
             IProgress<AssetRetrievalProgress> progress = null,
             Action<AssetBundle> onSuccess = null,
             Action<AssetRetrievalResult> onFailure = null,
-            bool waitForInitialize = true
+            bool waitForInitialize = true,
+            bool allowLocalFallback = true
         )
         {
             if (waitForInitialize)
@@ -591,7 +599,7 @@ namespace SplenSoft.AssetBundles
             progress2.ProgressChanged += Progress2_ProgressChanged;
             await DownloadAndCacheDependencies(name, progress2);
 
-            if (data != null && data.AssetBundle != null)
+            if (allowLocalFallback && data != null && data.AssetBundle != null)
             {
                 progress?.Report(new AssetRetrievalProgress(AssetRetrievalStatus.Done, 1));
                 onSuccess?.Invoke(data.AssetBundle);
@@ -599,20 +607,23 @@ namespace SplenSoft.AssetBundles
                 return data.AssetBundle;
             }
 
-            var localBundle = await TryGetLocalAssetBundleAsync(name);
-            if (localBundle.Success)
+            if (allowLocalFallback)
             {
-                progress?.Report(new AssetRetrievalProgress(AssetRetrievalStatus.Done, 1));
-                onSuccess?.Invoke(localBundle.AssetBundle);
-                if (data != null)
+                var localBundle = await TryGetLocalAssetBundleAsync(name);
+                if (localBundle.Success)
                 {
-                    data.AssetBundle = localBundle.AssetBundle;
-                    data.LastResponseCode = 200;
+                    progress?.Report(new AssetRetrievalProgress(AssetRetrievalStatus.Done, 1));
+                    onSuccess?.Invoke(localBundle.AssetBundle);
+                    if (data != null)
+                    {
+                        data.AssetBundle = localBundle.AssetBundle;
+                        data.LastResponseCode = 200;
+                    }
+                    _downloadResponseCodePerAssetBundleName[name] =
+                        new AssetRetrievalResult(200, UnityWebRequest.Result.Success);
+                    AssetBundleDownloadFinished?.Invoke(name);
+                    return localBundle.AssetBundle;
                 }
-                _downloadResponseCodePerAssetBundleName[name] =
-                    new AssetRetrievalResult(200, UnityWebRequest.Result.Success);
-                AssetBundleDownloadFinished?.Invoke(name);
-                return localBundle.AssetBundle;
             }
 
             bool useHash = data != null && data.Hash != default;
@@ -660,7 +671,7 @@ namespace SplenSoft.AssetBundles
             }
             finally { _currentDownloads--; }
 
-            if (request.result != UnityWebRequest.Result.Success)
+            if (request.result != UnityWebRequest.Result.Success && allowLocalFallback)
             {
                 var fallback = TryGetLocalAssetBundle(name);
 
