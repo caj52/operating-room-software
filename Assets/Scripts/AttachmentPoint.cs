@@ -138,7 +138,8 @@ public partial class AttachmentPoint : MonoBehaviour
 
     private void Start()
     {
-        SetToProperParent();
+        if (!ConfigurationManager.IsLoading)
+            SetToProperParent();
     }
 
     private void OnDestroy()

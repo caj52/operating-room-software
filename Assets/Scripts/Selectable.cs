@@ -50,6 +50,9 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     public static bool IsInElevationPhotoMode { get; private set; }
     public static UnityEvent ActiveSelectablesInSceneChanged { get; } = new();
 
+    public static void NotifyActiveSelectablesInSceneChanged()
+        => ActiveSelectablesInSceneChanged?.Invoke();
+
     public Dictionary<GizmoType, Dictionary<Axis, GizmoSetting>>
         GizmoSettings
     { get; } = new();
@@ -203,22 +206,27 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     private bool _isRaycastingOnSelectable;
 
     public bool ScaleLevelsRestoredFromSave { get; set; } = false;
+    private bool _deferInitUntilLoadComplete;
+    private static HighlightProfile _cachedHighlightProfileSelected;
     #endregion
 
     #region Monobehaviour
     private void Awake()
     {
-        //if (!ConfigurationManager._instance.isDebug && GUID != "" && !ConfigurationManager._instance.isRoomBoundary(GUID)) gameObject.name = guid.ToString();
+        ActiveSelectables.Add(this);
+        CacheParentReferences();
 
-        if (AllowInverseControl)
+        if (ConfigurationManager.IsLoading)
         {
-            if (GetComponent<CCDIK>() == null)
-            {
-                this.gameObject.AddComponent<CCDIK>();
-            }
+            _deferInitUntilLoadComplete = true;
+            return;
         }
 
-        ActiveSelectables.Add(this);
+        InitializeComponents();
+    }
+
+    private void CacheParentReferences()
+    {
         Transform parent = transform.parent;
 
         while (parent != null)
@@ -226,9 +234,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             if (parent.TryGetComponent<AttachmentPoint>(out var attachmentPoint))
             {
                 if (attachmentPoint != ParentAttachmentPoint)
-                {
                     ParentAttachmentPoint = attachmentPoint;
-                }
                 break;
             }
 
@@ -240,45 +246,60 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
             parent = parent.parent;
         }
+    }
+
+    private void InitializeComponents()
+    {
+        if (AllowInverseControl && GetComponent<CCDIK>() == null)
+            gameObject.AddComponent<CCDIK>();
 
         _cameraRenderTextureElevation = GetComponentInChildren<Camera>();
         if (_cameraRenderTextureElevation != null)
-        {
             _cameraRenderTextureElevation.enabled = false;
-        }
 
         _originalRotation = transform.rotation;
         _originalLocalRotation = transform.localRotation;
 
         _highlightEffect = GetComponent<HighlightEffect>();
+        _highlightProfileSelected = _cachedHighlightProfileSelected ??=
+            Resources.Load<HighlightProfile>("HighlightProfile_SelectableSelected");
 
-        _highlightProfileSelected = Resources.Load<HighlightProfile>
-            ("HighlightProfile_SelectableSelected");
-
-        if (_highlightEffect.profile != _highlightProfileSelected)
+        if (_highlightEffect != null &&
+            _highlightProfileSelected != null &&
+            _highlightEffect.profile != _highlightProfileSelected)
         {
             _highlightEffect.ProfileLoad(_highlightProfileSelected);
         }
 
         _gizmoHandler = GetComponent<GizmoHandler>();
-
         InputHandler.KeyStateChanged += InputHandler_KeyStateChanged;
 
         GizmoSettingsList.ForEach(item =>
         {
             if (item.OnlyIfRoot && ParentAttachmentPoint != null)
-            {
                 return;
-            }
 
             if (!GizmoSettings.ContainsKey(item.GizmoType))
-            {
                 GizmoSettings[item.GizmoType] = new();
-            }
+
             GizmoSettings[item.GizmoType][item.Axis] = item;
         });
 
-        ActiveSelectablesInSceneChanged?.Invoke();
+        if (!ConfigurationManager.IsLoading)
+            NotifyActiveSelectablesInSceneChanged();
+    }
+
+    /// <summary>
+    /// Completes Awake/Start work deferred during bulk room load.
+    /// </summary>
+    public void CompleteDeferredLoadInitialization()
+    {
+        if (!_deferInitUntilLoadComplete)
+            return;
+
+        _deferInitUntilLoadComplete = false;
+        InitializeComponents();
+        InitializeAfterStart();
     }
 
     private void OnDestroy()
@@ -356,13 +377,23 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     public bool isDuplicated;
     private void Start()
     {
+        if (ConfigurationManager.IsLoading)
+        {
+            Started = true;
+            return;
+        }
 
+        InitializeAfterStart();
+    }
 
-        if (GUID != "" &&
-        !ConfigurationManager.IsRoomBoundary(GUID) &&
-        !ConfigurationManager.IsBaseboard(GUID) &&
-        !ConfigurationManager.IsWallProtector(GUID) &&
-        transform.parent == null)
+    private void InitializeAfterStart()
+    {
+        if (!ConfigurationManager.IsLoading &&
+            GUID != "" &&
+            !ConfigurationManager.IsRoomBoundary(GUID) &&
+            !ConfigurationManager.IsBaseboard(GUID) &&
+            !ConfigurationManager.IsWallProtector(GUID) &&
+            transform.parent == null)
         {
             GenerateGuidName();
         }

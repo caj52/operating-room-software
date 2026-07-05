@@ -5,6 +5,7 @@ using Newtonsoft.Json;
 using System.Linq;
 using System.Threading.Tasks;
 using System;
+using Stopwatch = System.Diagnostics.Stopwatch;
 using SplenSoft.UnityUtilities;
 using UnityEngine.Events;
 using RTG;
@@ -416,7 +417,9 @@ public class ConfigurationManager : MonoBehaviour
     private async void LoadRoom()
     {
         IsLoading = true;
+        AssetPipelineDiagnostics.RoomLoadQuietMode = true;
         var token = Loading.GetLoadingToken();
+        var loadTimer = Stopwatch.StartNew();
         AssetPipelineDiagnostics.Log("RoomLoad", $"LoadRoom async — {_roomConfiguration.collections.Count} collection(s), platform={Application.platform}");
 
         try
@@ -429,30 +432,74 @@ public class ConfigurationManager : MonoBehaviour
             {
                 _newPoints = new List<AttachmentPoint>();
                 _newObjects = new List<TrackedObject>();
+
+                var cacheTimer = Stopwatch.StartNew();
                 await LoadAllObjectsIntoCache(t.objects);
-                await Task.Yield();
-                await ProcessTrackedObjects(t.objects);
-                await Task.Yield();
-                await SetObjectProperties(_newObjects);
+                cacheTimer.Stop();
+                AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "prefetchBundles", cacheTimer.ElapsedMilliseconds,
+                    $"{t.objects.Count} tracked object(s)");
+
                 await Task.Yield();
 
+                var processTimer = Stopwatch.StartNew();
+                await ProcessTrackedObjects(t.objects);
+                processTimer.Stop();
+                AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "processTrackedObjects", processTimer.ElapsedMilliseconds);
+
+                long gapStartTick = Stopwatch.GetTimestamp();
+                await Task.Yield();
+                AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "mainThread_gap_after_process",
+                    ElapsedMsSince(gapStartTick));
+
+                var propsTimer = Stopwatch.StartNew();
+                await SetObjectProperties(_newObjects);
+                propsTimer.Stop();
+                AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "setObjectProperties", propsTimer.ElapsedMilliseconds);
+
+                await Task.Yield();
+
+                var savedStateTimer = Stopwatch.StartNew();
                 foreach (var to in _newObjects)
                 {
                     try { to.ApplySavedState(); }
                     catch (Exception ex) { Debug.LogWarning($"[LoadRoom] ApplySavedState failed on {to.name}: {ex.Message}"); }
                 }
+                savedStateTimer.Stop();
+                AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "applySavedState", savedStateTimer.ElapsedMilliseconds,
+                    $"{_newObjects.Count} object(s)");
 
+                var guidTimer = Stopwatch.StartNew();
                 RandomizeInstanceGUIDs();
+                guidTimer.Stop();
+                AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "randomizeGuids", guidTimer.ElapsedMilliseconds);
+
+                var attachmentTimer = Stopwatch.StartNew();
+                FinalizeLoadedAttachmentPoints();
+                attachmentTimer.Stop();
+                AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "finalizeAttachmentPoints", attachmentTimer.ElapsedMilliseconds);
+
+                var deferredInitTimer = Stopwatch.StartNew();
+                CompleteDeferredSelectableInitialization();
+                deferredInitTimer.Stop();
+                AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "completeDeferredInit", deferredInitTimer.ElapsedMilliseconds);
+
                 progression += progressionTicks;
                 token.SetProgress(progression);
             }
 
+            var completeTimer = Stopwatch.StartNew();
+            Selectable.NotifyActiveSelectablesInSceneChanged();
             OnRoomLoadComplete?.Invoke();
-            AssetPipelineDiagnostics.Log("RoomLoad", "LoadRoom complete");
+            completeTimer.Stop();
+            AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "onRoomLoadComplete", completeTimer.ElapsedMilliseconds);
+
+            loadTimer.Stop();
+            AssetPipelineDiagnostics.Log("RoomLoad", $"LoadRoom complete — total {loadTimer.ElapsedMilliseconds}ms");
         }
         catch { throw; }
         finally
         {
+            AssetPipelineDiagnostics.RoomLoadQuietMode = false;
             IsLoading = false;
             token.SetProgress(1f);
         }
@@ -463,6 +510,8 @@ public class ConfigurationManager : MonoBehaviour
     private Queue<(GameObject obj, TrackedObject.Data data)> _pendingSetup = new();
     public List<TrackedObject.Data> _pendingEmbedded = new();
     private List<TrackedObject.Data> _pendingAttachmentPoints = new();
+    private readonly List<GameObject> _deferredDestroyOnLoad = new();
+    private const int RoomLoadInstantiateYieldInterval = 30;
 
     private async Task ProcessTrackedObjects(List<TrackedObject.Data> trackedObjects)
     {
@@ -472,6 +521,9 @@ public class ConfigurationManager : MonoBehaviour
         _pendingAttachmentPoints.Clear();
         _newObjects = new List<TrackedObject>();
         _newPoints = new List<AttachmentPoint>();
+
+        int instantiateCount = 0;
+        var pass1Timer = Stopwatch.StartNew();
 
         // Pass 1: instantiate selectables (skip embedded & attachment points & room boundaries)
         foreach (TrackedObject.Data data in trackedObjects)
@@ -504,14 +556,30 @@ public class ConfigurationManager : MonoBehaviour
             }
 
             // Instantiate selectable prefab
-            var task = InstantiateObject(data);
-            await task;
-            if (!Application.isPlaying) throw new AppQuitInTaskException();
-            go = task.Result;
+            if (IsLoading)
+            {
+                go = InstantiateObjectForLoad(data);
+            }
+            else
+            {
+                var task = InstantiateObject(data);
+                await task;
+                if (!Application.isPlaying) throw new AppQuitInTaskException();
+                go = task.Result;
+            }
+
             if (go == null)
             {
                 Debug.LogError($"Failed to instantiate object with guid: {data.global_guid}");
                 continue;
+            }
+
+            instantiateCount++;
+
+            if (IsLoading && instantiateCount % RoomLoadInstantiateYieldInterval == 0)
+            {
+                await Task.Yield();
+                if (!Application.isPlaying) throw new AppQuitInTaskException();
             }
 
             // Register root instance and all child selectables by their instance_guid (guid field)
@@ -532,13 +600,25 @@ public class ConfigurationManager : MonoBehaviour
                 _newObjects.Add(trackedObj);
         }
 
+        foreach (GameObject destroyTarget in _deferredDestroyOnLoad)
+        {
+            if (destroyTarget != null)
+                Destroy(destroyTarget);
+        }
+        _deferredDestroyOnLoad.Clear();
+
+        pass1Timer.Stop();
+        AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "pass1_instantiate", pass1Timer.ElapsedMilliseconds,
+            $"{instantiateCount} object(s)");
+
         // Pass 2: establish hierarchy & apply transforms
+        var pass2Timer = Stopwatch.StartNew();
         while (_pendingSetup.Count > 0)
         {
             var (go, data) = _pendingSetup.Dequeue();
 
             var trackedObj = go.GetComponent<TrackedObject>();
-            if (trackedObj != null)
+            if (trackedObj != null && !IsLoading)
                 trackedObj.StoreValues(data);
 
             // Resolve parent by GUID first
@@ -567,16 +647,29 @@ public class ConfigurationManager : MonoBehaviour
             if (!string.IsNullOrEmpty(data.keepRelativePositionParentName) && go.TryGetComponent<KeepRelativePosition>(out var comp))
                 comp.ParentName = data.keepRelativePositionParentName;
         }
+        pass2Timer.Stop();
+        AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "pass2_hierarchy", pass2Timer.ElapsedMilliseconds,
+            $"{instantiateCount} object(s)");
 
         // Pass 3: embedded selectables
+        var pass3Timer = Stopwatch.StartNew();
         foreach (var emb in _pendingEmbedded)
         {
             ProcessEmbeddedSelectable(emb);
         }
+        pass3Timer.Stop();
+        if (_pendingEmbedded.Count > 0)
+            AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "pass3_embedded", pass3Timer.ElapsedMilliseconds,
+                $"{_pendingEmbedded.Count} object(s)");
 
         // Pass 4: attachment points
+        var pass4Timer = Stopwatch.StartNew();
         foreach (var apData in _pendingAttachmentPoints)
             ProcessAttachmentPoint(apData);
+        pass4Timer.Stop();
+        if (_pendingAttachmentPoints.Count > 0)
+            AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "pass4_attachmentPoints", pass4Timer.ElapsedMilliseconds,
+                $"{_pendingAttachmentPoints.Count} object(s)");
     }
 
     private GameObject ProcessEmbeddedSelectable(TrackedObject.Data to)
@@ -629,9 +722,53 @@ public class ConfigurationManager : MonoBehaviour
             }
         }
     }
+    private GameObject InstantiateObjectForLoad(TrackedObject.Data trackedObject)
+    {
+        if (!SelectableAssetBundles.TryGetSelectableData(trackedObject.global_guid, out SelectableData data))
+        {
+            Debug.LogError($"Could not find selectable data for {trackedObject.objectName} with guid {trackedObject.global_guid}");
+            return null;
+        }
+
+        if (!AssetBundleManager.TryGetCachedAsset(data.AssetBundleName, out GameObject prefab) || prefab == null)
+        {
+            Debug.LogError($"Prefab not in cache for guid {trackedObject.global_guid} (bundle {data.AssetBundleName})");
+            return null;
+        }
+
+        GameObject go = Instantiate(prefab);
+
+        foreach (DestroyOnLoad dol in go.GetComponentsInChildren<DestroyOnLoad>(true))
+        {
+            if (dol != null)
+                _deferredDestroyOnLoad.Add(dol.gameObject);
+        }
+
+        if (go.TryGetComponent<RestorePositionOnLoad>(out var compRestore))
+            compRestore.PositionToRestore = trackedObject.worldPosition;
+
+        if (!string.IsNullOrEmpty(trackedObject.instance_guid))
+            go.name = trackedObject.instance_guid;
+
+        if (go.TryGetComponent<Selectable>(out var selectable))
+        {
+            selectable.guid = trackedObject.instance_guid;
+            selectable.UIButtonName = trackedObject.UIButtonname;
+        }
+
+        if (go.TryGetComponent<TrackedObject>(out var trackedObj))
+            trackedObj.StoreValues(trackedObject);
+
+        return go;
+    }
+
     private async Task<GameObject> InstantiateObject(TrackedObject.Data trackedObject)
     {
-        AssetPipelineDiagnostics.Log("RoomLoad.Instantiate", $"objectName='{trackedObject.objectName}' global_guid='{trackedObject.global_guid}' instance_guid='{trackedObject.instance_guid}'");
+        if (!AssetPipelineDiagnostics.RoomLoadQuietMode)
+        {
+            AssetPipelineDiagnostics.Log("RoomLoad.Instantiate",
+                $"objectName='{trackedObject.objectName}' global_guid='{trackedObject.global_guid}' instance_guid='{trackedObject.instance_guid}'");
+        }
 
         if (!SelectableAssetBundles.TryGetSelectableData(trackedObject.global_guid, out SelectableData data))
         {
@@ -639,23 +776,40 @@ public class ConfigurationManager : MonoBehaviour
             return null;
         }
 
-        var task = data.GetPrefab();
-        await task;
-        if (!Application.isPlaying) throw new AppQuitInTaskException();
-        if (task.Result == null)
+        GameObject prefab;
+        if (IsLoading && AssetBundleManager.TryGetCachedAsset(data.AssetBundleName, out GameObject cachedPrefab))
+        {
+            prefab = cachedPrefab;
+        }
+        else
+        {
+            var task = data.GetPrefab();
+            await task;
+            if (!Application.isPlaying) throw new AppQuitInTaskException();
+            prefab = task.Result;
+        }
+
+        if (prefab == null)
         {
             Debug.LogError($"AssetBundle returned null prefab for guid {trackedObject.global_guid}");
             AssetPipelineDiagnostics.Log("RoomLoad.Instantiate", $"GetPrefab NULL for guid {trackedObject.global_guid}");
             return null;
         }
 
-        AssetPipelineDiagnostics.LogPrefabSnapshot("RoomLoad.Instantiate", task.Result, "prefab before Instantiate");
+        if (!AssetPipelineDiagnostics.RoomLoadQuietMode)
+            AssetPipelineDiagnostics.LogPrefabSnapshot("RoomLoad.Instantiate", prefab, "prefab before Instantiate");
+
         int rowCount1 = 0;
-        var instantiateTimer = System.Diagnostics.Stopwatch.StartNew();
-        GameObject go = Instantiate(task.Result);
+        var instantiateTimer = Stopwatch.StartNew();
+        GameObject go = Instantiate(prefab);
         instantiateTimer.Stop();
-        AssetPipelineDiagnostics.LogElapsed("RoomLoad.Instantiate", "Instantiate", instantiateTimer);
-        AssetPipelineDiagnostics.LogPrefabSnapshot("RoomLoad.Instantiate", go, $"instance '{trackedObject.objectName}'");
+
+        if (!AssetPipelineDiagnostics.RoomLoadQuietMode)
+        {
+            AssetPipelineDiagnostics.LogElapsed("RoomLoad.Instantiate", "Instantiate", instantiateTimer);
+            AssetPipelineDiagnostics.LogPrefabSnapshot("RoomLoad.Instantiate", go, $"instance '{trackedObject.objectName}'");
+        }
+
         var dolComps = go.GetComponentsInChildren<DestroyOnLoad>(true);
         Array.ForEach(dolComps, comp => { if (comp != null) Destroy(comp.gameObject); });
 
@@ -672,7 +826,10 @@ public class ConfigurationManager : MonoBehaviour
             selectable.UIButtonName = trackedObject.UIButtonname;
             LogData(selectable, trackedObject);
 
-            if (selectable.SpecialTypes != null && selectable.SpecialTypes.Count > 0 && selectable.SpecialTypes[0] == SpecialSelectableType.Door)
+            if (!IsLoading &&
+                selectable.SpecialTypes != null &&
+                selectable.SpecialTypes.Count > 0 &&
+                selectable.SpecialTypes[0] == SpecialSelectableType.Door)
             {
                 var wc = selectable.GetComponentInChildren<WallCutter>();
                 if (wc != null) wc.UpdateCuts();
@@ -697,8 +854,9 @@ public class ConfigurationManager : MonoBehaviour
                 }
             }
 
-
-            ObjectMenu.Instance.HandleOutletAndPricing(go, trackedObject.UIButtonname);
+            // Pricing is restored from save data via StoreValues; avoid 600 async pricing lookups during load.
+            if (!IsLoading)
+                ObjectMenu.Instance.HandleOutletAndPricing(go, trackedObject.UIButtonname);
         }
         return go;
     }
@@ -738,6 +896,29 @@ public class ConfigurationManager : MonoBehaviour
             _newPoints.Add(attPoint);
         }
     }
+
+    private void FinalizeLoadedAttachmentPoints()
+    {
+        foreach (TrackedObject to in _newObjects)
+        {
+            if (to == null) continue;
+            foreach (AttachmentPoint ap in to.GetComponentsInChildren<AttachmentPoint>(true))
+                ap.SetToProperParent();
+        }
+    }
+
+    private void CompleteDeferredSelectableInitialization()
+    {
+        foreach (TrackedObject to in _newObjects)
+        {
+            if (to == null) continue;
+            foreach (Selectable selectable in to.GetComponentsInChildren<Selectable>(true))
+                selectable.CompleteDeferredLoadInitialization();
+        }
+    }
+
+    private static long ElapsedMsSince(long startTimestamp)
+        => (Stopwatch.GetTimestamp() - startTimestamp) * 1000 / Stopwatch.Frequency;
 
     private async Task SetObjectProperties(List<TrackedObject> newObjects)
     {
@@ -788,7 +969,8 @@ public class ConfigurationManager : MonoBehaviour
     private async Task LoadAllObjectsIntoCache(List<TrackedObject.Data> trackedObjects)
     {
         var missingGuids = new List<string>();
-        int cacheCount = 0;
+        var bundleNames = new HashSet<string>();
+
         foreach (TrackedObject.Data to in trackedObjects)
         {
             if (IsRoomBoundary(to) || IsBaseboard(to) || IsWallProtector(to)) continue;
@@ -799,11 +981,22 @@ public class ConfigurationManager : MonoBehaviour
                 missingGuids.Add(to.global_guid);
                 continue;
             }
-            await AssetBundleManager.GetAsset<GameObject>(data.AssetBundleName);
-            if (!Application.isPlaying) throw new AppQuitInTaskException();
-            cacheCount++;
+            bundleNames.Add(data.AssetBundleName);
         }
-        AssetPipelineDiagnostics.Log("RoomLoad.Cache", $"Preloaded {cacheCount} prefab bundle(s) for {trackedObjects.Count} tracked object(s)");
+
+        var loadTasks = bundleNames.Select(bundleName =>
+            AssetBundleManager.GetAsset<GameObject>(bundleName)).ToArray();
+
+        await Task.WhenAll(loadTasks);
+
+        foreach (Task<GameObject> loadTask in loadTasks)
+        {
+            if (loadTask.Result != null)
+                PlacementLoadOptimizer.PrepareCachedPrefab(loadTask.Result);
+        }
+
+        AssetPipelineDiagnostics.Log("RoomLoad.Cache",
+            $"Preloaded {bundleNames.Count} unique prefab bundle(s) for {trackedObjects.Count} tracked object(s)");
         if (missingGuids.Count > 0)
             Debug.LogWarning($"Load cache completed with missing selectable data for {missingGuids.Count} GUID(s). First missing: {missingGuids.First()}");
     }

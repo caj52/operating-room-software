@@ -508,6 +508,9 @@ public class ObjectMenu : MonoBehaviour
 
     public async void HandleOutletAndPricing(GameObject obj, string uiBtnName, TrackedObject.Data? trackedObject = null)
     {
+        if (ConfigurationManager.IsLoading)
+            return;
+
         string name = obj.name;
         // If this object is an outlet on a boom, validate its configuration first
         if (IsOutlet(name))

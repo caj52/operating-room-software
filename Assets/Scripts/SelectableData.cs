@@ -66,7 +66,8 @@ public class SelectableData
         else
         {
             PlacementLoadOptimizer.PrepareCachedPrefab(task.Result);
-            AssetPipelineDiagnostics.LogPrefabSnapshot("GetPrefab", task.Result, $"result for {PrefabName}");
+            if (!AssetPipelineDiagnostics.RoomLoadQuietMode)
+                AssetPipelineDiagnostics.LogPrefabSnapshot("GetPrefab", task.Result, $"result for {PrefabName}");
         }
 
         return task.Result;

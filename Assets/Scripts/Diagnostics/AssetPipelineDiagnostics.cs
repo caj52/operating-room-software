@@ -20,6 +20,11 @@ public static class AssetPipelineDiagnostics
     private static string _sessionId;
     private static bool _subscribed;
 
+    /// <summary>
+    /// When true, skips per-object prefab snapshots and verbose GetPrefab logs during bulk room load.
+    /// </summary>
+    public static bool RoomLoadQuietMode { get; set; }
+
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void Bootstrap()
     {
@@ -54,6 +59,9 @@ public static class AssetPipelineDiagnostics
 
     public static void LogSelectableData(string phase, SelectableData data, string extra = null)
     {
+        if (RoomLoadQuietMode && phase == "GetPrefab")
+            return;
+
         if (data == null)
         {
             Log(phase, "SelectableData is null" + (extra != null ? $" | {extra}" : ""));
@@ -68,6 +76,9 @@ public static class AssetPipelineDiagnostics
 
     public static void LogPrefabSnapshot(string phase, GameObject go, string label)
     {
+        if (RoomLoadQuietMode)
+            return;
+
         if (go == null)
         {
             Log(phase, $"{label}: prefab is NULL");
@@ -155,7 +166,17 @@ public static class AssetPipelineDiagnostics
 
     public static void LogElapsed(string phase, string label, Stopwatch stopwatch)
     {
+        if (RoomLoadQuietMode && phase == "RoomLoad.Instantiate")
+            return;
+
         Log(phase, $"{label}: {stopwatch.ElapsedMilliseconds}ms");
+    }
+
+    public static void LogPhase(string phase, string label, long elapsedMs, string detail = null)
+    {
+        Log(phase, detail == null
+            ? $"{label}: {elapsedMs}ms"
+            : $"{label}: {elapsedMs}ms | {detail}");
     }
 
     private static void SubscribeToAssetBundleManager()
@@ -163,11 +184,21 @@ public static class AssetPipelineDiagnostics
         if (_subscribed) return;
         _subscribed = true;
 
-        AssetBundleManager.DiagnosticLog = (phase, msg) => Log(phase, msg);
+        AssetBundleManager.DiagnosticLog = (phase, msg) =>
+        {
+            if (RoomLoadQuietMode && phase == "ABM.GetAsset" && msg.Contains("CACHE HIT"))
+                return;
+
+            Log(phase, msg);
+        };
         AutoInstantiator.DiagnosticLog = (phase, msg) => Log(phase, msg);
 
         AssetBundleManager.AssetRetrievalStarted.AddListener(name =>
-            Log("ABM.AssetRetrievalStarted", name));
+        {
+            if (RoomLoadQuietMode)
+                return;
+            Log("ABM.AssetRetrievalStarted", name);
+        });
 
         AssetBundleManager.AssetLoaded.AddListener(name =>
             Log("ABM.AssetLoaded", name));

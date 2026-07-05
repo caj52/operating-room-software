@@ -174,6 +174,21 @@ namespace SplenSoft.AssetBundles
         }
 
         /// <summary>
+        /// Returns an already-loaded asset without triggering download or async retrieval.
+        /// </summary>
+        public static bool TryGetCachedAsset<T>(string name, out T asset) where T : UnityEngine.Object
+        {
+            asset = null;
+            if (_assetBundleData.TryGetValue(name, out AssetBundleData data) && data.Asset != null)
+            {
+                asset = data.Asset as T;
+                return asset != null;
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Gets status of last download attempt of the project 
         /// asset bundle manifest for this platform. 
         /// Note: If the plugin is set to use editor assets and this is 
@@ -584,7 +599,7 @@ namespace SplenSoft.AssetBundles
                 return data.AssetBundle;
             }
 
-            var localBundle = TryGetLocalAssetBundle(name);
+            var localBundle = await TryGetLocalAssetBundleAsync(name);
             if (localBundle.Success)
             {
                 progress?.Report(new AssetRetrievalProgress(AssetRetrievalStatus.Done, 1));
@@ -734,6 +749,28 @@ namespace SplenSoft.AssetBundles
             return new StreamingAssetBundleRequestResult(false, null);
         }
 
+        private static async Task<StreamingAssetBundleRequestResult> TryGetLocalAssetBundleAsync(string name)
+        {
+            string streamingPath = Path.Combine(
+                Application.streamingAssetsPath, "AssetBundles", name);
+
+            var streamingResult = await TryLoadAssetBundleFromFileAsync(
+                streamingPath, name, "StreamingAssets");
+            if (streamingResult.Success)
+                return streamingResult;
+
+            string mirrorPath = GetLocalMirrorBundlePath(name);
+            if (!string.IsNullOrEmpty(mirrorPath))
+            {
+                var mirrorResult = await TryLoadAssetBundleFromFileAsync(
+                    mirrorPath, name, "CdnMirror");
+                if (mirrorResult.Success)
+                    return mirrorResult;
+            }
+
+            return new StreamingAssetBundleRequestResult(false, null);
+        }
+
         private static StreamingAssetBundleRequestResult TryLoadAssetBundleFromFile(
             string path, string name, string source)
         {
@@ -741,6 +778,32 @@ namespace SplenSoft.AssetBundles
                 return new StreamingAssetBundleRequestResult(false, null);
 
             AssetBundle bundle = AssetBundle.LoadFromFile(path);
+            if (bundle == null)
+            {
+                Debug.LogError($"Could not load asset bundle {name} from {source}: {path}");
+                return new StreamingAssetBundleRequestResult(false, null);
+            }
+
+            Log.Write(LogLevel.Log, $"Loaded asset bundle {name} from {source}: {path}");
+            Diag("ABM.GetAssetBundle", $"LOCAL {source} {name} from {path}");
+            return new StreamingAssetBundleRequestResult(true, bundle);
+        }
+
+        private static async Task<StreamingAssetBundleRequestResult> TryLoadAssetBundleFromFileAsync(
+            string path, string name, string source)
+        {
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                return new StreamingAssetBundleRequestResult(false, null);
+
+            AssetBundleCreateRequest request = AssetBundle.LoadFromFileAsync(path);
+            while (!request.isDone)
+            {
+                await Task.Yield();
+                if (!Application.isPlaying)
+                    return new StreamingAssetBundleRequestResult(false, null);
+            }
+
+            AssetBundle bundle = request.assetBundle;
             if (bundle == null)
             {
                 Debug.LogError($"Could not load asset bundle {name} from {source}: {path}");
