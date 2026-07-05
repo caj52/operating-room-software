@@ -105,12 +105,29 @@ namespace RTG
         private void Update()
         {
             // Note: Don't change the order :)
+            RTGPerformanceDiagnostics.BeginSample("RTInputDevice");
             RTInputDevice.Get.Update_SystemCall();
+            RTGPerformanceDiagnostics.EndSample();
+
+            RTGPerformanceDiagnostics.BeginSample("RTFocusCamera");
             RTFocusCamera.Get.Update_SystemCall();
+            RTGPerformanceDiagnostics.EndSample();
+
+            RTGPerformanceDiagnostics.BeginSample("RTScene");
             RTScene.Get.Update_SystemCall();
+            RTGPerformanceDiagnostics.EndSample();
+
+            RTGPerformanceDiagnostics.BeginSample("RTSceneGrid");
             RTSceneGrid.Get.Update_SystemCall();
+            RTGPerformanceDiagnostics.EndSample();
+
+            RTGPerformanceDiagnostics.BeginSample("RTGizmosEngine");
             RTGizmosEngine.Get.Update_SystemCall();
+            RTGPerformanceDiagnostics.EndSample();
+
+            RTGPerformanceDiagnostics.BeginSample("RTUndoRedo");
             RTUndoRedo.Get.Update_SystemCall();
+            RTGPerformanceDiagnostics.EndSample();
         }
 
         private void OnRenderObject()

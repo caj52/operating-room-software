@@ -301,7 +301,7 @@ MonoBehaviour:
   _settings:
     _canBeDisplayed: 1
     _isExpanded: 1
-    _physicsMode: 2
+    _physicsMode: 1
 --- !u!1 &6870187003923072561
 GameObject:
   m_ObjectHideFlags: 0
