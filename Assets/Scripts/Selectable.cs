@@ -819,6 +819,15 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         return exceedsX || exceedsY || exceedsZ;
     }
 
+    /// <summary>
+    /// During room load, saved transforms come from RestoreTransform — no mesh rescaling needed.
+    /// </summary>
+    public void RestoreScaleLevelFromSave(ScaleLevel scaleLevel)
+    {
+        CurrentScaleLevel = scaleLevel;
+        CurrentPreviewScaleLevel = scaleLevel;
+    }
+
     public void SetScaleLevel(ScaleLevel scaleLevel, bool setSelected, bool fireEvent = true)
     {
         Transform oldParent = null;

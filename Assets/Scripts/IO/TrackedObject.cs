@@ -167,12 +167,16 @@ public class TrackedObject : MonoBehaviour
                 selectable.ScaleLevels = new List<Selectable.ScaleLevel>(d.scaleLevels);
                 selectable.ScaleLevelsRestoredFromSave = true;
             }
-            if (d.scaleLevel != null)
+
+            if (d.scaleLevel != null && selectable.ScaleLevels != null)
             {
-                var scale = selectable.ScaleLevels?.FirstOrDefault(x => x.Size == d.scaleLevel.Size);
+                var scale = selectable.ScaleLevels.FirstOrDefault(x => x.Size == d.scaleLevel.Size);
                 if (scale != null)
                 {
-                    selectable.SetScaleLevel(scale, true, false);
+                    if (ConfigurationManager.IsLoading)
+                        selectable.RestoreScaleLevelFromSave(scale);
+                    else
+                        selectable.SetScaleLevel(scale, true, false);
                 }
             }
         }
@@ -203,8 +207,13 @@ public class TrackedObject : MonoBehaviour
 
     public void ApplySavedState()
     {
-        try { if (data.activeSelf) gameObject.SetActive(true); else gameObject.SetActive(false); }
-        catch (Exception ex) { Debug.LogWarning($"[TrackedObject] Failed to set active state on {name}: {ex.Message}"); }
+        // Active state is applied in one batch after all objects are restored (see ConfigurationManager.BatchActivateLoadedObjects).
+        if (!ConfigurationManager.IsLoading)
+        {
+            try { gameObject.SetActive(data.activeSelf); }
+            catch (Exception ex) { Debug.LogWarning($"[TrackedObject] Failed to set active state on {name}: {ex.Message}"); }
+        }
+
         try { SaveUtility.RestoreEnabledStates(gameObject, data.componentEnabledStates); }
         catch (Exception ex) { Debug.LogWarning($"[TrackedObject] Failed to restore enabled states on {name}: {ex.Message}"); }
         try { SaveUtility.RestoreCustomComponentStates(gameObject, data.componentStates); }

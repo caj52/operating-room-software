@@ -289,6 +289,7 @@ public class ConfigurationManager : MonoBehaviour
     {
         Debug.Log($"Loading config file at {file}");
         IsLoading = true;
+        AssetPipelineDiagnostics.RoomLoadQuietMode = true;
 
         try
         {
@@ -300,6 +301,7 @@ public class ConfigurationManager : MonoBehaviour
 
                 _newPoints = new List<AttachmentPoint>();
                 _newObjects = new List<TrackedObject>();
+                EnsureRoomLoadSandbox();
                 await LoadAllObjectsIntoCache(_tracker.objects);
                 await Task.Yield();
                 await ProcessTrackedObjects(_tracker.objects);
@@ -315,6 +317,10 @@ public class ConfigurationManager : MonoBehaviour
                     catch (Exception ex) { Debug.LogWarning($"[LoadArmAssembly] ApplySavedState failed on {to.name}: {ex.Message}"); }
                 }
 
+                CompleteDeferredSelectableInitialization();
+                FinalizeLoadedAttachmentPoints();
+                BatchActivateLoadedObjects();
+
                 OnConfigurationLoadComplete?.Invoke(gameObject);
                 return gameObject;
             }
@@ -327,7 +333,9 @@ public class ConfigurationManager : MonoBehaviour
         }
         finally
         {
+            AssetPipelineDiagnostics.RoomLoadQuietMode = false;
             IsLoading = false;
+            DestroyRoomLoadSandbox();
         }
     }
 
@@ -425,6 +433,7 @@ public class ConfigurationManager : MonoBehaviour
         try
         {
             RoomSize.SetDimensions(_roomConfiguration.roomDimension);
+            EnsureRoomLoadSandbox();
 
             float progressionTicks = 1f / _roomConfiguration.collections.Count;
             float progression = 0;
@@ -483,6 +492,12 @@ public class ConfigurationManager : MonoBehaviour
                 deferredInitTimer.Stop();
                 AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "completeDeferredInit", deferredInitTimer.ElapsedMilliseconds);
 
+                var activateTimer = Stopwatch.StartNew();
+                BatchActivateLoadedObjects();
+                activateTimer.Stop();
+                AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "batchActivate", activateTimer.ElapsedMilliseconds,
+                    $"{_newObjects.Count} object(s)");
+
                 progression += progressionTicks;
                 token.SetProgress(progression);
             }
@@ -501,17 +516,37 @@ public class ConfigurationManager : MonoBehaviour
         {
             AssetPipelineDiagnostics.RoomLoadQuietMode = false;
             IsLoading = false;
+            DestroyRoomLoadSandbox();
             token.SetProgress(1f);
         }
     }
 
     // --- Multi pass state ---
     private Dictionary<string, GameObject> _guidToGameObject = new();
-    private Queue<(GameObject obj, TrackedObject.Data data)> _pendingSetup = new();
+    private List<(GameObject obj, TrackedObject.Data data)> _pendingSetup = new();
     public List<TrackedObject.Data> _pendingEmbedded = new();
     private List<TrackedObject.Data> _pendingAttachmentPoints = new();
-    private readonly List<GameObject> _deferredDestroyOnLoad = new();
-    private const int RoomLoadInstantiateYieldInterval = 30;
+    private Transform _roomLoadSandbox;
+
+    private Transform EnsureRoomLoadSandbox()
+    {
+        if (_roomLoadSandbox != null)
+            return _roomLoadSandbox;
+
+        var sandboxGo = new GameObject("RoomLoadSandbox");
+        sandboxGo.SetActive(false);
+        _roomLoadSandbox = sandboxGo.transform;
+        return _roomLoadSandbox;
+    }
+
+    private void DestroyRoomLoadSandbox()
+    {
+        if (_roomLoadSandbox == null)
+            return;
+
+        Destroy(_roomLoadSandbox.gameObject);
+        _roomLoadSandbox = null;
+    }
 
     private async Task ProcessTrackedObjects(List<TrackedObject.Data> trackedObjects)
     {
@@ -576,57 +611,30 @@ public class ConfigurationManager : MonoBehaviour
 
             instantiateCount++;
 
-            if (IsLoading && instantiateCount % RoomLoadInstantiateYieldInterval == 0)
-            {
-                await Task.Yield();
-                if (!Application.isPlaying) throw new AppQuitInTaskException();
-            }
-
-            // Register root instance and all child selectables by their instance_guid (guid field)
-            if (!string.IsNullOrEmpty(data.instance_guid))
-                _guidToGameObject[data.instance_guid] = go;
-
-            var childSelectables = go.GetComponentsInChildren<Selectable>(true);
-            foreach (var sel in childSelectables)
-            {
-                if (!string.IsNullOrEmpty(sel.guid))
-                    _guidToGameObject[sel.guid] = sel.gameObject;
-            }
-
-            _pendingSetup.Enqueue((go, data));
+            _pendingSetup.Add((go, data));
 
             var trackedObj = go.GetComponent<TrackedObject>();
             if (trackedObj != null)
                 _newObjects.Add(trackedObj);
         }
 
-        foreach (GameObject destroyTarget in _deferredDestroyOnLoad)
-        {
-            if (destroyTarget != null)
-                Destroy(destroyTarget);
-        }
-        _deferredDestroyOnLoad.Clear();
+        RegisterGuidsForLoadedObjects();
+        RemoveDestroyOnLoadFromLoadedObjects();
 
         pass1Timer.Stop();
         AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "pass1_instantiate", pass1Timer.ElapsedMilliseconds,
             $"{instantiateCount} object(s)");
 
-        // Pass 2: establish hierarchy & apply transforms
+        // Pass 2: establish hierarchy, restore saved values, apply transforms
         var pass2Timer = Stopwatch.StartNew();
-        while (_pendingSetup.Count > 0)
+        foreach ((GameObject go, TrackedObject.Data data) in _pendingSetup)
         {
-            var (go, data) = _pendingSetup.Dequeue();
-
             var trackedObj = go.GetComponent<TrackedObject>();
-            if (trackedObj != null && !IsLoading)
-                trackedObj.StoreValues(data);
 
-            // Resolve parent by GUID first
             Transform parent = null;
             if (!string.IsNullOrEmpty(data.parentGuid) && _guidToGameObject.TryGetValue(data.parentGuid, out var parentGO))
                 parent = parentGO.transform;
 
-            // Fallback to parentPath
             if (parent == null && !string.IsNullOrEmpty(data.parentPath))
             {
                 var parentGO2 = GameObject.Find(NormalizeFindPath(data.parentPath));
@@ -635,18 +643,22 @@ public class ConfigurationManager : MonoBehaviour
             }
 
             if (parent != null)
-            {
                 go.transform.SetParent(parent, false);
-                trackedObj?.RestoreTransform(isRoot: false);
-            }
             else
-            {
+                go.transform.SetParent(null, true);
+
+            if (trackedObj != null)
+                trackedObj.StoreValues(data);
+
+            if (parent != null)
+                trackedObj?.RestoreTransform(isRoot: false);
+            else
                 trackedObj?.RestoreTransform(isRoot: true);
-            }
 
             if (!string.IsNullOrEmpty(data.keepRelativePositionParentName) && go.TryGetComponent<KeepRelativePosition>(out var comp))
                 comp.ParentName = data.keepRelativePositionParentName;
         }
+        _pendingSetup.Clear();
         pass2Timer.Stop();
         AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "pass2_hierarchy", pass2Timer.ElapsedMilliseconds,
             $"{instantiateCount} object(s)");
@@ -737,12 +749,8 @@ public class ConfigurationManager : MonoBehaviour
         }
 
         GameObject go = Instantiate(prefab);
-
-        foreach (DestroyOnLoad dol in go.GetComponentsInChildren<DestroyOnLoad>(true))
-        {
-            if (dol != null)
-                _deferredDestroyOnLoad.Add(dol.gameObject);
-        }
+        go.SetActive(false);
+        go.transform.SetParent(EnsureRoomLoadSandbox(), false);
 
         if (go.TryGetComponent<RestorePositionOnLoad>(out var compRestore))
             compRestore.PositionToRestore = trackedObject.worldPosition;
@@ -756,10 +764,34 @@ public class ConfigurationManager : MonoBehaviour
             selectable.UIButtonName = trackedObject.UIButtonname;
         }
 
-        if (go.TryGetComponent<TrackedObject>(out var trackedObj))
-            trackedObj.StoreValues(trackedObject);
-
         return go;
+    }
+
+    private void RegisterGuidsForLoadedObjects()
+    {
+        foreach ((GameObject go, TrackedObject.Data data) in _pendingSetup)
+        {
+            if (!string.IsNullOrEmpty(data.instance_guid))
+                _guidToGameObject[data.instance_guid] = go;
+
+            foreach (Selectable sel in go.GetComponentsInChildren<Selectable>(true))
+            {
+                if (!string.IsNullOrEmpty(sel.guid))
+                    _guidToGameObject[sel.guid] = sel.gameObject;
+            }
+        }
+    }
+
+    private void RemoveDestroyOnLoadFromLoadedObjects()
+    {
+        foreach ((GameObject go, _) in _pendingSetup)
+        {
+            foreach (DestroyOnLoad dol in go.GetComponentsInChildren<DestroyOnLoad>(true))
+            {
+                if (dol != null)
+                    Destroy(dol.gameObject);
+            }
+        }
     }
 
     private async Task<GameObject> InstantiateObject(TrackedObject.Data trackedObject)
@@ -914,6 +946,21 @@ public class ConfigurationManager : MonoBehaviour
             if (to == null) continue;
             foreach (Selectable selectable in to.GetComponentsInChildren<Selectable>(true))
                 selectable.CompleteDeferredLoadInitialization();
+        }
+    }
+
+    private void BatchActivateLoadedObjects()
+    {
+        if (_newObjects == null)
+            return;
+
+        foreach (TrackedObject to in _newObjects)
+        {
+            if (to == null)
+                continue;
+
+            if (to.data.activeSelf)
+                to.gameObject.SetActive(true);
         }
     }
 
