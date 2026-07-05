@@ -2,15 +2,16 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Avoids convex MeshCollider hull cooking during Instantiate on high-poly placeables.
-/// Convex cooking on large meshes (e.g. DaVinci robot) can take tens of seconds.
+/// Two-phase collider handling for bundle prefabs with convex MeshColliders:
+/// 1. <see cref="PrepareCachedPrefab"/> — disable convex hulls on the shared cached template before Instantiate.
+/// 2. <see cref="FinalizeInstanceColliders"/> — restore picking on each instance once transforms/state are final.
 /// </summary>
 public static class PlacementLoadOptimizer
 {
     private static readonly HashSet<int> PreparedPrefabIds = new();
 
     /// <summary>
-    /// Call once per cached bundle prefab before Instantiate. Mutates the shared template.
+    /// Phase 1: call once per cached bundle prefab before Instantiate. Mutates the shared template.
     /// </summary>
     public static void PrepareCachedPrefab(GameObject prefab)
     {
@@ -39,9 +40,10 @@ public static class PlacementLoadOptimizer
     }
 
     /// <summary>
-    /// Re-enable picking/placement colliders without cooking convex hulls on high-poly meshes.
+    /// Phase 2: call on each instantiated instance when it should be pickable (after placement or room load).
+    /// Re-enables colliders or adds a BoxCollider fallback — never re-enables convex MeshColliders (avoids hull cook).
     /// </summary>
-    public static void EnablePostPlacementCollider(GameObject root)
+    public static void FinalizeInstanceColliders(GameObject root)
     {
         if (root == null)
             return;

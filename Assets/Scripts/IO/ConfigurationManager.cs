@@ -477,6 +477,12 @@ public class ConfigurationManager : MonoBehaviour
                 AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "applySavedState", savedStateTimer.ElapsedMilliseconds,
                     $"{_newObjects.Count} object(s)");
 
+                var colliderTimer = Stopwatch.StartNew();
+                FinalizeLoadedInstanceColliders();
+                colliderTimer.Stop();
+                AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "finalizeInstanceColliders", colliderTimer.ElapsedMilliseconds,
+                    $"{_newObjects.Count} object(s)");
+
                 var guidTimer = Stopwatch.StartNew();
                 RandomizeInstanceGUIDs();
                 guidTimer.Stop();
@@ -946,6 +952,20 @@ public class ConfigurationManager : MonoBehaviour
             if (to == null) continue;
             foreach (Selectable selectable in to.GetComponentsInChildren<Selectable>(true))
                 selectable.CompleteDeferredLoadInitialization();
+        }
+    }
+
+    private void FinalizeLoadedInstanceColliders()
+    {
+        if (_newObjects == null)
+            return;
+
+        foreach (TrackedObject to in _newObjects)
+        {
+            if (to == null)
+                continue;
+
+            PlacementLoadOptimizer.FinalizeInstanceColliders(to.gameObject);
         }
     }
 

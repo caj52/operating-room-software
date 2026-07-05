@@ -332,17 +332,11 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
     public void OnMouseUpAsButton()
     {
+        bool overUi = InputHandler.IsPointerOverUIElement();
+        SelectionDiagnostics.LogMouseUp(this, overUi);
 
-        //Debug.Log($"Mouse up detected over {gameObject.name}");
-
-        if (InputHandler.IsPointerOverUIElement() /*||
-        !InputHandler.WasProperClick*/)
-        {
-            //    Debug.Log($"Pointer Is Over UI {gameObject.name}");
-
+        if (overUi)
             return;
-
-        }
 
         Select();
     }
@@ -685,28 +679,24 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
     public void Select()
     {
-        Debug.Log($"Attempting to select {gameObject.name}");
-       
         if (SceneManager.GetActiveScene().name == "ObjectEditor")
-        {
             return;
-        }
 
         if (IsSelected)
         {
-            //Debug.Log($"Could not select {gameObject.name} because it was already selected");
+            SelectionDiagnostics.LogSelectBlocked(this, "already_selected");
             return;
         }
 
         if (_isRaycastPlacementMode)
         {
-            //Debug.Log($"Could not select {gameObject.name} because it is in raycast placement mode");
+            SelectionDiagnostics.LogSelectBlocked(this, "raycast_placement_mode");
             return;
         }
 
         if (GizmoHandler.GizmoBeingUsed)
         {
-            //Debug.Log($"Could not select {gameObject.name} because a gizmo is being used");
+            SelectionDiagnostics.LogSelectBlocked(this, "gizmo_in_use");
             return;
         }
 
@@ -731,6 +721,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             x._gizmoHandler.SelectableSelected();
         });
 
+        SelectionDiagnostics.LogSelectOk(this);
         SelectionChanged?.Invoke();
 
 
@@ -1980,7 +1971,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
             if (CanPlaceAnywhere)
             {
-                PlacementLoadOptimizer.EnablePostPlacementCollider(gameObject);
+                PlacementLoadOptimizer.FinalizeInstanceColliders(gameObject);
             }
 
             await Task.Yield();
