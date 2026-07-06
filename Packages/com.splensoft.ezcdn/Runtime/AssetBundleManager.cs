@@ -918,14 +918,23 @@ namespace SplenSoft.AssetBundles
                 data.DownloadStarted = true;
             }
 
+            var bundleTimer = System.Diagnostics.Stopwatch.StartNew();
             var getBundleTask = GetAssetBundle(name, progress);
             await getBundleTask;
+            bundleTimer.Stop();
+            Diag("SceneLoad.CDN", $"bundle '{name}' fetched in {bundleTimer.ElapsedMilliseconds}ms");
+
             var bundle = getBundleTask.Result;
-            LoadSceneAssetBundle(name, bundle, progress, onSuccess, onFailure);
+            LoadSceneAssetBundle(name, bundle, progress, onSuccess, onFailure, bundleTimer.ElapsedMilliseconds);
         }
 
-        private static async void LoadSceneAssetBundle(string name, AssetBundle bundle, IProgress<AssetRetrievalProgress> progress, Action onSuccess,
-            Action<AssetRetrievalResult> onFailure)
+        private static async void LoadSceneAssetBundle(
+            string name,
+            AssetBundle bundle,
+            IProgress<AssetRetrievalProgress> progress,
+            Action onSuccess,
+            Action<AssetRetrievalResult> onFailure,
+            long bundleFetchMs = 0)
         {
             string[] paths = bundle.GetAllScenePaths();
 
@@ -937,6 +946,7 @@ namespace SplenSoft.AssetBundles
 
             try
             {
+                var sceneLoadTimer = System.Diagnostics.Stopwatch.StartNew();
                 AsyncOperation operation = SceneManager.LoadSceneAsync(paths[0]);
 
                 //Wait until we are done loading the scene
@@ -951,6 +961,10 @@ namespace SplenSoft.AssetBundles
                     await Task.Yield();
                     if (!Application.isPlaying) return;
                 }
+
+                sceneLoadTimer.Stop();
+                Diag("SceneLoad.CDN",
+                    $"scene '{paths[0]}' async load {sceneLoadTimer.ElapsedMilliseconds}ms | bundle '{name}' fetch {bundleFetchMs}ms | total {bundleFetchMs + sceneLoadTimer.ElapsedMilliseconds}ms");
 
                 Log.Write(LogLevel.Log, $"Loaded scene {paths[0]}");
                 progress?.Report(new AssetRetrievalProgress(AssetRetrievalStatus.Done, 1));

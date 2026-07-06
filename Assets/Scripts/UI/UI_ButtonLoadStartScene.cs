@@ -7,6 +7,7 @@ public class UI_ButtonLoadStartScene : MonoBehaviour
 {
     public void LoadStartScene()
     {
+        SceneLoadDiagnostics.MarkTransitionStart("→Start");
         SceneManager.LoadScene("Start");
     }
 }

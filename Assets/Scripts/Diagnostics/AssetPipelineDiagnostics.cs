@@ -227,6 +227,7 @@ public static class AssetPipelineDiagnostics
         }
 
         Log("Config", $"Log paths: {string.Join(" ; ", GetLogPaths())}");
+        Log("Config", "Scene load timings use SceneLoad.* phases in this log");
     }
 
     private static string[] GetLogPaths()

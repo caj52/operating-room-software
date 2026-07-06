@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -140,6 +140,8 @@ public class SplashScreen : MonoBehaviour
 
                 if (SceneManager.sceneCountInBuildSettings >= 1)
                 {
+                    string target = levelToLoad != "" ? levelToLoad : "buildIndex 1";
+                    SceneLoadDiagnostics.MarkTransitionStart($"Splash→{target}");
                     if (levelToLoad != "")
                     {
                         SceneManager.LoadScene(levelToLoad);

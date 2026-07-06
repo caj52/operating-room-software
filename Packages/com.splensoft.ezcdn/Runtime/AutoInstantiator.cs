@@ -127,6 +127,7 @@ namespace SplenSoft.AssetBundles
     
         public static async void OnAppStart()
         {
+            var totalTimer = System.Diagnostics.Stopwatch.StartNew();
             Diag("AutoInstantiator", "OnAppStart — loading UI prefab AutoInstantiator SO bundles");
 
             // get the scriptable objects
@@ -217,7 +218,8 @@ namespace SplenSoft.AssetBundles
             });
 
             OnJobsFinished?.Invoke();
-            Diag("AutoInstantiator", "OnAppStart complete");
+            totalTimer.Stop();
+            Diag("AutoInstantiator", $"OnAppStart complete — {totalTimer.ElapsedMilliseconds}ms");
         }
     }
 }

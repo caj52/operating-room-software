@@ -52,6 +52,7 @@ public class UI_DbPassword : MonoBehaviour
             {
                 if (SceneManager.GetActiveScene().name != "Start")
                 {
+                    SceneLoadDiagnostics.MarkTransitionStart("→Start");
                     SceneManager.LoadScene("Start");
                 }
                 gameObject.SetActive(false);

@@ -48,13 +48,14 @@ public class UI_SceneLoader : MonoBehaviour
     // Separate the core functionality into a parameterless method
     private void CheckVideoEnd()
     {
+        SceneLoadDiagnostics.MarkTransitionStart("VideoScene→AutoInstantiator");
         AutoInstantiator.OnAppStart();
         AutoInstantiator.OnJobsFinished.AddListener(LoadScene);
     }
 
     private void LoadScene()
     {
-        Debug.LogError("LoadScene");
+        SceneLoadDiagnostics.MarkTransitionStart("VideoScene→Start");
         TMP_RuntimeFontRepair.RepairAll();
         SceneManager.LoadScene("Start");
         TMP_RuntimeFontRepair.RepairAll();
