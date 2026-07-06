@@ -435,18 +435,22 @@ public class ConfigurationManager : MonoBehaviour
             RoomSize.SetDimensions(_roomConfiguration.roomDimension);
             EnsureRoomLoadSandbox();
 
+            var allTrackedObjects = _roomConfiguration.collections
+                .SelectMany(c => c.objects)
+                .ToList();
+
+            var prefetchTimer = Stopwatch.StartNew();
+            await LoadAllObjectsIntoCache(allTrackedObjects);
+            prefetchTimer.Stop();
+            AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "prefetchBundles", prefetchTimer.ElapsedMilliseconds,
+                $"{allTrackedObjects.Count} tracked object(s) across {_roomConfiguration.collections.Count} collection(s)");
+
             float progressionTicks = 1f / _roomConfiguration.collections.Count;
             float progression = 0;
             foreach (Tracker t in _roomConfiguration.collections)
             {
                 _newPoints = new List<AttachmentPoint>();
                 _newObjects = new List<TrackedObject>();
-
-                var cacheTimer = Stopwatch.StartNew();
-                await LoadAllObjectsIntoCache(t.objects);
-                cacheTimer.Stop();
-                AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "prefetchBundles", cacheTimer.ElapsedMilliseconds,
-                    $"{t.objects.Count} tracked object(s)");
 
                 await Task.Yield();
 
