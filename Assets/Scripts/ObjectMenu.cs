@@ -517,6 +517,7 @@ public class ObjectMenu : MonoBehaviour
             obj.transform.parent = _attachmentPoint.transform;
 
             PlacementLoadOptimizer.FinalizeInstanceColliders(obj);
+            PlacementLoadOptimizer.RestoreInstanceCollidersAfterLoad(obj);
 
             var recorder = obj.transform.root.GetComponent<RecordHirarcheySelectables>();
             recorder?.AddAttachedSelectables(selectable, objectName);

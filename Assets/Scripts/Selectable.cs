@@ -1970,6 +1970,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             }
 
             PlacementLoadOptimizer.FinalizeInstanceColliders(gameObject);
+            PlacementLoadOptimizer.RestoreInstanceCollidersAfterLoad(gameObject);
 
             await Task.Yield();
             Debug.Log("Anas => Object Placed");

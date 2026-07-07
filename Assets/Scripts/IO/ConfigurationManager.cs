@@ -39,6 +39,37 @@ public class ConfigurationManager : MonoBehaviour
     private static string NormalizeFindPath(string raw)
         => string.IsNullOrEmpty(raw) ? raw : (raw[0] == '/' ? raw.Substring(1) : raw);
 
+    /// <summary>
+    /// Resolves a saved parent path against loaded (possibly inactive) room objects.
+    /// GameObject.Find skips inactive objects, so hierarchy restore must search _newObjects.
+    /// </summary>
+    private Transform FindLoadedParentTransform(TrackedObject.Data data)
+    {
+        string rawPath = !string.IsNullOrEmpty(data.parentPath) ? data.parentPath : data.parent;
+        if (string.IsNullOrEmpty(rawPath))
+            return null;
+
+        string pathWithSlash = rawPath[0] == '/' ? rawPath : "/" + rawPath;
+
+        if (_newObjects != null)
+        {
+            foreach (TrackedObject to in _newObjects)
+            {
+                if (to == null)
+                    continue;
+
+                foreach (Transform t in to.GetComponentsInChildren<Transform>(true))
+                {
+                    if (GetGameObjectPath(t.gameObject) == pathWithSlash)
+                        return t;
+                }
+            }
+        }
+
+        GameObject active = GameObject.Find(NormalizeFindPath(rawPath));
+        return active != null ? active.transform : null;
+    }
+
     private void Awake()
     {
         if (Instance != null)
@@ -497,16 +528,23 @@ public class ConfigurationManager : MonoBehaviour
                 attachmentTimer.Stop();
                 AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "finalizeAttachmentPoints", attachmentTimer.ElapsedMilliseconds);
 
-                var deferredInitTimer = Stopwatch.StartNew();
-                CompleteDeferredSelectableInitialization();
-                deferredInitTimer.Stop();
-                AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "completeDeferredInit", deferredInitTimer.ElapsedMilliseconds);
-
                 var activateTimer = Stopwatch.StartNew();
                 BatchActivateLoadedObjects();
                 activateTimer.Stop();
                 AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "batchActivate", activateTimer.ElapsedMilliseconds,
                     $"{_newObjects.Count} object(s)");
+
+                var deferredInitTimer = Stopwatch.StartNew();
+                CompleteDeferredSelectableInitialization();
+                deferredInitTimer.Stop();
+                AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "completeDeferredInit", deferredInitTimer.ElapsedMilliseconds,
+                    $"{_newObjects.Count} object(s)");
+
+                var restoreColliderTimer = Stopwatch.StartNew();
+                int restoredColliderCount = RestoreLoadedInstanceColliders();
+                restoreColliderTimer.Stop();
+                AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "restoreInstanceColliders", restoreColliderTimer.ElapsedMilliseconds,
+                    $"{restoredColliderCount} mesh collider(s) on {_newObjects.Count} object(s)");
 
                 progression += progressionTicks;
                 token.SetProgress(progression);
@@ -645,12 +683,8 @@ public class ConfigurationManager : MonoBehaviour
             if (!string.IsNullOrEmpty(data.parentGuid) && _guidToGameObject.TryGetValue(data.parentGuid, out var parentGO))
                 parent = parentGO.transform;
 
-            if (parent == null && !string.IsNullOrEmpty(data.parentPath))
-            {
-                var parentGO2 = GameObject.Find(NormalizeFindPath(data.parentPath));
-                if (parentGO2 != null)
-                    parent = parentGO2.transform;
-            }
+            if (parent == null)
+                parent = FindLoadedParentTransform(data);
 
             if (parent != null)
                 go.transform.SetParent(parent, false);
@@ -971,6 +1005,26 @@ public class ConfigurationManager : MonoBehaviour
 
             PlacementLoadOptimizer.FinalizeInstanceColliders(to.gameObject);
         }
+    }
+
+    private int RestoreLoadedInstanceColliders()
+    {
+        if (_newObjects == null)
+            return 0;
+
+        int restored = 0;
+        foreach (TrackedObject to in _newObjects)
+        {
+            if (to == null)
+                continue;
+
+            restored += PlacementLoadOptimizer.RestoreInstanceCollidersAfterLoad(to.gameObject);
+
+            foreach (AttachmentPoint attachmentPoint in to.GetComponentsInChildren<AttachmentPoint>(true))
+                attachmentPoint.RefreshStatusForLoad();
+        }
+
+        return restored;
     }
 
     private void BatchActivateLoadedObjects()

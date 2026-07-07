@@ -151,7 +151,8 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         }
 
         Unsubscribe();
-        Destroy(_lineRenderer.gameObject);
+        if (_lineRenderer != null)
+            Destroy(_lineRenderer.gameObject);
     }
 
     private void Start()
@@ -186,6 +187,8 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
             UpdateLineRenderer();
         }
 
+        if (_lineRenderer == null)
+            return;
 
         if (FreeLookCam.IsActive)
         {
