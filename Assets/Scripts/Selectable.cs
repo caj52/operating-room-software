@@ -300,6 +300,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         _deferInitUntilLoadComplete = false;
         InitializeComponents();
         InitializeAfterStart();
+        _gizmoHandler?.RefreshGizmoCapabilities();
     }
 
     private void OnDestroy()
@@ -371,17 +372,17 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     public bool isDuplicated;
     private void Start()
     {
-        if (ConfigurationManager.IsLoading)
-        {
-            Started = true;
+        if (Started || ConfigurationManager.IsLoading)
             return;
-        }
 
         InitializeAfterStart();
     }
 
     private void InitializeAfterStart()
     {
+        if (Started)
+            return;
+
         if (!ConfigurationManager.IsLoading &&
             GUID != "" &&
             !ConfigurationManager.IsRoomBoundary(GUID) &&

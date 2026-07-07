@@ -348,9 +348,11 @@ public class ConfigurationManager : MonoBehaviour
                     catch (Exception ex) { Debug.LogWarning($"[LoadArmAssembly] ApplySavedState failed on {to.name}: {ex.Message}"); }
                 }
 
-                CompleteDeferredSelectableInitialization();
+                FinalizeLoadedInstanceColliders();
                 FinalizeLoadedAttachmentPoints();
                 BatchActivateLoadedObjects();
+                CompleteDeferredSelectableInitialization();
+                RestoreLoadedInstanceColliders();
 
                 OnConfigurationLoadComplete?.Invoke(gameObject);
                 return gameObject;

@@ -539,17 +539,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 99680147387930580}
   m_Template: {fileID: 617357849512984272}
   m_CaptionText: {fileID: 3234379197044624322}
-  m_CaptionImage: {fileID: 0}
+  m_CaptionImage: {fileID: 339544412232619452}
   m_Placeholder: {fileID: 0}
   m_ItemText: {fileID: 2634995199029314569}
-  m_ItemImage: {fileID: 0}
+  m_ItemImage: {fileID: 8575502923442491200}
   m_Value: 0
   m_Options:
     m_Options:
     - m_Text: Translate
-      m_Image: {fileID: 0}
+      m_Image: {fileID: 21300000, guid: 516c048084c33544f8f2e5196d13dea2, type: 3}
     - m_Text: Rotate
-      m_Image: {fileID: 0}
+      m_Image: {fileID: 21300000, guid: f7727ba39d9ae1343b88e936cc56c6ff, type: 3}
+    - m_Text: Scale
+      m_Image: {fileID: 21300000, guid: 982a147af3dea3748bf7482e7bd3eb9a, type: 3}
   m_OnValueChanged:
     m_PersistentCalls:
       m_Calls: []

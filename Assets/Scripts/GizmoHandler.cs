@@ -135,6 +135,16 @@ public class GizmoHandler : MonoBehaviour
 private IEnumerator Start()
     {
         yield return new WaitUntil(() => _selectable.Started);
+        RefreshGizmoCapabilities();
+    }
+
+    /// <summary>
+    /// Re-reads gizmo permissions from Selectable after deferred room-load init.
+    /// </summary>
+    public void RefreshGizmoCapabilities()
+    {
+        if (_selectable == null)
+            _selectable = GetComponent<Selectable>();
 
         _canUseTranslateX = _selectable.IsGizmoSettingAllowed(GizmoType.Move, Axis.X);
         _canUseTranslateY = _selectable.IsGizmoSettingAllowed(GizmoType.Move, Axis.Y);
@@ -151,7 +161,10 @@ private IEnumerator Start()
         _canUseScaleZ = _selectable.IsGizmoSettingAllowed(GizmoType.Scale, Axis.Z);
         _canUseAnyScale = _canUseScaleX || _canUseScaleY || _canUseScaleZ;
 
-        enabled = AnyEnabled();
+        if (_gizmosInitialized)
+            EnableGizmo();
+        else
+            enabled = AnyEnabled();
     }
 
     private void Update()
@@ -167,6 +180,8 @@ private IEnumerator Start()
     public void SelectableSelected()
     {
         CreateGizmos();
+        if (_selectable.Started)
+            RefreshGizmoCapabilities();
         EnableGizmo();
     }
 
