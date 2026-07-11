@@ -65,6 +65,7 @@ public class PdfBatchExporter : MonoBehaviour
         string subtitle = defaultSubtitle ?? string.Empty;
         int pagesWritten = 0;
         LastMultipageExportOk = false;
+        LastExportedPath = null;
 
         using (FileStream stream = new FileStream(filePath, FileMode.Create, FileAccess.Write))
         using (Document doc = new Document(new Rectangle(1400, 1200, 90), 19.08f, 19.08f, 10, 10))
@@ -122,19 +123,23 @@ public class PdfBatchExporter : MonoBehaviour
         }
 
         LastMultipageExportOk = pagesWritten > 0;
+        LastExportedPath = LastMultipageExportOk ? filePath : null;
 
         if (!suppressDialog)
         {
             UI_GeneralLoadingScreen.instance.HideLoadingScreen();
             UI_DialogPrompt.Open(
                 $"Elevation sheets saved to:\n{filePath}",
-                new ButtonAction("Open Folder", () => ExportFolderUtility.RevealInFileManager(filePath)),
+                new ButtonAction("Show File", () => ExportFolderUtility.RevealInFileManager(filePath)),
                 new ButtonAction("Done"));
         }
     }
 
     /// <summary>Result of the most recent multipage room elevations export.</summary>
     public static bool LastMultipageExportOk { get; private set; } = true;
+
+    /// <summary>Path of the most recently written elevation PDF (file or folder for per-boom batches).</summary>
+    public static string LastExportedPath { get; private set; }
 
     public static IEnumerator ExportPerAssemblyPdfs(
         string outputDirectory,
@@ -166,6 +171,8 @@ public class PdfBatchExporter : MonoBehaviour
         }
 
         LastPerAssemblyExportOk = written > 0;
+        if (written > 1)
+            LastExportedPath = folder;
     }
 
     /// <summary>Result of the most recent per-assembly elevations export.</summary>
@@ -228,12 +235,13 @@ public class PdfBatchExporter : MonoBehaviour
         }
 
         LastSingleConfigExportOk = true;
+        LastExportedPath = filePath;
 
         if (!suppressDialog)
         {
             UI_DialogPrompt.Open(
                 $"Elevation sheet saved to:\n{filePath}",
-                new ButtonAction("Open Folder", () => ExportFolderUtility.RevealInFileManager(filePath)),
+                new ButtonAction("Show File", () => ExportFolderUtility.RevealInFileManager(filePath)),
                 new ButtonAction("Done"));
         }
     }

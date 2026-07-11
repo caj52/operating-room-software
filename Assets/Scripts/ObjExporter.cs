@@ -19,135 +19,14 @@ public static class ObjExporter
     public static UnityEvent OnMeshDataWritten { get; } = new();
     public static UnityEvent OnExportFinished { get; } = new();
     public static int count = 1;
-    public static async void DoExport(
+    public static void DoExport(
         bool makeSubmeshes,
         MeshFilter[] meshFilters,
         string name,
         bool roomPackage = false)
     {
-        if (meshFilters == null || meshFilters.Length == 0)
-        {
-            Debug.LogWarning("OBJ export skipped — no mesh filters provided.");
-            OnExportFinished?.Invoke();
-            return;
-        }
-
-        ObjExporterScript.Start();
-        OnExportStarted?.Invoke();
-
-        try
-        {
-            string meshName = string.IsNullOrWhiteSpace(name) ? "Export" : name;
-            Debug.Log($"Found {meshFilters.Length} mesh filters");
-
-            Dictionary<MeshRenderer, MeshFilter> rendererFilterMap = new();
-            foreach (var filter in meshFilters)
-            {
-                var meshRenderer = filter.GetComponent<MeshRenderer>();
-                if (meshRenderer != null)
-                    rendererFilterMap[meshRenderer] = filter;
-            }
-
-            List<Material> materials = new();
-            List<List<CombineInstance>> combineInstancesByMaterial = new();
-            Dictionary<Material, Material> materialInstanceMap = new();
-
-            int counter = 0;
-            foreach (var kvp in rendererFilterMap)
-            {
-                ProcessMaterials(kvp.Key, kvp.Value, materials, combineInstancesByMaterial, materialInstanceMap);
-                OnMeshCombiningUpdate?.Invoke((float)(counter + 1) / (meshFilters.Length + 1));
-
-                // Only yield every 10 items to avoid task flood
-                if (counter % 10 == 0)
-                    await Task.Yield();
-
-                counter++;
-
-                if (!Application.isPlaying)
-                    throw new Exception("App quit during task");
-            }
-
-            List<CombineInstance> finalCombiners = new();
-            List<Mesh> tempSubmeshes = new(); // Store temporary meshes for cleanup
-
-            for (int i = 0; i < combineInstancesByMaterial.Count; i++)
-            {
-                Mesh submesh = new();
-                submesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
-                submesh.CombineMeshes(combineInstancesByMaterial[i].ToArray(), true);
-
-                CombineInstance ci = new()
-                {
-                    mesh = submesh,
-                    subMeshIndex = 0,
-                    transform = Matrix4x4.identity
-                };
-
-                finalCombiners.Add(EnsureOutwardFacingNormals(ci));
-                tempSubmeshes.Add(submesh); // Track for cleanup
-            }
-
-            Mesh finalMesh = new();
-            finalMesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
-            finalMesh.CombineMeshes(finalCombiners.ToArray(), false);
-
-            OnMeshCombineSuccess?.Invoke();
-            await Task.Yield();
-
-            ObjExportData data = new();
-            data.Obj.Append($"#{meshName}.obj\n# {System.DateTime.Now.ToLongDateString()}\n# {System.DateTime.Now.ToLongTimeString()}\n#-------\n\n");
-            string id = Guid.NewGuid().ToString();
-            data.Obj.Append($"mtllib {id}.mtl\n\n");
-
-            var obj = new GameObject("CombinedMesh", typeof(MeshFilter));
-            obj.GetComponent<MeshFilter>().sharedMesh = finalMesh;
-            obj.transform.position = Vector3.zero;
-
-            await ProcessTransform(obj.transform, makeSubmeshes, materials, data);
-
-            foreach (var material in materials)
-                AddMaterialToMtl(data, material);
-
-            data.Bake();
-
-            string path = roomPackage
-                ? ExportPaths.ObjSceneDir
-                : Path.Combine(ExportPaths.GetExportBasePath(), "ObjFile", meshName);
-
-            Directory.CreateDirectory(path);
-            File.WriteAllText(Path.Combine(path, $"{meshName}.obj"), data.ObjString);
-            File.WriteAllText(Path.Combine(path, $"{meshName}.mtl"), data.MtlString);
-
-            count++;
-
-            foreach (var item in data.Textures)
-            {
-                byte[] imageByteArray = Convert.FromBase64String(item.TextureBase64);
-                File.WriteAllBytes(Path.Combine(path, $"{item.Name}.png"), imageByteArray);
-            }
-
-            ExportFinishedSuccessfully?.Invoke(path);
-
-            // Cleanup all temporary objects
-            foreach (var m in tempSubmeshes)
-                UnityEngine.Object.Destroy(m);
-
-            UnityEngine.Object.Destroy(finalMesh);
-            UnityEngine.Object.Destroy(obj);
-
-            GC.Collect();
-            Resources.UnloadUnusedAssets();
-        }
-        catch (Exception e)
-        {
-            Debug.LogException(e);
-        }
-        finally
-        {
-            OnExportFinished?.Invoke();
-            ObjExporterScript.End();
-        }
+        // Client deliverable is a single self-contained GLB (textures embedded).
+        GlbExporter.DoExport(makeSubmeshes, meshFilters, name, roomPackage);
     }
 
 

@@ -163,7 +163,7 @@ public static class ExportPaths
     public static string GetParentFolder()
     {
         if (HasCustomParentFolder())
-            return PlayerPrefs.GetString(ParentFolderPrefsKey);
+            return NormalizeParentFolder(PlayerPrefs.GetString(ParentFolderPrefsKey));
 
         return GetDefaultParentFolder();
     }
@@ -179,8 +179,42 @@ public static class ExportPaths
         if (string.IsNullOrWhiteSpace(path))
             return;
 
-        PlayerPrefs.SetString(ParentFolderPrefsKey, path.Trim());
+        // If the user picks an existing room export folder (…/Exports/RoomName),
+        // store its parent so we don't nest RoomName/RoomName on the next export.
+        path = NormalizeParentFolder(path.Trim());
+
+        PlayerPrefs.SetString(ParentFolderPrefsKey, path);
         PlayerPrefs.Save();
+    }
+
+    /// <summary>
+    /// Walks up one level when <paramref name="path"/> already looks like a room
+    /// export directory (leaf equals the current room save name).
+    /// </summary>
+    public static string NormalizeParentFolder(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return path;
+
+        try
+        {
+            string full = Path.GetFullPath(path.Trim());
+            string leaf = Path.GetFileName(full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            string room = SanitizeFolderName(GetRoomExportName());
+            if (!string.IsNullOrEmpty(leaf)
+                && leaf.Equals(room, StringComparison.OrdinalIgnoreCase))
+            {
+                string parent = Path.GetDirectoryName(full);
+                if (!string.IsNullOrEmpty(parent))
+                    return parent;
+            }
+
+            return full;
+        }
+        catch (Exception)
+        {
+            return path.Trim();
+        }
     }
 
     public static void ClearCustomParentFolder()
@@ -192,23 +226,47 @@ public static class ExportPaths
     /// <summary>Parent folder + room-name subfolder. All deliverables live under here.</summary>
     public static string GetExportBasePath()
     {
-        return Path.Combine(GetParentFolder(), SanitizeFolderName(GetRoomExportName()));
+        string parent = GetParentFolder();
+        string room = SanitizeFolderName(GetRoomExportName());
+
+        // Guard against a stale prefs parent that already ends with the room name
+        // (…/Operating Room Exports/SaveExample + SaveExample → double nest).
+        try
+        {
+            string parentLeaf = Path.GetFileName(
+                Path.GetFullPath(parent).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (!string.IsNullOrEmpty(parentLeaf)
+                && parentLeaf.Equals(room, StringComparison.OrdinalIgnoreCase))
+            {
+                string up = Path.GetDirectoryName(Path.GetFullPath(parent));
+                if (!string.IsNullOrEmpty(up))
+                    parent = up;
+            }
+        }
+        catch (Exception)
+        {
+        }
+
+        return Path.Combine(parent, room);
     }
 
-    public static string ObjSceneDir => Path.Combine(GetExportBasePath(), "ObjFile");
+    /// <summary>
+    /// Folder for 3D model exports (self-contained .glb files).
+    /// Lives directly in the room folder — no nested ObjFile/Models subfolder.
+    /// </summary>
+    public static string ObjSceneDir => GetExportBasePath();
     public static string ElevationsDir => Path.Combine(GetExportBasePath(), "elevations");
     public static string ProposalsDir => Path.Combine(GetExportBasePath(), "proposals");
     public static string SnapshotsDir => Path.Combine(GetExportBasePath(), "snapshots");
     public static string PdfDir => ElevationsDir;
     public static string RendersDir => Path.Combine(GetExportBasePath(), "Renders");
 
+    /// <summary>
+    /// Ensures the room export root exists. Deliverable subfolders
+    /// (elevations, snapshots, etc.) are created only when that export actually runs.
+    /// </summary>
     public static void EnsureDirectories()
     {
         Directory.CreateDirectory(GetExportBasePath());
-        Directory.CreateDirectory(ObjSceneDir);
-        Directory.CreateDirectory(ElevationsDir);
-        Directory.CreateDirectory(ProposalsDir);
-        Directory.CreateDirectory(SnapshotsDir);
-        Directory.CreateDirectory(RendersDir);
     }
 }

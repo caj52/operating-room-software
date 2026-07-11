@@ -1,0 +1,18 @@
+{
+    "name": "OperatingRoom.GltfExport",
+    "rootNamespace": "",
+    "references": [
+        "glTFast",
+        "glTFast.Export",
+        "Unity.Mathematics"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

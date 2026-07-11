@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
 
 /// <summary>
@@ -13,6 +14,7 @@ public class ExportOrchestrator : MonoBehaviour
 
     private readonly List<string> _completedSteps = new();
     private readonly List<string> _failedSteps = new();
+    private readonly List<string> _outputPaths = new();
     private bool _cancelled;
     private ExportScope _activeScope = ExportScope.Room;
 
@@ -71,6 +73,7 @@ public class ExportOrchestrator : MonoBehaviour
         _activeScope = activeRequest.Scope;
         _completedSteps.Clear();
         _failedSteps.Clear();
+        _outputPaths.Clear();
         _cancelled = false;
         _activeProposal = null;
 
@@ -97,7 +100,7 @@ public class ExportOrchestrator : MonoBehaviour
 
             if (activeRequest.IncludeObj && !_cancelled)
             {
-                UI_GeneralLoadingScreen.instance.SetStatus("Exporting 3D model (OBJ)...");
+                UI_GeneralLoadingScreen.instance.SetStatus("Exporting 3D model (GLB)...");
                 UI_GeneralLoadingScreen.instance.SetProgress((float)stepIndex / stepCount);
                 yield return ExportObj(activeRequest.ObjOptions);
                 stepIndex++;
@@ -170,8 +173,13 @@ public class ExportOrchestrator : MonoBehaviour
     {
         bool finished = false;
         bool succeeded = false;
+        string outputPath = null;
         UnityEngine.Events.UnityAction onFinished = () => finished = true;
-        UnityEngine.Events.UnityAction<string> onSuccess = _ => succeeded = true;
+        UnityEngine.Events.UnityAction<string> onSuccess = path =>
+        {
+            succeeded = true;
+            outputPath = path;
+        };
         ObjExporter.OnExportFinished.AddListener(onFinished);
         ObjExporter.ExportFinishedSuccessfully.AddListener(onSuccess);
 
@@ -215,7 +223,7 @@ public class ExportOrchestrator : MonoBehaviour
 
             yield return new WaitUntil(() => finished || _cancelled);
 
-            // Keep SuppressIndividualDialogs until the in-flight OBJ finishes,
+            // Keep SuppressIndividualDialogs until the in-flight 3D export finishes,
             // otherwise a late success dialog can pop after "Export cancelled".
             if (_cancelled && !finished)
                 yield return new WaitUntil(() => finished);
@@ -226,8 +234,10 @@ public class ExportOrchestrator : MonoBehaviour
             if (succeeded)
             {
                 _completedSteps.Add(activeRequestScopeIsSelection()
-                    ? "Selected 3D model (OBJ)"
-                    : "Room 3D model (OBJ)");
+                    ? "Selected 3D model (GLB)"
+                    : "Room 3D model (GLB)");
+                if (!string.IsNullOrWhiteSpace(outputPath))
+                    _outputPaths.Add(outputPath);
             }
             else
             {
@@ -280,7 +290,10 @@ public class ExportOrchestrator : MonoBehaviour
             if (_cancelled)
                 yield break;
             if (PdfBatchExporter.LastSingleConfigExportOk)
+            {
                 _completedSteps.Add("Elevation sheet for selected boom (PDF)");
+                RememberPdfOutput();
+            }
             else
                 _failedSteps.Add("Elevation sheet (capture produced no images)");
             yield break;
@@ -301,7 +314,10 @@ public class ExportOrchestrator : MonoBehaviour
             if (_cancelled)
                 yield break;
             if (PdfBatchExporter.LastMultipageExportOk)
+            {
                 _completedSteps.Add("Elevation sheets (combined PDF)");
+                RememberPdfOutput();
+            }
             else
                 _failedSteps.Add("Elevation sheets (no pages could be generated)");
         }
@@ -320,10 +336,19 @@ public class ExportOrchestrator : MonoBehaviour
             if (_cancelled)
                 yield break;
             if (PdfBatchExporter.LastPerAssemblyExportOk)
+            {
                 _completedSteps.Add("Elevation sheets (one PDF per boom)");
+                RememberPdfOutput();
+            }
             else
                 _failedSteps.Add("Elevation sheets (no boom PDFs could be generated)");
         }
+    }
+
+    private void RememberPdfOutput()
+    {
+        if (!string.IsNullOrWhiteSpace(PdfBatchExporter.LastExportedPath))
+            _outputPaths.Add(PdfBatchExporter.LastExportedPath);
     }
 
     private static int CountBoomAssemblies() => PdfBatchExporter.CollectBoomAssemblyRoots().Count;
@@ -344,12 +369,14 @@ public class ExportOrchestrator : MonoBehaviour
         bool finished = false;
         bool hadError = false;
         string error = null;
+        string outputPath = null;
 
         generator.GeneratePDFWithCallback((success, path, errorMessage) =>
         {
             finished = true;
             hadError = !success;
             error = errorMessage;
+            outputPath = path;
         });
 
         yield return new WaitUntil(() => finished || _cancelled);
@@ -367,7 +394,11 @@ public class ExportOrchestrator : MonoBehaviour
         if (hadError)
             _failedSteps.Add($"Sales proposal ({error ?? "unknown error"})");
         else
+        {
             _completedSteps.Add("Sales proposal (PDF)");
+            if (!string.IsNullOrWhiteSpace(outputPath))
+                _outputPaths.Add(outputPath);
+        }
     }
 
     private IEnumerator ExportSnapshots()
@@ -384,7 +415,11 @@ public class ExportOrchestrator : MonoBehaviour
             yield break;
 
         if (capture.LastPresentationBatchOk)
+        {
             _completedSteps.Add("Presentation snapshots");
+            if (Directory.Exists(ExportPaths.SnapshotsDir))
+                _outputPaths.Add(ExportPaths.SnapshotsDir);
+        }
         else
             _failedSteps.Add("Snapshots (capture failed — check room walls/setup)");
     }
@@ -392,6 +427,7 @@ public class ExportOrchestrator : MonoBehaviour
     private void ShowCompletionDialog()
     {
         string exportBase = ExportPaths.GetExportBasePath();
+        string revealPath = ResolveRevealPath(exportBase);
 
         if (_failedSteps.Count > 0 && _completedSteps.Count == 0)
         {
@@ -401,11 +437,15 @@ public class ExportOrchestrator : MonoBehaviour
                 new ButtonAction("Open Folder", () =>
                 {
                     UI_DialogPrompt.Close();
-                    ExportFolderUtility.RevealInFileManager(exportBase);
+                    ExportFolderUtility.RevealInFileManager(revealPath);
                 }),
                 new ButtonAction("OK"));
             return;
         }
+
+        string savedLine = File.Exists(revealPath) || Directory.Exists(revealPath)
+            ? revealPath
+            : exportBase;
 
         string summary = _failedSteps.Count > 0
             ? "Export finished with some issues.\n\nCompleted:\n"
@@ -416,16 +456,32 @@ public class ExportOrchestrator : MonoBehaviour
               + (_completedSteps.Count > 0
                   ? string.Join("\n", _completedSteps)
                   : "(No files were exported)")
-              + $"\n\nSaved to:\n{exportBase}";
+              + $"\n\nSaved to:\n{savedLine}";
 
+        string openLabel = File.Exists(revealPath) ? "Show File" : "Open Folder";
         UI_DialogPrompt.Open(
             summary,
-            new ButtonAction("Open Folder", () =>
+            new ButtonAction(openLabel, () =>
             {
                 UI_DialogPrompt.Close();
-                ExportFolderUtility.RevealInFileManager(exportBase);
+                ExportFolderUtility.RevealInFileManager(revealPath);
             }),
             new ButtonAction("Done"));
+    }
+
+    private string ResolveRevealPath(string exportBase)
+    {
+        // Prefer the most recently written concrete file.
+        for (int i = _outputPaths.Count - 1; i >= 0; i--)
+        {
+            string p = _outputPaths[i];
+            if (string.IsNullOrWhiteSpace(p))
+                continue;
+            if (File.Exists(p) || Directory.Exists(p))
+                return p;
+        }
+
+        return exportBase;
     }
 
     private static string SafeAccountName()

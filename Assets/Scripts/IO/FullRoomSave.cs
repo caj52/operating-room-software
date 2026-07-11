@@ -91,6 +91,8 @@ public class FullRoomSave : MonoBehaviour
             return;
         }
 
+        // SetParentFolder normalizes if the user picked a room export subfolder,
+        // so the next write does not nest RoomName/RoomName.
         ExportPaths.SetParentFolder(items[0].Name);
         onComplete?.Invoke(true);
     }

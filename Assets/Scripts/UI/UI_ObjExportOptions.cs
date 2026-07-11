@@ -122,9 +122,9 @@ public class UI_ObjExportOptions : MonoBehaviour
             return;
 
         UI_DialogPrompt.Open(
-            $"3D model (OBJ) saved to:\n{path}",
+            $"3D model (GLB) saved to:\n{path}",
             new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = path),
-            new ButtonAction("Open Folder", () => ExportFolderUtility.RevealInFileManager(path)),
+            new ButtonAction("Show File", () => ExportFolderUtility.RevealInFileManager(path)),
             new ButtonAction("Done"));
     }
 
@@ -154,7 +154,7 @@ public class UI_ObjExportOptions : MonoBehaviour
     }
 
     /// <summary>
-    /// Opens OBJ include toggles so the user can refine what goes into a later orchestrated export.
+    /// Opens 3D include toggles so the user can refine what goes into a later orchestrated export.
     /// Does not export immediately — Apply returns the options to the caller.
     /// </summary>
     public static void OpenForCustomization(Action<ObjExportOptions> onApplied)
@@ -211,7 +211,7 @@ public class UI_ObjExportOptions : MonoBehaviour
             var title = Instance.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true)
                 .FirstOrDefault(t => t.text.Contains("Room 3D Model Contents") || t.text.Contains("OBJ Export"));
             if (title != null)
-                title.text = "OBJ Export Options";
+                title.text = "3D Model Options";
         }
     }
 
@@ -378,7 +378,7 @@ public class UI_ObjExportOptions : MonoBehaviour
                     return options.IncludeWallObjects;
                 }
 
-                Debug.LogWarning($"Could not determine OBJ export category for {x.gameObject.name}");
+                Debug.LogWarning($"Could not determine 3D export category for {x.gameObject.name}");
 
                 return false;
             })
