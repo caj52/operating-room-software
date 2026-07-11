@@ -771,9 +771,10 @@ public class ObjectMenu : MonoBehaviour
 
     private void AddSavedRoomConfigs()
     {
-        if (Directory.Exists(Application.persistentDataPath + "/Saved/Configs/"))
+        string configsFolder = ConfigurationManager.GetSavedConfigsFolder();
+        if (Directory.Exists(configsFolder))
         {
-            string[] files = Directory.GetFiles(Application.persistentDataPath + "/Saved/Configs/");
+            string[] files = Directory.GetFiles(configsFolder);
             foreach (string f in files.Where(x => x.EndsWith(".json")))
             {
                 AddCustomMenuItem(f);
@@ -785,9 +786,28 @@ public class ObjectMenu : MonoBehaviour
 
     public void AddCustomMenuItem(string f)
     {
-        ItemTemplate.SetActive(true);
-        string configName = Path.GetFileName(f).Replace(".json", "").Replace("_", " ");
+        if (string.IsNullOrWhiteSpace(f) || ItemTemplate == null)
+            return;
 
+        // Avoid duplicate entries when overwriting an existing config.
+        string configName = Path.GetFileName(f).Replace(".json", "").Replace("_", " ");
+        for (int i = 0; i < ObjectMenuItems.Count; i++)
+        {
+            var existing = ObjectMenuItems[i];
+            if (existing == null)
+                continue;
+            if (!string.IsNullOrEmpty(existing.CustomFile)
+                && Path.GetFullPath(existing.CustomFile).Equals(Path.GetFullPath(f), StringComparison.OrdinalIgnoreCase))
+                return;
+            if (existing.GameObject != null)
+            {
+                var label = existing.GameObject.GetComponentInChildren<TMP_Text>(true);
+                if (label != null && label.text == configName && !string.IsNullOrEmpty(existing.CustomFile))
+                    return;
+            }
+        }
+
+        ItemTemplate.SetActive(true);
         ItemTemplateTextObjectName.text = configName;
         GameObject newMenuItem = Instantiate(ItemTemplate, ItemTemplate.transform.parent);
         newMenuItem.GetComponentInChildren<Button>().onClick.AddListener(async () =>
@@ -803,7 +823,6 @@ public class ObjectMenu : MonoBehaviour
             Selectable selectable = newSelectable.GetComponent<Selectable>();
             selectable.StartRaycastPlacementMode();
         });
-
 
         ObjectMenuItems.Add(new ObjectMenuItem { GameObject = newMenuItem, CustomFile = f });
         ItemTemplate.SetActive(false);

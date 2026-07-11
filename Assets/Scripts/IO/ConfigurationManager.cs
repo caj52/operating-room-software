@@ -22,6 +22,12 @@ public class ConfigurationManager : MonoBehaviour
     public static string GetCurrentRoomSaveName()
         => Instance != null ? Instance.CurrentRoomSaveName : null;
 
+    public static string GetSavedRoomsFolder()
+        => Path.Combine(Application.persistentDataPath, "Saved");
+
+    public static string GetSavedConfigsFolder()
+        => Path.Combine(Application.persistentDataPath, "Saved", "Configs");
+
     public static UnityEvent OnRoomLoadComplete { get; } = new();
     public static UnityEvent<GameObject> OnConfigurationLoadComplete { get; } = new();
 
@@ -183,6 +189,25 @@ public class ConfigurationManager : MonoBehaviour
 
     public void SaveConfiguration(string title)
     {
+        string folder = GetSavedConfigsFolder();
+        if (!Directory.Exists(folder))
+            Directory.CreateDirectory(folder);
+
+        string fileName = ReplaceInvalidChars(title.Replace(" ", "_"));
+        if (!fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+            fileName += ".json";
+
+        SaveConfigurationToPath(Path.Combine(folder, fileName));
+    }
+
+    /// <summary>Saves the selected assembly configuration to an explicit path (OS save dialog).</summary>
+    public void SaveConfigurationToPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+        if (Selectable.SelectedSelectables == null || Selectable.SelectedSelectables.Count == 0)
+            throw new InvalidOperationException("Nothing selected to save as a configuration.");
+
         CreateTracker();
         TrackedObject[] foundObjects = Selectable.SelectedSelectables[0]
             .transform.root.GetComponentsInChildren<TrackedObject>();
@@ -201,20 +226,19 @@ public class ConfigurationManager : MonoBehaviour
             ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
             Formatting = Formatting.Indented
         });
-        string folder = Application.persistentDataPath + $"/Saved/Configs/";
-        string configName = title.Replace(" ", "_") + ".json";
-        configName = ReplaceInvalidChars(configName);
 
-        if (!Directory.Exists(folder))
+        string folder = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(folder) && !Directory.Exists(folder))
             Directory.CreateDirectory(folder);
 
-        string path = Path.Combine(folder, configName);
-        if (File.Exists(path)) File.Delete(path);
+        if (File.Exists(path))
+            File.Delete(path);
 
         File.WriteAllText(path, json);
         Debug.Log($"Saved Config: {path}");
 
-        ObjectMenu.Instance.AddCustomMenuItem(path);
+        ObjectMenu.Instance?.AddCustomMenuItem(path);
+
         foreach (TrackedObject obj in foundObjects)
         {
             if (obj.TryGetComponent(out Selectable selectable))
@@ -237,8 +261,26 @@ public class ConfigurationManager : MonoBehaviour
 
 
 
-    public async void SaveRoom(string title)
+    public async void SaveRoom(string title, bool showSuccessDialog = true)
     {
+        string folder = GetSavedRoomsFolder();
+        if (!Directory.Exists(folder))
+            Directory.CreateDirectory(folder);
+
+        string fileName = ReplaceInvalidChars(title.Replace(" ", "_"));
+        if (!fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+            fileName += ".json";
+
+        SaveRoomToPath(Path.Combine(folder, fileName), showSuccessDialog);
+    }
+
+    /// <summary>Saves the room JSON to an explicit path (from the OS save dialog).</summary>
+    public async void SaveRoomToPath(string path, bool showSuccessDialog = true)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+
+        string title = Path.GetFileNameWithoutExtension(path).Replace("_", " ");
         CurrentRoomSaveName = title;
         CreateTracker();
         NewRoomSave();
@@ -292,15 +334,13 @@ public class ConfigurationManager : MonoBehaviour
             ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
             Formatting = Formatting.Indented,
         });
-        string folder = Application.persistentDataPath + $"/Saved/";
-        string configName = title.Replace(" ", "_") + ".json";
-        configName = ReplaceInvalidChars(configName);
 
-        if (!Directory.Exists(folder))
+        string folder = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(folder) && !Directory.Exists(folder))
             Directory.CreateDirectory(folder);
 
-        string path = Path.Combine(folder, configName);
-        if (File.Exists(path)) File.Delete(path);
+        if (File.Exists(path))
+            File.Delete(path);
 
         File.WriteAllText(path, json);
         Debug.Log($"Saved Room: {path}");
@@ -308,7 +348,12 @@ public class ConfigurationManager : MonoBehaviour
         await Task.Delay(1000);
         token.SetProgress(1);
 
-        RoomConfigLoader.Instance.GenerateRoomItem(path);
+        // Only list saves that live in the app's Saved folder.
+        string savedRoot = Path.GetFullPath(GetSavedRoomsFolder())
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string fullPath = Path.GetFullPath(path);
+        if (fullPath.StartsWith(savedRoot, StringComparison.OrdinalIgnoreCase))
+            RoomConfigLoader.Instance?.RefreshOrAddRoomItem(path);
 
         foreach (TrackedObject obj in foundObjects)
         {
@@ -316,10 +361,13 @@ public class ConfigurationManager : MonoBehaviour
                 attachmentPoint.SetToProperParent();
         }
 
-        UI_DialogPrompt.Open(
-          $"Success! Room saved to {folder}",
-          new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = folder),
-          new ButtonAction("Done"));
+        if (showSuccessDialog)
+        {
+            UI_DialogPrompt.Open(
+              $"Room saved to:\n{path}",
+              new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = path),
+              new ButtonAction("Done"));
+        }
     }
 
     public async Task<GameObject> LoadArmAssembly(string file)

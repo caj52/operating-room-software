@@ -14,10 +14,11 @@ public class RoomConfigLoader : MonoBehaviour
     void Awake()
     {
         Instance = this;
-        Debug.LogError(Application.persistentDataPath + "/Saved/");
-        if (Directory.Exists(Application.persistentDataPath + "/Saved/"))
+        Debug.Log(ConfigurationManager.GetSavedRoomsFolder());
+        string savedFolder = ConfigurationManager.GetSavedRoomsFolder();
+        if (Directory.Exists(savedFolder))
         {
-            string[] files = Directory.GetFiles(Application.persistentDataPath + "/Saved/");
+            string[] files = Directory.GetFiles(savedFolder);
             foreach (string f in files.Where(x => x.EndsWith(".json")))
             {
                 GenerateRoomItem(f);
@@ -29,19 +30,35 @@ public class RoomConfigLoader : MonoBehaviour
 
     public void GenerateRoomItem(string f)
     {
-      
-        GameObject go = Instantiate(filePrefab, Vector3.zero, Quaternion.identity);
+        RefreshOrAddRoomItem(f);
+    }
 
+    /// <summary>Adds a load-list entry, or no-ops if that room name is already listed.</summary>
+    public void RefreshOrAddRoomItem(string f)
+    {
+        if (contentView == null || filePrefab == null || string.IsNullOrWhiteSpace(f))
+            return;
+
+        string display = Path.GetFileName(f)
+            .Replace(".json", "")
+            .Replace("_", " ");
+
+        foreach (Transform child in contentView)
+        {
+            var label = child.GetComponentInChildren<TMP_Text>(true);
+            if (label != null && label.text == display)
+                return;
+        }
+
+        GameObject go = Instantiate(filePrefab, Vector3.zero, Quaternion.identity);
         go.transform.SetParent(contentView);
-        go.GetComponentInChildren<TMP_Text>().text = Path.GetFileName(f)
-                                                    .Replace(".json", "")
-                                                    .Replace("_", " ");
+        go.GetComponentInChildren<TMP_Text>().text = display;
         go.GetComponent<Button>().onClick.AddListener(() =>
         {
             ConfigurationManager.Instance.LoadRoom(f);
             Instance.gameObject.SetActive(false);
             transform.root.gameObject.SetActive(false);
         });
-        go.transform.localScale = new Vector3(1,1,1);
+        go.transform.localScale = new Vector3(1, 1, 1);
     }
 }

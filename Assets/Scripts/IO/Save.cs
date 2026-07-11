@@ -1,34 +1,47 @@
+using System;
 using System.Collections;
-using System.Collections.Generic;
 using System.IO;
+using TMPro;
+using TriLibCore.SFB;
 using UnityEngine;
 using UnityEngine.UI;
-using TMPro;
 
+/// <summary>
+/// Save button: whole room when nothing is selected, selected boom/assembly
+/// configuration when something is selected. Both use the OS save dialog.
+/// </summary>
 public class Save : MonoBehaviour
 {
     private static Save Instance { get; set; }
 
-    [Header("Constant UI")]
+    [Header("Legacy UI (unused — kept for scene references)")]
     public GameObject savePanel;
     public Button b_Save;
     public Button b_Confirm;
     public Button[] b_Cancel;
     public TMP_InputField fileName;
-
-    [Header("Dynamic UI")]
     public TMP_Text header;
 
-    private string currentSaveMode = ""; // "room" or "configuration"
+    private bool _wired;
+    private bool _picking;
+    private bool _savingConfig;
+    private UI_HoverTooltip _saveTooltip;
 
     private void Awake()
     {
         Instance = this;
     }
 
+    private void Start()
+    {
+        WireUi();
+        if (savePanel != null)
+            savePanel.SetActive(false);
+    }
+
     private void OnDestroy()
     {
-
+        Selectable.SelectionChanged -= UpdateSaveButtonChrome;
     }
 
     public static void Close()
@@ -37,10 +50,10 @@ public class Save : MonoBehaviour
             Instance.savePanel.SetActive(false);
     }
 
-    /// <summary>Opens the Save Room name panel (used when export needs a room save name).</summary>
+    /// <summary>Opens the OS save dialog so the room gets a save name (e.g. before export).</summary>
     public static void OpenSaveRoomPrompt()
     {
-        if (Instance == null || Instance.savePanel == null)
+        if (Instance == null)
         {
             UI_DialogPrompt.Open(
                 "Save UI is missing from the scene.\nSave the room from the toolbar, then export again.",
@@ -48,179 +61,219 @@ public class Save : MonoBehaviour
             return;
         }
 
-        Instance.header.text = "Save Room";
-        Instance.header.color = Color.white;
-        Instance.currentSaveMode = "room";
-        if (Instance.fileName != null)
-            Instance.fileName.text = "";
-
-        if (FreeLookCam.Instance != null)
-            FreeLookCam.Instance.isLocked = true;
-
-        Instance.savePanel.SetActive(true);
+        Instance.BeginSaveRoom();
     }
 
-    void Start()
+    private void WireUi()
     {
-        var loadingScreen = FindObjectOfType<UI_LoadingScreensSwitcher>(true);
-        if (loadingScreen != null)
+        if (_wired)
+            return;
+        _wired = true;
+
+        if (b_Save != null)
         {
-            if (loadingScreen.itemLoadingScreen != null)
-                loadingScreen.itemLoadingScreen.SetActive(true);
-            if (loadingScreen.mainLoadingScreen != null)
-                loadingScreen.mainLoadingScreen.SetActive(false);
+            b_Save.onClick.RemoveAllListeners();
+            b_Save.onClick.AddListener(OnToolbarSaveClicked);
+            _saveTooltip = b_Save.GetComponent<UI_HoverTooltip>()
+                           ?? b_Save.gameObject.AddComponent<UI_HoverTooltip>();
         }
 
-        b_Save.onClick.AddListener(() =>
+        if (b_Confirm != null)
+            b_Confirm.onClick.RemoveAllListeners();
+        if (b_Cancel != null)
         {
-                if (Selectable.SelectedSelectables.Count == 0)
-                {
-                    header.text = "Save Room";
-                    currentSaveMode = "room";
-                }
-                else
-                {
-                    header.text = "Save Configuration";
-                    currentSaveMode = "configuration";
-                }
-
-                FreeLookCam.Instance.isLocked = true;
-                savePanel.SetActive(true);
-        });
-
-        b_Confirm.onClick.AddListener(() =>
-        {
-            if (string.IsNullOrWhiteSpace(fileName.text))
+            foreach (var b in b_Cancel)
             {
-                header.text = "Please enter a name";
-                header.color = Color.red;
-                return;
+                if (b != null)
+                    b.onClick.RemoveAllListeners();
             }
-            
-            string sanitizedName = fileName.text.Replace(" ", "_");
-            
-            if (currentSaveMode == "room")
-            {
-                CheckAndSaveRoom(sanitizedName);
-            }
-            else
-            {
-                CheckAndSaveConfiguration(sanitizedName);
-            }
-        });
-
-        foreach (Button b in b_Cancel)
-        {
-            b.onClick.AddListener(() =>
-            {
-                savePanel.SetActive(false);
-                FreeLookCam.Instance.isLocked = false;
-            });
         }
 
-        savePanel.SetActive(false);
+        Selectable.SelectionChanged += UpdateSaveButtonChrome;
+        UpdateSaveButtonChrome();
     }
-    
-    private void CheckAndSaveRoom(string name)
+
+    private void UpdateSaveButtonChrome()
     {
-        string folder = Application.persistentDataPath + $"/Saved/";
-        string configName = ConfigurationManager.Instance.ReplaceInvalidChars(name) + ".json";
-        string path = Path.Combine(folder, configName);
-        
-        if (File.Exists(path))
-        {
-            // Hide save panel before showing the dialog
-            savePanel.SetActive(false);
-            PromptOverwrite(name, true);
-        }
+        bool hasSelection = ExportRequest.HasSelection();
+        string tip = hasSelection ? "Save configuration" : "Save room";
+
+        if (_saveTooltip != null)
+            _saveTooltip.SetText(tip);
+
+        if (b_Save == null)
+            return;
+
+        var label = b_Save.GetComponentInChildren<TMP_Text>(true);
+        if (label != null && !string.IsNullOrWhiteSpace(label.text))
+            label.text = hasSelection ? "Save configuration…" : "Save room…";
+    }
+
+    private void OnToolbarSaveClicked()
+    {
+        if (ExportRequest.HasSelection())
+            BeginSaveConfiguration();
         else
-        {
-            CompleteSaveRoom(name);
-        }
+            BeginSaveRoom();
     }
-    
-    private void CheckAndSaveConfiguration(string name)
-    {
-        string folder = Application.persistentDataPath + $"/Saved/Configs/";
-        string configName = ConfigurationManager.Instance.ReplaceInvalidChars(name) + ".json";
-        string path = Path.Combine(folder, configName);
-        
-        if (File.Exists(path))
-        {
-            // Hide save panel before showing the dialog
-            savePanel.SetActive(false);
-            PromptOverwrite(name, false);
-        }
-        else
-        {
-            CompleteSaveConfiguration(name);
-        }
-    }
-    
-    private void PromptOverwrite(string name, bool isRoom)
-    {
-        UI_DialogPrompt.Open(
-            $"A {(isRoom ? "room" : "configuration")} named '{name}' already exists.",
-            new ButtonAction("Overwrite", () => {
-                // Explicitly close the dialog prompt
-                UI_DialogPrompt.Close();
-                
-                // Make sure the save panel is closed
-                savePanel.SetActive(false);
-                FreeLookCam.Instance.isLocked = false;
-                
-                if (isRoom)
-                    CompleteSaveRoom(name);
-                else
-                    CompleteSaveConfiguration(name);
-            }),
-            new ButtonAction("Rename", () => {
-                // Explicitly close the dialog prompt
-                UI_DialogPrompt.Close();
-                
-                // Re-show the save panel to allow renaming
-                savePanel.SetActive(true);
-                FreeLookCam.Instance.isLocked = true;
-            }));
-    }
-    
-    private void CompleteSaveRoom(string name)
-    {
-        // Hide the save panel first
-        savePanel.SetActive(false);
-        FreeLookCam.Instance.isLocked = false;
-        fileName.text = "";
-        
-        // Call our internal save method that will suppress the ConfigurationManager's dialog
-        StartCoroutine(SaveRoomAndShowDialog(name));
-    }
-    
-    private IEnumerator SaveRoomAndShowDialog(string name)
-    {
-        // Save the room using ConfigurationManager
-        ConfigurationManager.Instance.SaveRoom(name);
-        
-        // Wait a small amount of time to let ConfigurationManager's dialog appear
-        yield return new WaitForSeconds(0.1f);
-        
 
-    }
-    
-    private void CompleteSaveConfiguration(string name)
+    private void BeginSaveRoom()
     {
-        // Save the configuration
-        ConfigurationManager.Instance.SaveConfiguration(name);
-        
-        // Show a clearer success message
-        string folder = Application.persistentDataPath + $"/Saved/Configs/";
+        BeginOsSave(
+            title: "Save Room",
+            folder: ConfigurationManager.GetSavedRoomsFolder(),
+            defaultName: GetDefaultRoomFileName(),
+            savingConfig: false);
+    }
+
+    private void BeginSaveConfiguration()
+    {
+        if (!ExportRequest.HasSelection())
+        {
+            BeginSaveRoom();
+            return;
+        }
+
+        BeginOsSave(
+            title: "Save Configuration",
+            folder: ConfigurationManager.GetSavedConfigsFolder(),
+            defaultName: GetDefaultConfigFileName(),
+            savingConfig: true);
+    }
+
+    private void BeginOsSave(string title, string folder, string defaultName, bool savingConfig)
+    {
+        if (_picking)
+            return;
+
+        try
+        {
+            if (!Directory.Exists(folder))
+                Directory.CreateDirectory(folder);
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Could not create saves folder: {e}");
+            UI_DialogPrompt.Open(
+                "Could not create the saves folder.",
+                new ButtonAction("OK"));
+            return;
+        }
+
+        _savingConfig = savingConfig;
+        _picking = true;
+        try
+        {
+            StandaloneFileBrowser.SaveFilePanelAsync(
+                title,
+                folder,
+                defaultName,
+                new[] { new ExtensionFilter(savingConfig ? "Configuration" : "Room Save", "json") },
+                OnSavePathPicked);
+        }
+        catch (Exception e)
+        {
+            _picking = false;
+            Debug.LogError($"Failed to open save dialog: {e}");
+            UI_DialogPrompt.Open(
+                "Could not open the system save dialog.",
+                new ButtonAction("OK"));
+        }
+    }
+
+    private static string GetDefaultRoomFileName()
+    {
+        if (!ExportPaths.HasSavedRoomName())
+            return "Untitled_Room";
+
+        string name = ConfigurationManager.GetCurrentRoomSaveName().Replace(' ', '_');
+        if (ConfigurationManager.Instance != null)
+            name = ConfigurationManager.Instance.ReplaceInvalidChars(name);
+        return name;
+    }
+
+    private static string GetDefaultConfigFileName()
+    {
+        if (!ExportRequest.HasSelection())
+            return "Configuration";
+
+        return ExportPaths.GetSelectableExportName(
+            Selectable.SelectedSelectables[0], "Configuration");
+    }
+
+    private void OnSavePathPicked(ItemWithStream item)
+    {
+        _picking = false;
+
+        if (item == null || string.IsNullOrWhiteSpace(item.Name))
+            return;
+
+        string path = item.Name.Trim();
+        if (!path.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+            path += ".json";
+
+        if (_savingConfig)
+            SaveConfigurationToPath(path);
+        else
+            StartCoroutine(SaveRoomToPathCoroutine(path));
+    }
+
+    private IEnumerator SaveRoomToPathCoroutine(string path)
+    {
+        if (ConfigurationManager.Instance == null)
+        {
+            UI_DialogPrompt.Open("Save system is unavailable.", new ButtonAction("OK"));
+            yield break;
+        }
+
+        ConfigurationManager.Instance.SaveRoomToPath(path, showSuccessDialog: false);
+
+        float timeout = 12f;
+        float elapsed = 0f;
+        while (elapsed < timeout)
+        {
+            if (File.Exists(path) && !Loading.LoadingActive)
+                break;
+            elapsed += Time.unscaledDeltaTime;
+            yield return null;
+        }
+
+        string nice = Path.GetFileNameWithoutExtension(path).Replace('_', ' ');
         UI_DialogPrompt.Open(
-            $"Configuration '{name}' saved successfully!",
-            new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = folder),
+            $"Room “{nice}” saved.",
             new ButtonAction("Done"));
-        
-        // Clear input field
-        fileName.text = "";
-        FreeLookCam.Instance.isLocked = false;
-        savePanel.SetActive(false);
+    }
+
+    private void SaveConfigurationToPath(string path)
+    {
+        if (ConfigurationManager.Instance == null)
+        {
+            UI_DialogPrompt.Open("Save system is unavailable.", new ButtonAction("OK"));
+            return;
+        }
+
+        if (!ExportRequest.HasSelection())
+        {
+            UI_DialogPrompt.Open(
+                "Select a boom or object first to save a configuration.",
+                new ButtonAction("OK"));
+            return;
+        }
+
+        try
+        {
+            ConfigurationManager.Instance.SaveConfigurationToPath(path);
+            string nice = Path.GetFileNameWithoutExtension(path).Replace('_', ' ');
+            UI_DialogPrompt.Open(
+                $"Configuration “{nice}” saved.\nIt will appear in the object menu.",
+                new ButtonAction("Done"));
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Failed to save configuration: {e}");
+            UI_DialogPrompt.Open(
+                "Could not save the configuration.\nCheck the console for details.",
+                new ButtonAction("OK"));
+        }
     }
 }

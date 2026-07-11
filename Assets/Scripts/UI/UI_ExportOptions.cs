@@ -171,9 +171,9 @@ public class UI_ExportOptions : MonoBehaviour
 
         _perAssemblyRow = _togglePerAssembly.gameObject;
         HideNestedSeparators(_togglePerAssembly.transform);
-        EnsurePreferredHeight(_perAssemblyRow, 26f);
-        SetToggleLabel(_togglePerAssembly, "One PDF per boom (instead of one combined PDF)");
+        SetToggleLabel(_togglePerAssembly, "One PDF per boom");
         _togglePerAssembly.isOn = false;
+        EnsurePreferredHeight(_perAssemblyRow, 22f);
 
         if (_titleLabel != null)
         {
@@ -232,7 +232,7 @@ public class UI_ExportOptions : MonoBehaviour
             var template = _buttonCancel ?? _buttonExportTemplate;
             if (template != null)
             {
-                _buttonChooseFolder = CloneActionButton(template, "Button_ChooseExportFolder", "Choose export folder…");
+                _buttonChooseFolder = CloneActionButton(template, "Button_ChooseExportFolder", "Change folder…");
                 _buttonChooseFolder.onClick = new Button.ButtonClickedEvent();
                 _buttonChooseFolder.onClick.AddListener(() =>
                 {
@@ -244,6 +244,7 @@ public class UI_ExportOptions : MonoBehaviour
                         Reopen();
                     });
                 });
+                StyleQuietButton(_buttonChooseFolder, 30f, -1f);
             }
         }
     }
@@ -254,22 +255,22 @@ public class UI_ExportOptions : MonoBehaviour
             return;
 
         _rowObj = CreateDeliverableRow(
-            "3D model (OBJ / MTL)",
+            "3D model",
             () => RunRoomExport(includeObj: true),
             includeCustomize: true);
 
         _rowElevations = CreateDeliverableRow(
-            "Elevation sheets (PDF)",
+            "Elevations",
             () => RunRoomExport(includeElevations: true),
             includeCustomize: false);
 
         _rowProposal = CreateDeliverableRow(
-            "Sales proposal (PDF)",
+            "Sales proposal",
             () => RunRoomExport(includeProposal: true),
             includeCustomize: false);
 
         _rowSnapshots = CreateDeliverableRow(
-            "Presentation snapshots (PNG)",
+            "Snapshots",
             () => RunRoomExport(includeSnapshots: true),
             includeCustomize: false);
     }
@@ -285,8 +286,8 @@ public class UI_ExportOptions : MonoBehaviour
         row.transform.SetParent(_innerBox, false);
 
         var h = row.GetComponent<HorizontalLayoutGroup>();
-        h.padding = new RectOffset(0, 0, 0, 0);
-        h.spacing = 8;
+        h.padding = new RectOffset(4, 4, 0, 0);
+        h.spacing = 6;
         h.childAlignment = TextAnchor.MiddleLeft;
         h.childControlWidth = true;
         h.childControlHeight = true;
@@ -294,61 +295,36 @@ public class UI_ExportOptions : MonoBehaviour
         h.childForceExpandHeight = false;
 
         var rowLe = row.GetComponent<LayoutElement>();
-        rowLe.minHeight = includeCustomize ? 72f : 40f;
-        rowLe.preferredHeight = includeCustomize ? 72f : 40f;
+        rowLe.minHeight = 36f;
+        rowLe.preferredHeight = 36f;
         rowLe.flexibleWidth = 1f;
-
-        // Left column: title (+ optional customize under it)
-        var left = new GameObject("LabelCol", typeof(RectTransform), typeof(VerticalLayoutGroup), typeof(LayoutElement));
-        left.layer = gameObject.layer;
-        left.transform.SetParent(row.transform, false);
-
-        var v = left.GetComponent<VerticalLayoutGroup>();
-        v.spacing = 2;
-        v.childAlignment = TextAnchor.MiddleLeft;
-        v.childControlWidth = true;
-        v.childControlHeight = true;
-        v.childForceExpandWidth = true;
-        v.childForceExpandHeight = false;
-
-        var leftLe = left.GetComponent<LayoutElement>();
-        leftLe.flexibleWidth = 1f;
-        leftLe.minWidth = 180f;
 
         var labelGo = new GameObject("Label", typeof(RectTransform), typeof(TextMeshProUGUI), typeof(LayoutElement));
         labelGo.layer = gameObject.layer;
-        labelGo.transform.SetParent(left.transform, false);
+        labelGo.transform.SetParent(row.transform, false);
         var label = labelGo.GetComponent<TextMeshProUGUI>();
-        if (_titleLabel != null)
+        if (_titleLabel is TextMeshProUGUI titleTmp)
         {
-            label.font = (_titleLabel as TextMeshProUGUI)?.font ?? label.font;
-            label.fontSharedMaterial = (_titleLabel as TextMeshProUGUI)?.fontSharedMaterial ?? label.fontSharedMaterial;
+            label.font = titleTmp.font;
+            label.fontSharedMaterial = titleTmp.fontSharedMaterial;
         }
         label.text = labelText;
         label.fontSize = 15;
-        label.color = new Color(0.15f, 0.15f, 0.15f, 1f);
+        label.color = new Color(0.18f, 0.18f, 0.18f, 1f);
         label.alignment = TextAlignmentOptions.MidlineLeft;
         label.enableWordWrapping = false;
         label.overflowMode = TextOverflowModes.Ellipsis;
         var labelLe = labelGo.GetComponent<LayoutElement>();
-        labelLe.preferredHeight = 28f;
+        labelLe.preferredHeight = 32f;
         labelLe.flexibleWidth = 1f;
+        labelLe.minWidth = 120f;
 
         if (includeCustomize)
         {
-            var customizeBtn = CloneActionButton(_buttonCancel, "Button_CustomizeObjInline", "Customize contents…");
-            customizeBtn.transform.SetParent(left.transform, false);
+            var customizeBtn = CloneActionButton(_buttonCancel, "Button_CustomizeObjInline", "Options");
+            customizeBtn.transform.SetParent(row.transform, false);
             customizeBtn.gameObject.SetActive(true);
-            StyleActionButton(customizeBtn, 28f);
-            var cLabel = customizeBtn.GetComponentInChildren<TextMeshProUGUI>(true);
-            if (cLabel != null)
-            {
-                cLabel.fontSize = 13;
-                cLabel.color = new Color(0.25f, 0.35f, 0.55f, 1f);
-            }
-            var cLe = customizeBtn.GetComponent<LayoutElement>() ?? customizeBtn.gameObject.AddComponent<LayoutElement>();
-            cLe.preferredHeight = 28f;
-            cLe.flexibleWidth = 1f;
+            StyleQuietButton(customizeBtn, 30f, 72f);
             customizeBtn.onClick = new Button.ButtonClickedEvent();
             customizeBtn.onClick.AddListener(OpenCustomizeObj);
             _buttonCustomizeObj = customizeBtn;
@@ -357,11 +333,11 @@ public class UI_ExportOptions : MonoBehaviour
         var exportBtn = CloneActionButton(_buttonCancel, "Button_ExportDeliverable", "Export");
         exportBtn.transform.SetParent(row.transform, false);
         exportBtn.gameObject.SetActive(true);
-        StyleActionButton(exportBtn, 36f);
+        StyleActionButton(exportBtn, 32f);
         var eLe = exportBtn.GetComponent<LayoutElement>() ?? exportBtn.gameObject.AddComponent<LayoutElement>();
-        eLe.preferredWidth = 96f;
-        eLe.minWidth = 96f;
-        eLe.preferredHeight = 36f;
+        eLe.preferredWidth = 88f;
+        eLe.minWidth = 88f;
+        eLe.preferredHeight = 32f;
         eLe.flexibleWidth = 0f;
         exportBtn.onClick = new Button.ButtonClickedEvent();
         exportBtn.onClick.AddListener(() => onExport?.Invoke());
@@ -429,8 +405,8 @@ public class UI_ExportOptions : MonoBehaviour
             _layout = _innerBox.gameObject.AddComponent<VerticalLayoutGroup>();
 
         _layout.enabled = true;
-        _layout.padding = new RectOffset(22, 22, 16, 16);
-        _layout.spacing = 8;
+        _layout.padding = new RectOffset(24, 24, 18, 18);
+        _layout.spacing = 6;
         _layout.childAlignment = TextAnchor.UpperCenter;
         _layout.childControlWidth = true;
         _layout.childControlHeight = true;
@@ -441,8 +417,8 @@ public class UI_ExportOptions : MonoBehaviour
         if (fitter != null)
             fitter.enabled = false;
 
-        _innerBox.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, 520f);
-        _innerBox.localScale = Vector3.one * 1.35f;
+        _innerBox.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, 440f);
+        _innerBox.localScale = Vector3.one * 1.2f;
     }
 
     private TMP_Text CreateInfoLabel(TMP_Text styleSource)
@@ -454,16 +430,16 @@ public class UI_ExportOptions : MonoBehaviour
         var text = go.GetComponent<TextMeshProUGUI>();
         text.font = styleSource.font;
         text.fontSharedMaterial = styleSource.fontSharedMaterial;
-        text.fontSize = 14;
-        text.color = new Color(0.2f, 0.2f, 0.2f, 1f);
+        text.fontSize = 12;
+        text.color = new Color(0.35f, 0.35f, 0.35f, 1f);
         text.alignment = TextAlignmentOptions.Center;
         text.enableWordWrapping = true;
-        text.overflowMode = TextOverflowModes.Truncate;
-        text.lineSpacing = -10f;
+        text.overflowMode = TextOverflowModes.Ellipsis;
+        text.lineSpacing = -20f;
 
         var le = go.GetComponent<LayoutElement>();
-        le.minHeight = 40f;
-        le.preferredHeight = 52f;
+        le.minHeight = 18f;
+        le.preferredHeight = 22f;
         le.flexibleWidth = 1f;
 
         return text;
@@ -488,10 +464,42 @@ public class UI_ExportOptions : MonoBehaviour
         var label = button.GetComponentInChildren<TextMeshProUGUI>(true);
         if (label != null)
         {
-            label.fontSize = 16;
+            label.fontSize = 15;
             label.enableAutoSizing = false;
             label.enableWordWrapping = false;
             label.overflowMode = TextOverflowModes.Ellipsis;
+        }
+    }
+
+    private static void StyleQuietButton(Button button, float height, float width)
+    {
+        if (button == null)
+            return;
+
+        StyleActionButton(button, height);
+        var img = button.GetComponent<Image>();
+        if (img != null)
+            img.color = new Color(1f, 1f, 1f, 0.15f);
+
+        var label = button.GetComponentInChildren<TextMeshProUGUI>(true);
+        if (label != null)
+        {
+            label.fontSize = 13;
+            label.color = new Color(0.3f, 0.35f, 0.45f, 1f);
+        }
+
+        var le = button.GetComponent<LayoutElement>() ?? button.gameObject.AddComponent<LayoutElement>();
+        le.preferredHeight = height;
+        le.minHeight = height;
+        if (width > 0f)
+        {
+            le.preferredWidth = width;
+            le.minWidth = width;
+            le.flexibleWidth = 0f;
+        }
+        else
+        {
+            le.flexibleWidth = 1f;
         }
     }
 
@@ -585,22 +593,21 @@ public class UI_ExportOptions : MonoBehaviour
             return;
 
         string path = ShortenPath(ExportPaths.GetExportBasePath());
-        string folderLine = ExportPaths.HasCustomParentFolder()
-            ? $"Save under (custom):\n{path}"
-            : $"Save under:\n{path}";
+        if (objectMode)
+        {
+            _infoLabel.text = path;
+        }
+        else
+        {
+            _infoLabel.text = _objOptionsCustomized
+                ? path + "  ·  3D options customized"
+                : path;
+        }
 
-        string hint = objectMode
-            ? "Choose where the selected object's 3D model is saved,\nthen use Export object 3D model on the toolbar."
-            : (_objOptionsCustomized
-                ? "Export each deliverable below. Custom 3D contents are on."
-                : "Export each deliverable below.");
-
-        _infoLabel.text = folderLine + "\n\n" + hint;
         _infoLabel.ForceMeshUpdate();
-        float needed = Mathf.Clamp(_infoLabel.preferredHeight + 4f, 44f, 88f);
         var le = _infoLabel.GetComponent<LayoutElement>();
         if (le != null)
-            le.preferredHeight = needed;
+            le.preferredHeight = Mathf.Clamp(_infoLabel.preferredHeight + 2f, 18f, 36f);
     }
 
     private void RebuildLayout()
@@ -622,12 +629,12 @@ public class UI_ExportOptions : MonoBehaviour
 
         Add(_titleLabel);
         Add(_infoLabel);
+        Add(_buttonChooseFolder);
         AddGo(_rowObj);
         AddGo(_rowElevations);
         AddGo(_perAssemblyRow);
         AddGo(_rowProposal);
         AddGo(_rowSnapshots);
-        Add(_buttonChooseFolder);
         Add(_buttonCancel);
 
         for (int i = 0; i < order.Count; i++)
@@ -657,9 +664,9 @@ public class UI_ExportOptions : MonoBehaviour
             contentHeight = LayoutUtility.GetPreferredHeight(_innerBox);
         }
 
-        _innerBox.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, 520f);
-        _innerBox.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, Mathf.Max(contentHeight, 120f));
-        _innerBox.localScale = Vector3.one * 1.35f;
+        _innerBox.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, 440f);
+        _innerBox.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, Mathf.Max(contentHeight, 100f));
+        _innerBox.localScale = Vector3.one * 1.2f;
         LayoutRebuilder.ForceRebuildLayoutImmediate(_innerBox);
     }
 
@@ -734,7 +741,8 @@ public class UI_ExportOptions : MonoBehaviour
             return;
 
         label.text = text;
-        label.fontSize = 14;
+        label.fontSize = 12;
+        label.color = new Color(0.4f, 0.4f, 0.4f, 1f);
         label.enableAutoSizing = false;
         label.enableWordWrapping = false;
         label.overflowMode = TextOverflowModes.Ellipsis;
