@@ -5,8 +5,7 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Room exports hub: one Export action per deliverable.
-/// Object mode is folder settings only.
+/// Exports hub: Room exports… (per deliverable) or Object exports… (3D model + folder).
 /// </summary>
 [RequireComponent(typeof(FullScreenMenu))]
 public class UI_ExportOptions : MonoBehaviour
@@ -85,15 +84,6 @@ public class UI_ExportOptions : MonoBehaviour
             Instance._showFolderChangedBanner = false;
             Instance.gameObject.SetActive(false);
         }
-    }
-
-    /// <summary>Toolbar one-click export — object 3D only (room uses per-deliverable buttons in this panel).</summary>
-    public static ExportRequest GetRequestForToolbar()
-    {
-        if (ExportRequest.CurrentScope() != ExportScope.SelectedObject)
-            return null;
-
-        return ExportRequest.CreateDefaultsForSelection();
     }
 
     private static void EnsureInstance()
@@ -262,7 +252,7 @@ public class UI_ExportOptions : MonoBehaviour
 
         _rowObj = CreateDeliverableRow(
             "3D model",
-            () => RunRoomExport(includeObj: true),
+            RunObjExport,
             includeCustomize: true);
 
         _rowElevations = CreateDeliverableRow(
@@ -364,6 +354,20 @@ public class UI_ExportOptions : MonoBehaviour
             _forcedScopeOnOpen = ExportScope.Room;
             Reopen();
         });
+    }
+
+    private void RunObjExport()
+    {
+        if (_scope == ExportScope.SelectedObject)
+        {
+            Close();
+            var req = ExportRequest.CreateDefaultsForSelection();
+            req.ObjOptions = _objOptions ?? ObjExportOptions.CreateDefaults();
+            ExportOrchestrator.Run(req);
+            return;
+        }
+
+        RunRoomExport(includeObj: true);
     }
 
     private void RunRoomExport(
@@ -571,11 +575,12 @@ public class UI_ExportOptions : MonoBehaviour
         bool objectMode = _scope == ExportScope.SelectedObject;
 
         if (_titleLabel != null)
-            _titleLabel.text = objectMode ? "Export Folder" : "Room Exports";
+            _titleLabel.text = objectMode ? "Object Exports" : "Room Exports";
 
         UpdateInfoText(objectMode);
 
-        SetActive(_rowObj, !objectMode);
+        // Object mode mirrors room: one 3D Export row + change folder (no room deliverables).
+        SetActive(_rowObj, true);
         SetActive(_rowElevations, !objectMode);
         SetActive(_rowProposal, !objectMode);
         SetActive(_rowSnapshots, !objectMode);
@@ -600,17 +605,9 @@ public class UI_ExportOptions : MonoBehaviour
             return;
 
         string path = ShortenPath(ExportPaths.GetExportBasePath());
-        string body;
-        if (objectMode)
-        {
-            body = path;
-        }
-        else
-        {
-            body = _objOptionsCustomized
-                ? path + "  ·  3D options customized"
-                : path;
-        }
+        string body = !objectMode && _objOptionsCustomized
+            ? path + "  ·  3D options customized"
+            : path;
 
         _infoLabel.text = _showFolderChangedBanner
             ? "New export folder set…  " + body

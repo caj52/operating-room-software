@@ -1,59 +1,37 @@
-using TMPro;
 using UnityEngine;
 
 /// <summary>
-/// Toolbar button: one-click export for the selected object only.
-/// Hidden when nothing is selected (room exports live under Room exports…).
+/// Legacy one-click object export button. Kept for prefab wiring; always hidden —
+/// object export lives under Object exports… (UI_ButtonExportObj → UI_ExportOptions).
 /// </summary>
 public class UI_ButtonExport : MonoBehaviour
 {
-    private TMP_Text _label;
-
     private void Awake()
     {
-        _label = GetComponentInChildren<TMP_Text>(true);
-        Selectable.SelectionChanged += UpdateVisibility;
-        UpdateVisibility();
-    }
-
-    private void OnDestroy()
-    {
-        Selectable.SelectionChanged -= UpdateVisibility;
+        gameObject.SetActive(false);
     }
 
     private void OnEnable()
     {
-        UpdateVisibility();
+        // Prefab/event wiring may re-enable this; keep it out of the toolbar.
+        if (gameObject.activeSelf)
+            gameObject.SetActive(false);
     }
 
-    public void UpdateLabel() => UpdateVisibility();
+    public void UpdateLabel() { }
 
-    private void UpdateVisibility()
+    public void UpdateVisibility()
     {
-        bool hasSelection = ExportRequest.HasSelection();
-        gameObject.SetActive(hasSelection);
-
-        if (!hasSelection)
-            return;
-
-        if (_label == null)
-            _label = GetComponentInChildren<TMP_Text>(true);
-        if (_label != null)
-            _label.text = "Export object 3D model";
-
-        // Text button — never keep a hover tip.
-        var tip = GetComponent<UI_HoverTooltip>();
-        if (tip != null)
-            Destroy(tip);
+        gameObject.SetActive(false);
     }
 
-    /// <summary>One-click export of the selected object's 3D model.</summary>
+    /// <summary>Legacy prefab wiring — opens the object exports hub.</summary>
     public void Export()
     {
         if (!ExportRequest.HasSelection())
             return;
 
-        ExportOrchestrator.Run(ExportRequest.CreateDefaultsForSelection());
+        UI_ExportOptions.Open();
     }
 
     public void OpenExportOptions()

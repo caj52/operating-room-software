@@ -258,7 +258,7 @@ public class UI_IconButtonTooltipBinder : MonoBehaviour
     private static bool IsIconOnly(Button button)
     {
         // Use activeSelf (not activeInHierarchy) so a temporarily hidden
-        // parent button with a real label (e.g. Export object 3D model)
+        // parent button with a real label (e.g. Object exports…)
         // is still treated as a text button.
         foreach (var tmp in button.GetComponentsInChildren<TextMeshProUGUI>(true))
         {
