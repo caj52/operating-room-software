@@ -2,7 +2,7 @@ using TMPro;
 using UnityEngine;
 
 /// <summary>
-/// Opens export options. Object mode is 3D-model options only; room mode is the full package.
+/// Opens the exports hub: Room exports… (per deliverable) or Export folder… when an object is selected.
 /// </summary>
 public class UI_ButtonExportObj : MonoBehaviour
 {
@@ -34,7 +34,7 @@ public class UI_ButtonExportObj : MonoBehaviour
 
         _label.text = ExportRequest.HasSelection()
             ? "Export folder…"
-            : "Export room options…";
+            : "Room exports…";
     }
 
     public void ExportObj()
@@ -42,7 +42,7 @@ public class UI_ButtonExportObj : MonoBehaviour
         UI_ExportOptions.Open();
     }
 
-    /// <summary>Legacy prefab wiring — same as ExportObj (folder / room options hub).</summary>
+    /// <summary>Legacy prefab wiring — same as ExportObj.</summary>
     public void OpenObjOptions()
     {
         ExportObj();

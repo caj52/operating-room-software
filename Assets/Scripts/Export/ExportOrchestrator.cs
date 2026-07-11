@@ -41,6 +41,9 @@ public class ExportOrchestrator : MonoBehaviour
         if (request == null)
             return;
 
+        if (!ExportPaths.EnsureRoomSavedForExport())
+            return;
+
         EnsureInstance();
         if (Instance._running)
         {
@@ -269,9 +272,7 @@ public class ExportOrchestrator : MonoBehaviour
                 yield break;
             }
 
-            string objectTitle = string.IsNullOrWhiteSpace(rootSelectable.MetaData?.Name)
-                ? title
-                : rootSelectable.MetaData.Name;
+            string objectTitle = ExportPaths.GetSelectableExportName(rootSelectable, title);
 
             yield return PdfBatchExporter.ExportSingleConfigToPdf(
                 rootSelectable, objectTitle, subtitle, ExportPaths.ElevationsDir, suppressDialog: true,

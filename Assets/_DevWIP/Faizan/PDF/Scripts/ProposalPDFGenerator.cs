@@ -125,7 +125,7 @@ public class ProposalPDFGenerator : MonoBehaviour
             Debug.LogWarning($"Could not apply client metadata defaults: {e.Message}");
         }
 
-        configName = "Configuration Name : \t" + ExportPaths.GetRoomExportName();
+        configName = ExportPaths.GetRoomExportName();
     }
 
     public void GeneratePDFWithCallback(Action<bool, string, string> callback)

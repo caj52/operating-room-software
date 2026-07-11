@@ -19,7 +19,11 @@ public static class ObjExporter
     public static UnityEvent OnMeshDataWritten { get; } = new();
     public static UnityEvent OnExportFinished { get; } = new();
     public static int count = 1;
-    public static async void DoExport(bool makeSubmeshes, MeshFilter[] meshFilters, string name)
+    public static async void DoExport(
+        bool makeSubmeshes,
+        MeshFilter[] meshFilters,
+        string name,
+        bool roomPackage = false)
     {
         if (meshFilters == null || meshFilters.Length == 0)
         {
@@ -33,7 +37,7 @@ public static class ObjExporter
 
         try
         {
-            string meshName = name;
+            string meshName = string.IsNullOrWhiteSpace(name) ? "Export" : name;
             Debug.Log($"Found {meshFilters.Length} mesh filters");
 
             Dictionary<MeshRenderer, MeshFilter> rendererFilterMap = new();
@@ -107,7 +111,7 @@ public static class ObjExporter
 
             data.Bake();
 
-            string path = meshName.Equals("Scene")
+            string path = roomPackage
                 ? ExportPaths.ObjSceneDir
                 : Path.Combine(ExportPaths.GetExportBasePath(), "ObjFile", meshName);
 

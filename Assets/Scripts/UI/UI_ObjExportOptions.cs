@@ -391,7 +391,8 @@ public class UI_ObjExportOptions : MonoBehaviour
         if (meshFilters.Length == 0)
             return false;
 
-        ObjExporter.DoExport(makeSubmeshes, meshFilters, "Scene");
+        string roomName = ExportPaths.SanitizeFolderName(ExportPaths.GetRoomExportName());
+        ObjExporter.DoExport(makeSubmeshes, meshFilters, roomName, roomPackage: true);
         return true;
     }
 
@@ -438,7 +439,8 @@ public class UI_ObjExportOptions : MonoBehaviour
         if (meshFilters.Length == 0)
             return false;
 
-        ObjExporter.DoExport(makeSubmeshes, meshFilters, obj.name);
+        string exportName = ExportPaths.GetObjectExportName(obj, "Object");
+        ObjExporter.DoExport(makeSubmeshes, meshFilters, exportName);
         return true;
     }
 

@@ -5,8 +5,8 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Export options menu — reuses OBJ-options chrome, laid out with a real
-/// VerticalLayoutGroup so text/controls never overlap.
+/// Room exports hub: one Export action per deliverable.
+/// Object mode is folder settings only.
 /// </summary>
 [RequireComponent(typeof(FullScreenMenu))]
 public class UI_ExportOptions : MonoBehaviour
@@ -17,34 +17,34 @@ public class UI_ExportOptions : MonoBehaviour
     private VerticalLayoutGroup _layout;
     private TMP_Text _titleLabel;
     private TMP_Text _infoLabel;
-    private Toggle _toggleObj;
-    private Toggle _toggleElevations;
-    private Toggle _toggleProposal;
-    private Toggle _toggleSnapshots;
+
     private Toggle _togglePerAssembly;
-    private Toggle _toggleAdvanced;
-    private GameObject _objRow;
-    private GameObject _elevationsRow;
-    private GameObject _proposalRow;
-    private GameObject _snapshotsRow;
     private GameObject _perAssemblyRow;
-    private GameObject _advancedRow;
-    private Button _buttonExport;
+
+    private GameObject _rowObj;
+    private GameObject _rowElevations;
+    private GameObject _rowProposal;
+    private GameObject _rowSnapshots;
+
+    private Button _buttonExportTemplate;
     private Button _buttonCancel;
     private Button _buttonCustomizeObj;
     private Button _buttonChooseFolder;
+
     private ExportScope _scope = ExportScope.Room;
     private ObjExportOptions _objOptions = ObjExportOptions.CreateDefaults();
     private bool _objOptionsCustomized;
     private bool _wired;
     private bool _preserveChoicesOnNextOpen;
-    private bool _hasRoomChoices;
     private ExportScope? _forcedScopeOnOpen;
 
     public static void Open()
     {
         try
         {
+            if (!ExportPaths.EnsureRoomSavedForExport())
+                return;
+
             EnsureInstance();
             if (!Instance._preserveChoicesOnNextOpen)
                 Instance.ResetToDefaults();
@@ -83,30 +83,13 @@ public class UI_ExportOptions : MonoBehaviour
             Instance.gameObject.SetActive(false);
     }
 
-    /// <summary>
-    /// Toolbar Export uses saved room option toggles when the user has set them;
-    /// otherwise falls back to defaults. Object scope is always 3D-only.
-    /// </summary>
+    /// <summary>Toolbar one-click export — object 3D only (room uses per-deliverable buttons in this panel).</summary>
     public static ExportRequest GetRequestForToolbar()
     {
-        // Object export is always just the selected 3D model — never room include filters.
-        if (ExportRequest.CurrentScope() == ExportScope.SelectedObject)
-            return ExportRequest.CreateDefaultsForSelection();
-
-        ExportRequest request = (Instance != null && Instance._wired && Instance._hasRoomChoices)
-            ? Instance.BuildRoomRequestFromUI()
-            : ExportRequest.CreateDefaultsForRoom();
-
-        if (!request.IncludeObj && !request.IncludeElevations
-            && !request.IncludeProposal && !request.IncludeSnapshots)
-        {
-            UI_DialogPrompt.Open(
-                "Nothing is selected to export.\nOpen Export room options… and turn at least one item on.",
-                new ButtonAction("OK"));
+        if (ExportRequest.CurrentScope() != ExportScope.SelectedObject)
             return null;
-        }
 
-        return request;
+        return ExportRequest.CreateDefaultsForSelection();
     }
 
     private static void EnsureInstance()
@@ -155,7 +138,8 @@ public class UI_ExportOptions : MonoBehaviour
 
         foreach (var text in GetComponentsInChildren<TextMeshProUGUI>(true))
         {
-            if (text.text.Contains("OBJ Export") || text.text.Contains("Export Options"))
+            if (text.text.Contains("OBJ Export") || text.text.Contains("Export Options")
+                || text.text.Contains("Room Export") || text.text.Contains("Room Exports"))
             {
                 _titleLabel = text;
                 break;
@@ -172,52 +156,24 @@ public class UI_ExportOptions : MonoBehaviour
             ? _titleLabel.transform.parent as RectTransform
             : null;
 
-        _toggleObj = FindToggle("Toggle_IncludeFloor");
-        _toggleElevations = FindToggle("Toggle_IncludeFloorObjects");
-        _toggleProposal = FindToggle("Toggle_IncludeCeiling");
-        _toggleSnapshots = FindToggle("Toggle_IncludeCeilingObjects");
-        _toggleAdvanced = FindToggle("Toggle_IncludeWalls");
-        _togglePerAssembly = FindToggle("Toggle_IncludeWallObjects");
-
-        if (_toggleObj == null || _toggleElevations == null || _toggleProposal == null
-            || _toggleSnapshots == null || _toggleAdvanced == null || _togglePerAssembly == null)
-            throw new Exception("Export options template is missing expected toggles.");
-
-        _objRow = _toggleObj.gameObject;
-        _elevationsRow = _toggleElevations.gameObject;
-        _proposalRow = _toggleProposal.gameObject;
-        _snapshotsRow = _toggleSnapshots.gameObject;
-        _advancedRow = _toggleAdvanced.gameObject;
-        _perAssemblyRow = _togglePerAssembly.gameObject;
-
+        // Legacy include toggles become unused — hide them. Keep per-boom as a preference under elevations.
+        HideToggle("Toggle_IncludeFloor");
+        HideToggle("Toggle_IncludeFloorObjects");
+        HideToggle("Toggle_IncludeCeiling");
+        HideToggle("Toggle_IncludeCeilingObjects");
+        HideToggle("Toggle_IncludeWalls");
         HideToggle("Toggle_IncludeArmAssemblies");
         HideToggle("Toggle_IncludeArmBoomHeads");
-        _advancedRow.SetActive(false);
 
-        SetToggleLabel(_toggleObj, "3D model (OBJ / MTL)");
-        SetToggleLabel(_toggleElevations, "Elevation sheets (PDF)");
-        SetToggleLabel(_toggleProposal, "Sales proposal (PDF)");
-        SetToggleLabel(_toggleSnapshots, "Presentation snapshots (PNG)");
+        _togglePerAssembly = FindToggle("Toggle_IncludeWallObjects");
+        if (_togglePerAssembly == null)
+            throw new Exception("Export options template is missing the per-boom toggle.");
+
+        _perAssemblyRow = _togglePerAssembly.gameObject;
+        HideNestedSeparators(_togglePerAssembly.transform);
+        EnsurePreferredHeight(_perAssemblyRow, 26f);
         SetToggleLabel(_togglePerAssembly, "One PDF per boom (instead of one combined PDF)");
-
-        _toggleElevations.onValueChanged.RemoveAllListeners();
-        _toggleElevations.onValueChanged.AddListener(_ =>
-        {
-            RefreshPerAssemblyVisibility();
-            if (isActiveAndEnabled)
-                RebuildLayout();
-        });
-
-        // Nested separators under toggles fight the cleaned-up spacing — hide them.
-        foreach (var toggle in new[]
-                 {
-                     _toggleObj, _toggleElevations, _toggleProposal,
-                     _toggleSnapshots, _togglePerAssembly, _toggleAdvanced
-                 })
-        {
-            HideNestedSeparators(toggle.transform);
-            EnsurePreferredHeight(toggle.gameObject, 26f);
-        }
+        _togglePerAssembly.isOn = false;
 
         if (_titleLabel != null)
         {
@@ -225,12 +181,228 @@ public class UI_ExportOptions : MonoBehaviour
             _titleLabel.fontSize = 20;
             _titleLabel.enableWordWrapping = false;
             _titleLabel.overflowMode = TextOverflowModes.Ellipsis;
-
             _infoLabel = CreateInfoLabel(_titleLabel);
         }
 
         WireButtons();
+        BuildDeliverableRows();
         ConfigureInnerBoxLayout();
+    }
+
+    private void WireButtons()
+    {
+        foreach (var button in GetComponentsInChildren<Button>(true))
+        {
+            string n = button.gameObject.name;
+            if (n.Contains("ExportScene") || n.Contains("ExportAll"))
+                _buttonExportTemplate = button;
+            else if (n.Contains("Cancel"))
+                _buttonCancel = button;
+            else if (n.Contains("ExportSelection") || n.Contains("Selection"))
+                _buttonCustomizeObj = button;
+        }
+
+        if (_buttonExportTemplate != null)
+        {
+            _buttonExportTemplate.gameObject.SetActive(false);
+            var ignore = _buttonExportTemplate.GetComponent<LayoutElement>()
+                         ?? _buttonExportTemplate.gameObject.AddComponent<LayoutElement>();
+            ignore.ignoreLayout = true;
+        }
+
+        if (_buttonCancel != null)
+        {
+            SetButtonLabel(_buttonCancel, "Done");
+            _buttonCancel.onClick = new Button.ButtonClickedEvent();
+            _buttonCancel.onClick.AddListener(Close);
+            StyleActionButton(_buttonCancel, 40f);
+        }
+
+        // Full-width customize button is replaced by a compact control on the 3D row.
+        if (_buttonCustomizeObj != null)
+        {
+            _buttonCustomizeObj.gameObject.SetActive(false);
+            var ignore = _buttonCustomizeObj.GetComponent<LayoutElement>()
+                         ?? _buttonCustomizeObj.gameObject.AddComponent<LayoutElement>();
+            ignore.ignoreLayout = true;
+        }
+
+        if (_buttonChooseFolder == null)
+        {
+            var template = _buttonCancel ?? _buttonExportTemplate;
+            if (template != null)
+            {
+                _buttonChooseFolder = CloneActionButton(template, "Button_ChooseExportFolder", "Choose export folder…");
+                _buttonChooseFolder.onClick = new Button.ButtonClickedEvent();
+                _buttonChooseFolder.onClick.AddListener(() =>
+                {
+                    var returnScope = _scope;
+                    Close();
+                    FullRoomSave.OpenChooseExportFolderPrompt(() =>
+                    {
+                        _forcedScopeOnOpen = returnScope;
+                        Reopen();
+                    });
+                });
+            }
+        }
+    }
+
+    private void BuildDeliverableRows()
+    {
+        if (_innerBox == null || _buttonCancel == null)
+            return;
+
+        _rowObj = CreateDeliverableRow(
+            "3D model (OBJ / MTL)",
+            () => RunRoomExport(includeObj: true),
+            includeCustomize: true);
+
+        _rowElevations = CreateDeliverableRow(
+            "Elevation sheets (PDF)",
+            () => RunRoomExport(includeElevations: true),
+            includeCustomize: false);
+
+        _rowProposal = CreateDeliverableRow(
+            "Sales proposal (PDF)",
+            () => RunRoomExport(includeProposal: true),
+            includeCustomize: false);
+
+        _rowSnapshots = CreateDeliverableRow(
+            "Presentation snapshots (PNG)",
+            () => RunRoomExport(includeSnapshots: true),
+            includeCustomize: false);
+    }
+
+    private GameObject CreateDeliverableRow(string labelText, Action onExport, bool includeCustomize)
+    {
+        var row = new GameObject(
+            "Row_" + labelText,
+            typeof(RectTransform),
+            typeof(HorizontalLayoutGroup),
+            typeof(LayoutElement));
+        row.layer = gameObject.layer;
+        row.transform.SetParent(_innerBox, false);
+
+        var h = row.GetComponent<HorizontalLayoutGroup>();
+        h.padding = new RectOffset(0, 0, 0, 0);
+        h.spacing = 8;
+        h.childAlignment = TextAnchor.MiddleLeft;
+        h.childControlWidth = true;
+        h.childControlHeight = true;
+        h.childForceExpandWidth = false;
+        h.childForceExpandHeight = false;
+
+        var rowLe = row.GetComponent<LayoutElement>();
+        rowLe.minHeight = includeCustomize ? 72f : 40f;
+        rowLe.preferredHeight = includeCustomize ? 72f : 40f;
+        rowLe.flexibleWidth = 1f;
+
+        // Left column: title (+ optional customize under it)
+        var left = new GameObject("LabelCol", typeof(RectTransform), typeof(VerticalLayoutGroup), typeof(LayoutElement));
+        left.layer = gameObject.layer;
+        left.transform.SetParent(row.transform, false);
+
+        var v = left.GetComponent<VerticalLayoutGroup>();
+        v.spacing = 2;
+        v.childAlignment = TextAnchor.MiddleLeft;
+        v.childControlWidth = true;
+        v.childControlHeight = true;
+        v.childForceExpandWidth = true;
+        v.childForceExpandHeight = false;
+
+        var leftLe = left.GetComponent<LayoutElement>();
+        leftLe.flexibleWidth = 1f;
+        leftLe.minWidth = 180f;
+
+        var labelGo = new GameObject("Label", typeof(RectTransform), typeof(TextMeshProUGUI), typeof(LayoutElement));
+        labelGo.layer = gameObject.layer;
+        labelGo.transform.SetParent(left.transform, false);
+        var label = labelGo.GetComponent<TextMeshProUGUI>();
+        if (_titleLabel != null)
+        {
+            label.font = (_titleLabel as TextMeshProUGUI)?.font ?? label.font;
+            label.fontSharedMaterial = (_titleLabel as TextMeshProUGUI)?.fontSharedMaterial ?? label.fontSharedMaterial;
+        }
+        label.text = labelText;
+        label.fontSize = 15;
+        label.color = new Color(0.15f, 0.15f, 0.15f, 1f);
+        label.alignment = TextAlignmentOptions.MidlineLeft;
+        label.enableWordWrapping = false;
+        label.overflowMode = TextOverflowModes.Ellipsis;
+        var labelLe = labelGo.GetComponent<LayoutElement>();
+        labelLe.preferredHeight = 28f;
+        labelLe.flexibleWidth = 1f;
+
+        if (includeCustomize)
+        {
+            var customizeBtn = CloneActionButton(_buttonCancel, "Button_CustomizeObjInline", "Customize contents…");
+            customizeBtn.transform.SetParent(left.transform, false);
+            customizeBtn.gameObject.SetActive(true);
+            StyleActionButton(customizeBtn, 28f);
+            var cLabel = customizeBtn.GetComponentInChildren<TextMeshProUGUI>(true);
+            if (cLabel != null)
+            {
+                cLabel.fontSize = 13;
+                cLabel.color = new Color(0.25f, 0.35f, 0.55f, 1f);
+            }
+            var cLe = customizeBtn.GetComponent<LayoutElement>() ?? customizeBtn.gameObject.AddComponent<LayoutElement>();
+            cLe.preferredHeight = 28f;
+            cLe.flexibleWidth = 1f;
+            customizeBtn.onClick = new Button.ButtonClickedEvent();
+            customizeBtn.onClick.AddListener(OpenCustomizeObj);
+            _buttonCustomizeObj = customizeBtn;
+        }
+
+        var exportBtn = CloneActionButton(_buttonCancel, "Button_ExportDeliverable", "Export");
+        exportBtn.transform.SetParent(row.transform, false);
+        exportBtn.gameObject.SetActive(true);
+        StyleActionButton(exportBtn, 36f);
+        var eLe = exportBtn.GetComponent<LayoutElement>() ?? exportBtn.gameObject.AddComponent<LayoutElement>();
+        eLe.preferredWidth = 96f;
+        eLe.minWidth = 96f;
+        eLe.preferredHeight = 36f;
+        eLe.flexibleWidth = 0f;
+        exportBtn.onClick = new Button.ButtonClickedEvent();
+        exportBtn.onClick.AddListener(() => onExport?.Invoke());
+
+        return row;
+    }
+
+    private void OpenCustomizeObj()
+    {
+        if (_scope != ExportScope.Room)
+            return;
+
+        Close();
+        UI_ObjExportOptions.OpenForCustomization(opts =>
+        {
+            _objOptions = opts;
+            _objOptionsCustomized = true;
+            _forcedScopeOnOpen = ExportScope.Room;
+            Reopen();
+        });
+    }
+
+    private void RunRoomExport(
+        bool includeObj = false,
+        bool includeElevations = false,
+        bool includeProposal = false,
+        bool includeSnapshots = false)
+    {
+        Close();
+        ExportOrchestrator.Run(new ExportRequest
+        {
+            Scope = ExportScope.Room,
+            IncludeObj = includeObj,
+            IncludeElevations = includeElevations,
+            IncludeProposal = includeProposal,
+            IncludeSnapshots = includeSnapshots,
+            ElevationMode = _togglePerAssembly != null && _togglePerAssembly.isOn
+                ? ElevationExportMode.PerAssembly
+                : ElevationExportMode.CombinedRoom,
+            ObjOptions = _objOptions ?? ObjExportOptions.CreateDefaults()
+        });
     }
 
     private void ConfigureInnerBoxLayout()
@@ -238,7 +410,6 @@ public class UI_ExportOptions : MonoBehaviour
         if (_innerBox == null)
             return;
 
-        // Background must not participate in layout; stretch to fill the (resized) panel.
         var bg = _innerBox.Find("Bg");
         if (bg != null)
         {
@@ -266,13 +437,11 @@ public class UI_ExportOptions : MonoBehaviour
         _layout.childForceExpandWidth = true;
         _layout.childForceExpandHeight = false;
 
-        // Prefer explicit sizing in RebuildLayout — CSF alone left the prefab's tall box.
         var fitter = _innerBox.GetComponent<ContentSizeFitter>();
         if (fitter != null)
             fitter.enabled = false;
 
-        _innerBox.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, 500f);
-        // Uniform scale of the whole menu (not just wider).
+        _innerBox.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, 520f);
         _innerBox.localScale = Vector3.one * 1.35f;
     }
 
@@ -298,87 +467,6 @@ public class UI_ExportOptions : MonoBehaviour
         le.flexibleWidth = 1f;
 
         return text;
-    }
-
-    private void WireButtons()
-    {
-        foreach (var button in GetComponentsInChildren<Button>(true))
-        {
-            string n = button.gameObject.name;
-            if (n.Contains("ExportScene") || n.Contains("ExportAll"))
-                _buttonExport = button;
-            else if (n.Contains("Cancel"))
-                _buttonCancel = button;
-            else if (n.Contains("ExportSelection") || n.Contains("Selection"))
-                _buttonCustomizeObj = button;
-        }
-
-        // Toolbar owns Export — never show a duplicate in this panel.
-        if (_buttonExport != null)
-        {
-            _buttonExport.gameObject.SetActive(false);
-            var ignore = _buttonExport.GetComponent<LayoutElement>()
-                         ?? _buttonExport.gameObject.AddComponent<LayoutElement>();
-            ignore.ignoreLayout = true;
-        }
-
-        if (_buttonCancel != null)
-        {
-            SetButtonLabel(_buttonCancel, "Done");
-            _buttonCancel.onClick = new Button.ButtonClickedEvent();
-            _buttonCancel.onClick.AddListener(() =>
-            {
-                if (_scope == ExportScope.Room)
-                    _hasRoomChoices = true;
-                Close();
-            });
-            StyleActionButton(_buttonCancel, 40f);
-        }
-
-        if (_buttonCustomizeObj != null)
-        {
-            SetButtonLabel(_buttonCustomizeObj, "Customize 3D model contents…");
-            _buttonCustomizeObj.onClick = new Button.ButtonClickedEvent();
-            _buttonCustomizeObj.onClick.AddListener(() =>
-            {
-                // Room-only: these toggles filter whole-room OBJ contents.
-                if (_scope != ExportScope.Room)
-                    return;
-
-                _hasRoomChoices = true;
-                Close();
-                UI_ObjExportOptions.OpenForCustomization(opts =>
-                {
-                    _objOptions = opts;
-                    _objOptionsCustomized = true;
-                    _forcedScopeOnOpen = ExportScope.Room;
-                    Reopen();
-                });
-            });
-            StyleActionButton(_buttonCustomizeObj, 40f);
-        }
-
-        if (_buttonChooseFolder == null)
-        {
-            var template = _buttonCustomizeObj ?? _buttonCancel;
-            if (template != null)
-            {
-                _buttonChooseFolder = CloneActionButton(template, "Button_ChooseExportFolder", "Choose export folder…");
-                _buttonChooseFolder.onClick = new Button.ButtonClickedEvent();
-                _buttonChooseFolder.onClick.AddListener(() =>
-                {
-                    var returnScope = _scope;
-                    if (_scope == ExportScope.Room)
-                        _hasRoomChoices = true;
-                    Close();
-                    FullRoomSave.OpenChooseExportFolderPrompt(() =>
-                    {
-                        _forcedScopeOnOpen = returnScope;
-                        Reopen();
-                    });
-                });
-            }
-        }
     }
 
     private Button CloneActionButton(Button template, string name, string label)
@@ -438,27 +526,14 @@ public class UI_ExportOptions : MonoBehaviour
         _scope = _forcedScopeOnOpen ?? ExportRequest.CurrentScope();
         _forcedScopeOnOpen = null;
 
-        // Object options must not wipe room deliverable / 3D-include choices.
         if (_scope == ExportScope.SelectedObject)
         {
             RefreshChrome();
             return;
         }
 
-        // First time in room options this session: load defaults.
-        // After the user has confirmed choices once, leave their toggles alone.
-        if (!_hasRoomChoices)
-        {
-            var defaults = ExportRequest.CreateDefaultsForRoom();
-            if (!_objOptionsCustomized)
-                _objOptions = defaults.ObjOptions ?? ObjExportOptions.CreateDefaults();
-
-            _toggleObj.isOn = defaults.IncludeObj;
-            _toggleElevations.isOn = defaults.IncludeElevations;
-            _toggleProposal.isOn = defaults.IncludeProposal;
-            _toggleSnapshots.isOn = defaults.IncludeSnapshots;
-            _togglePerAssembly.isOn = defaults.ElevationMode == ElevationExportMode.PerAssembly;
-        }
+        if (!_objOptionsCustomized)
+            _objOptions = ObjExportOptions.CreateDefaults();
 
         RefreshChrome();
     }
@@ -468,7 +543,6 @@ public class UI_ExportOptions : MonoBehaviour
         if (!_wired)
             WireExistingChrome();
 
-        // Apply a one-shot scope override (e.g. returning from room 3D customize).
         if (_forcedScopeOnOpen.HasValue)
         {
             _scope = _forcedScopeOnOpen.Value;
@@ -482,26 +556,19 @@ public class UI_ExportOptions : MonoBehaviour
         bool objectMode = _scope == ExportScope.SelectedObject;
 
         if (_titleLabel != null)
-            _titleLabel.text = objectMode ? "Export Folder" : "Room Export Options";
+            _titleLabel.text = objectMode ? "Export Folder" : "Room Exports";
 
         UpdateInfoText(objectMode);
 
-        // Deliverable toggles + room OBJ include customization are room-only.
-        _objRow.SetActive(!objectMode);
-        _elevationsRow.SetActive(!objectMode);
-        _proposalRow.SetActive(!objectMode);
-        _snapshotsRow.SetActive(!objectMode);
-        _advancedRow.SetActive(false);
-        RefreshPerAssemblyVisibility();
+        SetActive(_rowObj, !objectMode);
+        SetActive(_rowElevations, !objectMode);
+        SetActive(_rowProposal, !objectMode);
+        SetActive(_rowSnapshots, !objectMode);
+        SetActive(_perAssemblyRow, !objectMode);
 
-        if (_buttonExport != null)
-            _buttonExport.gameObject.SetActive(false);
-
-        // Include floor/ceiling/walls only applies to whole-room OBJ export.
         if (_buttonCustomizeObj != null)
             _buttonCustomizeObj.gameObject.SetActive(!objectMode);
 
-        // Folder choice applies to both room and object exports.
         if (_buttonChooseFolder != null)
             _buttonChooseFolder.gameObject.SetActive(true);
 
@@ -510,17 +577,6 @@ public class UI_ExportOptions : MonoBehaviour
             _buttonCancel.gameObject.SetActive(true);
             SetButtonLabel(_buttonCancel, "Done");
         }
-    }
-
-    private void RefreshPerAssemblyVisibility()
-    {
-        bool show = _scope == ExportScope.Room
-                    && _elevationsRow != null
-                    && _elevationsRow.activeSelf
-                    && _toggleElevations != null
-                    && _toggleElevations.isOn;
-        if (_perAssemblyRow != null)
-            _perAssemblyRow.SetActive(show);
     }
 
     private void UpdateInfoText(bool objectMode)
@@ -536,8 +592,8 @@ public class UI_ExportOptions : MonoBehaviour
         string hint = objectMode
             ? "Choose where the selected object's 3D model is saved,\nthen use Export object 3D model on the toolbar."
             : (_objOptionsCustomized
-                ? "Choose what to include. Custom 3D contents are on.\nExport from the toolbar when ready."
-                : "Choose what to include, then export from the toolbar.");
+                ? "Export each deliverable below. Custom 3D contents are on."
+                : "Export each deliverable below.");
 
         _infoLabel.text = folderLine + "\n\n" + hint;
         _infoLabel.ForceMeshUpdate();
@@ -552,7 +608,6 @@ public class UI_ExportOptions : MonoBehaviour
         if (_innerBox == null)
             return;
 
-        // Stable visual order for whatever is currently active.
         var order = new List<Transform>();
         void Add(Component c)
         {
@@ -567,22 +622,20 @@ public class UI_ExportOptions : MonoBehaviour
 
         Add(_titleLabel);
         Add(_infoLabel);
-        AddGo(_objRow);
-        AddGo(_elevationsRow);
-        AddGo(_proposalRow);
-        AddGo(_snapshotsRow);
+        AddGo(_rowObj);
+        AddGo(_rowElevations);
         AddGo(_perAssemblyRow);
-        Add(_buttonCustomizeObj);
+        AddGo(_rowProposal);
+        AddGo(_rowSnapshots);
         Add(_buttonChooseFolder);
         Add(_buttonCancel);
 
         for (int i = 0; i < order.Count; i++)
-            order[i].SetSiblingIndex(i + 1); // keep Bg at 0
+            order[i].SetSiblingIndex(i + 1);
 
         Canvas.ForceUpdateCanvases();
         LayoutRebuilder.ForceRebuildLayoutImmediate(_innerBox);
 
-        // Shrink the panel to the laid-out content (kills the empty bottom gap).
         float contentHeight = 0f;
         if (_layout != null)
         {
@@ -604,26 +657,10 @@ public class UI_ExportOptions : MonoBehaviour
             contentHeight = LayoutUtility.GetPreferredHeight(_innerBox);
         }
 
-        _innerBox.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, 500f);
+        _innerBox.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, 520f);
         _innerBox.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, Mathf.Max(contentHeight, 120f));
         _innerBox.localScale = Vector3.one * 1.35f;
         LayoutRebuilder.ForceRebuildLayoutImmediate(_innerBox);
-    }
-
-    private ExportRequest BuildRoomRequestFromUI()
-    {
-        return new ExportRequest
-        {
-            Scope = ExportScope.Room,
-            IncludeObj = _toggleObj.isOn,
-            IncludeElevations = _toggleElevations.isOn,
-            IncludeProposal = _toggleProposal.isOn,
-            IncludeSnapshots = _toggleSnapshots.isOn,
-            ElevationMode = _togglePerAssembly.isOn
-                ? ElevationExportMode.PerAssembly
-                : ElevationExportMode.CombinedRoom,
-            ObjOptions = _objOptions ?? ObjExportOptions.CreateDefaults()
-        };
     }
 
     private Toggle FindToggle(string objectName)
@@ -640,7 +677,11 @@ public class UI_ExportOptions : MonoBehaviour
     {
         var toggle = FindToggle(objectName);
         if (toggle != null)
+        {
             toggle.gameObject.SetActive(false);
+            var ignore = toggle.GetComponent<LayoutElement>() ?? toggle.gameObject.AddComponent<LayoutElement>();
+            ignore.ignoreLayout = true;
+        }
     }
 
     private static void HideNestedSeparators(Transform root)
@@ -650,6 +691,12 @@ public class UI_ExportOptions : MonoBehaviour
             if (child.name.StartsWith("separator", StringComparison.OrdinalIgnoreCase))
                 child.gameObject.SetActive(false);
         }
+    }
+
+    private static void SetActive(GameObject go, bool active)
+    {
+        if (go != null)
+            go.SetActive(active);
     }
 
     private static void EnsurePreferredHeight(GameObject go, float height)
@@ -687,7 +734,7 @@ public class UI_ExportOptions : MonoBehaviour
             return;
 
         label.text = text;
-        label.fontSize = 15;
+        label.fontSize = 14;
         label.enableAutoSizing = false;
         label.enableWordWrapping = false;
         label.overflowMode = TextOverflowModes.Ellipsis;

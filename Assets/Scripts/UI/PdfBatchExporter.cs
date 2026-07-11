@@ -79,9 +79,7 @@ public class PdfBatchExporter : MonoBehaviour
 
                 var root = allRoots[i];
                 string configTitle = $"{title} — Configuration {i + 1}";
-                string configSubtitle = string.IsNullOrWhiteSpace(root.MetaData?.Name)
-                    ? subtitle
-                    : root.MetaData.Name;
+                string configSubtitle = ExportPaths.GetSelectableExportName(root, subtitle);
 
                 List<PdfExporterLocal.PdfImageData> images = null;
                 bool waiting = true;
@@ -158,10 +156,9 @@ public class PdfBatchExporter : MonoBehaviour
                 yield break;
 
             var root = allRoots[i];
-            string title = defaultTitle ?? $"Configuration {i + 1}";
-            string subtitle = string.IsNullOrWhiteSpace(root.MetaData?.Name)
-                ? (defaultSubtitle ?? string.Empty)
-                : root.MetaData.Name;
+            // Filename / sheet title should be the boom's catalog name, not a GUID instance id.
+            string title = ExportPaths.GetSelectableExportName(root, defaultTitle ?? $"Configuration_{i + 1}");
+            string subtitle = defaultSubtitle ?? string.Empty;
 
             yield return ExportSingleConfigToPdf(root, title, subtitle, folder, suppressDialog, shouldCancel);
             if (LastSingleConfigExportOk)

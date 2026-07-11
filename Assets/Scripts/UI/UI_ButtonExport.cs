@@ -2,7 +2,8 @@ using TMPro;
 using UnityEngine;
 
 /// <summary>
-/// Toolbar Export button — room package, or selected-object 3D model only.
+/// Toolbar button: one-click export for the selected object only.
+/// Hidden when nothing is selected (room exports live under Room exports…).
 /// </summary>
 public class UI_ButtonExport : MonoBehaviour
 {
@@ -11,40 +12,43 @@ public class UI_ButtonExport : MonoBehaviour
     private void Awake()
     {
         _label = GetComponentInChildren<TMP_Text>(true);
-        Selectable.SelectionChanged += UpdateLabel;
-        UpdateLabel();
+        Selectable.SelectionChanged += UpdateVisibility;
+        UpdateVisibility();
     }
 
     private void OnDestroy()
     {
-        Selectable.SelectionChanged -= UpdateLabel;
+        Selectable.SelectionChanged -= UpdateVisibility;
     }
 
     private void OnEnable()
     {
-        UpdateLabel();
+        UpdateVisibility();
     }
 
-    public void UpdateLabel()
+    public void UpdateLabel() => UpdateVisibility();
+
+    private void UpdateVisibility()
     {
+        bool hasSelection = ExportRequest.HasSelection();
+        gameObject.SetActive(hasSelection);
+
+        if (!hasSelection)
+            return;
+
         if (_label == null)
             _label = GetComponentInChildren<TMP_Text>(true);
-        if (_label == null)
-            return;
-
-        _label.text = ExportRequest.HasSelection()
-            ? "Export object 3D model"
-            : "Export room";
+        if (_label != null)
+            _label.text = "Export object 3D model";
     }
 
-    /// <summary>One-click export for the current scope (room package or selected 3D model).</summary>
+    /// <summary>One-click export of the selected object's 3D model.</summary>
     public void Export()
     {
-        var request = UI_ExportOptions.GetRequestForToolbar();
-        if (request == null)
+        if (!ExportRequest.HasSelection())
             return;
 
-        ExportOrchestrator.Run(request);
+        ExportOrchestrator.Run(ExportRequest.CreateDefaultsForSelection());
     }
 
     public void OpenExportOptions()

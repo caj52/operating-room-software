@@ -18,18 +18,31 @@ public static class ExportPaths
         if (!string.IsNullOrWhiteSpace(savedName))
             return savedName;
 
-        try
-        {
-            string project = UI_ClientMetaData.ProjectName;
-            if (!string.IsNullOrWhiteSpace(project) &&
-                !project.Equals("N/A", StringComparison.OrdinalIgnoreCase))
-                return project;
-        }
-        catch (Exception)
-        {
-        }
-
+        // Only reached if a caller skipped EnsureRoomSavedForExport — keep a safe fallback.
         return "Untitled Room";
+    }
+
+    /// <summary>True when the room has been saved and has a stable save name for export folders.</summary>
+    public static bool HasSavedRoomName()
+        => !string.IsNullOrWhiteSpace(ConfigurationManager.GetCurrentRoomSaveName());
+
+    /// <summary>
+    /// Exports require a saved room name. If missing, prompts the user to save and returns false.
+    /// </summary>
+    public static bool EnsureRoomSavedForExport()
+    {
+        if (HasSavedRoomName())
+            return true;
+
+        UI_DialogPrompt.Open(
+            "Save the room before exporting.\nFiles are organized under the room's save name.",
+            new ButtonAction("Save Room", () =>
+            {
+                UI_DialogPrompt.Close();
+                Save.OpenSaveRoomPrompt();
+            }),
+            new ButtonAction("Cancel"));
+        return false;
     }
 
     public static string SanitizeFolderName(string name)
@@ -41,6 +54,102 @@ public static class ExportPaths
             name = name.Replace(c, '_');
 
         return name.Trim().Replace(' ', '_');
+    }
+
+    /// <summary>
+    /// Human-readable export name for a placed object — catalog/type name, not the instance GameObject id.
+    /// </summary>
+    public static string GetSelectableExportName(Selectable selectable, string fallback = "Object")
+    {
+        if (selectable == null)
+            return SanitizeFolderName(fallback);
+
+        string name = null;
+
+        try
+        {
+            if (selectable.RelatedSelectables != null && selectable.RelatedSelectables.Count > 0)
+            {
+                var meta = selectable.GetMetadata();
+                if (meta != null && IsUsefulExportName(meta.Name))
+                    name = meta.Name;
+            }
+        }
+        catch (Exception)
+        {
+        }
+
+        if (!IsUsefulExportName(name) && selectable.MetaData != null && IsUsefulExportName(selectable.MetaData.Name))
+            name = selectable.MetaData.Name;
+
+        if (!IsUsefulExportName(name) && IsUsefulExportName(selectable.UIButtonName))
+            name = selectable.UIButtonName;
+
+        if (!IsUsefulExportName(name) && IsUsefulExportName(fallback))
+            name = fallback;
+
+        if (!IsUsefulExportName(name))
+            name = "Object";
+
+        // Optional sub-part label (e.g. specific boom head variant) when present and readable.
+        try
+        {
+            string sub = selectable.MetaData?.SubPartName;
+            if (IsUsefulExportName(sub) && name.IndexOf(sub, StringComparison.OrdinalIgnoreCase) < 0)
+                name = $"{name}_{sub}";
+        }
+        catch (Exception)
+        {
+        }
+
+        return SanitizeFolderName(name);
+    }
+
+    public static string GetObjectExportName(GameObject obj, string fallback = "Object")
+    {
+        if (obj == null)
+            return SanitizeFolderName(fallback);
+
+        var selectable = obj.GetComponent<Selectable>()
+                         ?? obj.GetComponentInParent<Selectable>();
+        if (selectable != null)
+            return GetSelectableExportName(selectable, fallback);
+
+        return IsUsefulExportName(obj.name)
+            ? SanitizeFolderName(obj.name)
+            : SanitizeFolderName(fallback);
+    }
+
+    /// <summary>True if the string looks like a catalog/display name rather than a GUID or bundle id.</summary>
+    public static bool IsUsefulExportName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return false;
+
+        name = name.Trim();
+        if (name.Equals("Selectable", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("Scene", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("GameObject", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        // Asset-bundle / instance ids are long hex (often with dashes/underscores).
+        string hexOnly = name.Replace("-", "").Replace("_", "");
+        if (hexOnly.Length >= 24)
+        {
+            bool allHex = true;
+            for (int i = 0; i < hexOnly.Length; i++)
+            {
+                if (!Uri.IsHexDigit(hexOnly[i]))
+                {
+                    allHex = false;
+                    break;
+                }
+            }
+            if (allHex)
+                return false;
+        }
+
+        return true;
     }
 
     public static string GetDefaultParentFolder()

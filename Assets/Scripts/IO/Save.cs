@@ -33,7 +33,31 @@ public class Save : MonoBehaviour
 
     public static void Close()
     {
-        Instance.savePanel.SetActive(false);
+        if (Instance != null && Instance.savePanel != null)
+            Instance.savePanel.SetActive(false);
+    }
+
+    /// <summary>Opens the Save Room name panel (used when export needs a room save name).</summary>
+    public static void OpenSaveRoomPrompt()
+    {
+        if (Instance == null || Instance.savePanel == null)
+        {
+            UI_DialogPrompt.Open(
+                "Save UI is missing from the scene.\nSave the room from the toolbar, then export again.",
+                new ButtonAction("OK"));
+            return;
+        }
+
+        Instance.header.text = "Save Room";
+        Instance.header.color = Color.white;
+        Instance.currentSaveMode = "room";
+        if (Instance.fileName != null)
+            Instance.fileName.text = "";
+
+        if (FreeLookCam.Instance != null)
+            FreeLookCam.Instance.isLocked = true;
+
+        Instance.savePanel.SetActive(true);
     }
 
     void Start()
