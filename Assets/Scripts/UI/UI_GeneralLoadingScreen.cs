@@ -48,9 +48,14 @@ public class UI_GeneralLoadingScreen : MonoBehaviour
 
     public void HideLoadingScreen()
     {
-        Debug.LogError("HideLoadingScreen");
+        // Disabling the GO stops FillLoadingBar mid-loop without clearing isLoading,
+        // which then permanently skips restarting the bar on the next Show.
+        isLoading = false;
+        StopAllCoroutines();
         gameObject.SetActive(false);
-        loadingImage.fillAmount = 0f;
+        if (loadingImage != null)
+            loadingImage.fillAmount = 0f;
+        targetFillAmount = 0f;
     }
 
     public void SetProgress(float progress)
@@ -62,7 +67,7 @@ public class UI_GeneralLoadingScreen : MonoBehaviour
     {
         isLoading = true;
 
-        while (loadingImage.fillAmount < targetFillAmount)
+        while (loadingImage != null && loadingImage.fillAmount < targetFillAmount)
         {
             loadingImage.fillAmount = Mathf.MoveTowards(loadingImage.fillAmount, targetFillAmount, loadingSpeed * Time.deltaTime);
             yield return null;

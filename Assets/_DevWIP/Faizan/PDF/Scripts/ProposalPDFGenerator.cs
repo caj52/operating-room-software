@@ -431,6 +431,12 @@ public class ProposalPDFGenerator : MonoBehaviour
         Debug.Log("PDF generation cancelled by user");
     }
 
+    /// <summary>Used by ExportOrchestrator when Escape is pressed during a unified export.</summary>
+    public void RequestCancel()
+    {
+        isCancelled = true;
+    }
+
     private void OpenPDF(string filePath)
     {
         try

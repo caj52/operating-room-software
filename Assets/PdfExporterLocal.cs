@@ -805,6 +805,9 @@ public class PdfExporterLocal
             PaddingLeft = 20f
         };
 
+        if (imageData == null)
+            imageData = new List<PdfImageData>();
+
         PdfPTable imgs = new PdfPTable(2) { WidthPercentage = 100f };
         for (int i = 0; i < 2; i++)
         {

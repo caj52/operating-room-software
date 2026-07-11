@@ -42,6 +42,9 @@ public class UI_PdfExportOptions : MonoBehaviour
     public static List<AdditionalPdfData> GetAdditionalData()
     {
         List<AdditionalPdfData> datas = new();
+        if (Instance == null || Instance._instantiatedPdfDatas == null)
+            return datas;
+
         Instance._instantiatedPdfDatas.ForEach(x =>
         {
             var texts = x.GetComponentsInChildren

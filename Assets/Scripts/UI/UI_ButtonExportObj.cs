@@ -33,7 +33,7 @@ public class UI_ButtonExportObj : MonoBehaviour
             return;
 
         _label.text = ExportRequest.HasSelection()
-            ? "Export object 3D options…"
+            ? "Export folder…"
             : "Export room options…";
     }
 
@@ -42,9 +42,9 @@ public class UI_ButtonExportObj : MonoBehaviour
         UI_ExportOptions.Open();
     }
 
+    /// <summary>Legacy prefab wiring — same as ExportObj (folder / room options hub).</summary>
     public void OpenObjOptions()
     {
-        ExportPaths.EnsureDirectories();
-        UI_ObjExportOptions.Open();
+        ExportObj();
     }
 }

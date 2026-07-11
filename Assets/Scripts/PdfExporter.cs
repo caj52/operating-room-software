@@ -295,7 +295,7 @@ public class PdfExporter : MonoBehaviour
             return;
         }
 
-        var path = Path.Combine(FullRoomSave.GetRoomPath(), "pdf");
+        var path = Path.Combine(ExportPaths.GetExportBasePath(), "pdf");
 
         if (!Directory.Exists(path))
         {

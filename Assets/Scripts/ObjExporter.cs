@@ -21,6 +21,13 @@ public static class ObjExporter
     public static int count = 1;
     public static async void DoExport(bool makeSubmeshes, MeshFilter[] meshFilters, string name)
     {
+        if (meshFilters == null || meshFilters.Length == 0)
+        {
+            Debug.LogWarning("OBJ export skipped — no mesh filters provided.");
+            OnExportFinished?.Invoke();
+            return;
+        }
+
         ObjExporterScript.Start();
         OnExportStarted?.Invoke();
 

@@ -12,7 +12,7 @@ public class UI_ButtonExportPdf : MonoBehaviour
     {
         _label = GetComponentInChildren<TMP_Text>(true);
         Selectable.SelectionChanged += OnSelectionChanged;
-        gameObject.SetActive(false);
+        OnSelectionChanged();
     }
 
     private void OnDestroy()

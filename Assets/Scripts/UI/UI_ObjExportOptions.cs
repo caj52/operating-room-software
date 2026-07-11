@@ -76,6 +76,9 @@ public class UI_ObjExportOptions : MonoBehaviour
 
     private void OnEnable()
     {
+        if (ButtonExportSelectedObject == null)
+            return;
+
         if (_customizeMode)
         {
             ButtonExportSelectedObject.gameObject.SetActive(false);
@@ -87,16 +90,20 @@ public class UI_ObjExportOptions : MonoBehaviour
 
     private void OnSubMeshProcessed(float progress)
     {
-        _loadingTokenWriteObj.SetProgress(progress);
+        _loadingTokenWriteObj?.SetProgress(progress);
     }
 
     private void OnMeshDataWritten()
     {
-        _loadingTokenOverall.SetProgress(0.75f);
+        _loadingTokenOverall?.SetProgress(0.75f);
     }
 
     private void OnExportStarted()
     {
+        // Unified export already owns the progress UI — don't also open the legacy loading screen.
+        if (ExportOrchestrator.SuppressIndividualDialogs)
+            return;
+
         _loadingTokenOverall = Loading.GetLoadingToken();
         _loadingTokenCombiningMeshes = Loading.GetLoadingToken();
         _loadingTokenUpload = Loading.GetLoadingToken();
@@ -106,7 +113,7 @@ public class UI_ObjExportOptions : MonoBehaviour
 
     private void OnMeshCombineSuccess()
     {
-        _loadingTokenOverall.SetProgress(0.25f);
+        _loadingTokenOverall?.SetProgress(0.25f);
     }
 
     private void OnExportFinishedSuccessfully(string path)
@@ -123,7 +130,7 @@ public class UI_ObjExportOptions : MonoBehaviour
 
     private void OnMeshCombiningUpdate(float progress)
     {
-        _loadingTokenCombiningMeshes.SetProgress(progress);
+        _loadingTokenCombiningMeshes?.SetProgress(progress);
     }
 
     private static Action<ObjExportOptions> _onCustomizeApplied;
@@ -134,6 +141,15 @@ public class UI_ObjExportOptions : MonoBehaviour
     public static void Open()
     {
         ExitCustomizeModeStatic();
+        EnsureInstance();
+        if (Instance == null)
+        {
+            UI_DialogPrompt.Open(
+                "3D model options UI is missing from the scene.",
+                new ButtonAction("OK"));
+            return;
+        }
+
         Instance.gameObject.SetActive(true);
     }
 
@@ -143,13 +159,46 @@ public class UI_ObjExportOptions : MonoBehaviour
     /// </summary>
     public static void OpenForCustomization(Action<ObjExportOptions> onApplied)
     {
+        EnsureInstance();
         if (Instance == null)
+        {
+            UI_DialogPrompt.Open(
+                "3D model options UI is missing from the scene.",
+                new ButtonAction("OK"));
             return;
+        }
 
         _onCustomizeApplied = onApplied;
         _customizeMode = true;
         Instance.ApplyCustomizeChrome(true);
+
+        var title = Instance.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true)
+            .FirstOrDefault(t => t.text.Contains("OBJ Export") || t.text.Contains("3D Model") || t.text.Contains("Export Options"));
+        if (title != null)
+            title.text = "Room 3D Model Contents";
+
         Instance.gameObject.SetActive(true);
+    }
+
+    private static void EnsureInstance()
+    {
+        if (Instance != null)
+            return;
+
+        var prefab = Resources.Load<GameObject>("Prefabs/UI_ObjExportOptions");
+        if (prefab == null)
+        {
+            Debug.LogError("Missing Resources/Prefabs/UI_ObjExportOptions.");
+            return;
+        }
+
+        var go = Instantiate(prefab);
+        go.name = nameof(UI_ObjExportOptions);
+        if (go.GetComponent<FullScreenMenu>() == null)
+            go.AddComponent<FullScreenMenu>();
+        go.SetActive(false);
+        DontDestroyOnLoad(go);
+        // Awake assigns Instance.
     }
 
     private static void ExitCustomizeModeStatic()
@@ -157,7 +206,13 @@ public class UI_ObjExportOptions : MonoBehaviour
         _customizeMode = false;
         _onCustomizeApplied = null;
         if (Instance != null)
+        {
             Instance.ApplyCustomizeChrome(false);
+            var title = Instance.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true)
+                .FirstOrDefault(t => t.text.Contains("Room 3D Model Contents") || t.text.Contains("OBJ Export"));
+            if (title != null)
+                title.text = "OBJ Export Options";
+        }
     }
 
     private void ApplyCustomizeChrome(bool customize)
@@ -273,6 +328,14 @@ public class UI_ObjExportOptions : MonoBehaviour
     List<Selectable> selectables,
     ObjExportOptions options)
     {
+        TryDoExport(makeSubmeshes, selectables, options);
+    }
+
+    public static bool TryDoExport(
+        bool makeSubmeshes,
+        List<Selectable> selectables,
+        ObjExportOptions options)
+    {
         MeshFilter[] meshFilters = selectables
             //.Where(x => x.transform.root == x.transform)
             .Where(x =>
@@ -321,11 +384,15 @@ public class UI_ObjExportOptions : MonoBehaviour
             })
             .SelectMany(x => x.GetComponentsInChildren<MeshRenderer>())
             .Where(x => FilterMeshRenderers(x, options))
-            .ToList()
-            .ConvertAll(x => x.gameObject.GetComponent<MeshFilter>())
+            .Select(x => x.gameObject.GetComponent<MeshFilter>())
+            .Where(mf => mf != null)
             .ToArray();
 
+        if (meshFilters.Length == 0)
+            return false;
+
         ObjExporter.DoExport(makeSubmeshes, meshFilters, "Scene");
+        return true;
     }
 
     private static bool FilterMeshRenderers(MeshRenderer meshRenderer, ObjExportOptions options)
@@ -357,22 +424,36 @@ public class UI_ObjExportOptions : MonoBehaviour
 
     public static void DoExport(bool makeSubmeshes, GameObject obj, ObjExportOptions options)
     {
+        TryDoExport(makeSubmeshes, obj, options);
+    }
+
+    public static bool TryDoExport(bool makeSubmeshes, GameObject obj, ObjExportOptions options)
+    {
         MeshFilter[] meshFilters = obj.GetComponentsInChildren<MeshRenderer>()
             .Where(x => FilterMeshRenderers(x, options))
-            .ToList()
-            .ConvertAll(item => item.gameObject.GetComponent<MeshFilter>())
+            .Select(item => item.gameObject.GetComponent<MeshFilter>())
+            .Where(mf => mf != null)
             .ToArray();
 
+        if (meshFilters.Length == 0)
+            return false;
+
         ObjExporter.DoExport(makeSubmeshes, meshFilters, obj.name);
+        return true;
     }
 
     private static void FinishAllLoadingTokens()
     {
-        _loadingTokenOverall.Done();
-        _loadingTokenCombiningMeshes.Done();
-        _loadingTokenUpload.Done();
-        _loadingTokenWaitForResponse.Done();
-        _loadingTokenWriteObj.Done();
+        _loadingTokenOverall?.Done();
+        _loadingTokenCombiningMeshes?.Done();
+        _loadingTokenUpload?.Done();
+        _loadingTokenWaitForResponse?.Done();
+        _loadingTokenWriteObj?.Done();
+        _loadingTokenOverall = null;
+        _loadingTokenCombiningMeshes = null;
+        _loadingTokenUpload = null;
+        _loadingTokenWaitForResponse = null;
+        _loadingTokenWriteObj = null;
     }
 }
 

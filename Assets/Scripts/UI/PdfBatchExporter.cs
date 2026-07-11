@@ -2,7 +2,6 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using UnityEngine;
 using iTextSharp.text;
 using iTextSharp.text.pdf;
@@ -21,21 +20,40 @@ public class PdfBatchExporter : MonoBehaviour
         yield return ExportAllConfigsToMultipagePdf(null, null, null, suppressDialog: false);
     }
 
+    /// <summary>Boom assembly roots currently in the room (matches export guards).</summary>
+    public static List<Selectable> CollectBoomAssemblyRoots()
+    {
+        var roots = new HashSet<GameObject>();
+        var result = new List<Selectable>();
+
+        if (Selectable.ActiveSelectables == null)
+            return result;
+
+        foreach (var selectable in Selectable.ActiveSelectables)
+        {
+            if (selectable == null)
+                continue;
+            if (!selectable.TryGetArmAssemblyRoot(out GameObject root) || root == null)
+                continue;
+            if (!roots.Add(root))
+                continue;
+
+            var rootSelectable = root.GetComponent<Selectable>();
+            if (rootSelectable != null)
+                result.Add(rootSelectable);
+        }
+
+        return result;
+    }
+
     public static IEnumerator ExportAllConfigsToMultipagePdf(
         string outputDirectory,
         string defaultTitle,
         string defaultSubtitle,
-        bool suppressDialog = false)
+        bool suppressDialog = false,
+        Func<bool> shouldCancel = null)
     {
-        var allRoots = FindObjectsOfType<Selectable>()
-            .Where(s => s.TryGetArmAssemblyRoot(out _))
-            .Select(s =>
-            {
-                s.TryGetArmAssemblyRoot(out GameObject root);
-                return root.GetComponent<Selectable>();
-            })
-            .Distinct()
-            .ToList();
+        var allRoots = CollectBoomAssemblyRoots();
 
         string folder = outputDirectory ?? ExportPaths.ElevationsDir;
         if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
@@ -45,6 +63,8 @@ public class PdfBatchExporter : MonoBehaviour
 
         string title = defaultTitle ?? ExportPaths.GetRoomExportName();
         string subtitle = defaultSubtitle ?? string.Empty;
+        int pagesWritten = 0;
+        LastMultipageExportOk = false;
 
         using (FileStream stream = new FileStream(filePath, FileMode.Create, FileAccess.Write))
         using (Document doc = new Document(new Rectangle(1400, 1200, 90), 19.08f, 19.08f, 10, 10))
@@ -54,6 +74,9 @@ public class PdfBatchExporter : MonoBehaviour
 
             for (int i = 0; i < allRoots.Count; i++)
             {
+                if (shouldCancel != null && shouldCancel())
+                    yield break;
+
                 var root = allRoots[i];
                 string configTitle = $"{title} — Configuration {i + 1}";
                 string configSubtitle = string.IsNullOrWhiteSpace(root.MetaData?.Name)
@@ -69,7 +92,9 @@ public class PdfBatchExporter : MonoBehaviour
                     waiting = false;
                 });
 
-                yield return new WaitUntil(() => !waiting);
+                yield return new WaitUntil(() => !waiting || (shouldCancel != null && shouldCancel()));
+                if (shouldCancel != null && shouldCancel())
+                    yield break;
 
                 var assemblyDatas = UI_PdfExportOptions.GenerateAssemblyDataWithTitles(root);
                 var additional = UI_PdfExportOptions.GetAdditionalData();
@@ -78,9 +103,10 @@ public class PdfBatchExporter : MonoBehaviour
 
                 if (images != null && images.Count > 0 && allAssemblyJson.Count > 0)
                 {
-                    PdfExporterLocal.RenderSingleConfigPage(doc, writer, images, configTitle, configSubtitle, allAssemblyJson, meta);
-                    if (i < allRoots.Count - 1)
+                    if (pagesWritten > 0)
                         doc.NewPage();
+                    PdfExporterLocal.RenderSingleConfigPage(doc, writer, images, configTitle, configSubtitle, allAssemblyJson, meta);
+                    pagesWritten++;
                 }
                 else
                 {
@@ -90,6 +116,14 @@ public class PdfBatchExporter : MonoBehaviour
 
             doc.Close();
         }
+
+        if (pagesWritten == 0)
+        {
+            try { if (File.Exists(filePath)) File.Delete(filePath); }
+            catch (Exception e) { Debug.LogWarning($"Could not delete empty elevations PDF: {e.Message}"); }
+        }
+
+        LastMultipageExportOk = pagesWritten > 0;
 
         if (!suppressDialog)
         {
@@ -101,36 +135,44 @@ public class PdfBatchExporter : MonoBehaviour
         }
     }
 
+    /// <summary>Result of the most recent multipage room elevations export.</summary>
+    public static bool LastMultipageExportOk { get; private set; } = true;
+
     public static IEnumerator ExportPerAssemblyPdfs(
         string outputDirectory,
         string defaultTitle,
         string defaultSubtitle,
-        bool suppressDialog = false)
+        bool suppressDialog = false,
+        Func<bool> shouldCancel = null)
     {
-        var allRoots = FindObjectsOfType<Selectable>()
-            .Where(s => s.TryGetArmAssemblyRoot(out _))
-            .Select(s =>
-            {
-                s.TryGetArmAssemblyRoot(out GameObject root);
-                return root.GetComponent<Selectable>();
-            })
-            .Distinct()
-            .ToList();
+        var allRoots = CollectBoomAssemblyRoots();
+        int written = 0;
+        LastPerAssemblyExportOk = false;
 
         string folder = outputDirectory ?? ExportPaths.ElevationsDir;
         if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
 
         for (int i = 0; i < allRoots.Count; i++)
         {
+            if (shouldCancel != null && shouldCancel())
+                yield break;
+
             var root = allRoots[i];
             string title = defaultTitle ?? $"Configuration {i + 1}";
             string subtitle = string.IsNullOrWhiteSpace(root.MetaData?.Name)
                 ? (defaultSubtitle ?? string.Empty)
                 : root.MetaData.Name;
 
-            yield return ExportSingleConfigToPdf(root, title, subtitle, folder, suppressDialog);
+            yield return ExportSingleConfigToPdf(root, title, subtitle, folder, suppressDialog, shouldCancel);
+            if (LastSingleConfigExportOk)
+                written++;
         }
+
+        LastPerAssemblyExportOk = written > 0;
     }
+
+    /// <summary>Result of the most recent per-assembly elevations export.</summary>
+    public static bool LastPerAssemblyExportOk { get; private set; } = true;
 
     public static IEnumerator ExportSingleConfigToPdf(Selectable rootSelectable, string title, string subtitle)
     {
@@ -142,10 +184,38 @@ public class PdfBatchExporter : MonoBehaviour
         string title,
         string subtitle,
         string outputDirectory,
-        bool suppressDialog = false)
+        bool suppressDialog = false,
+        Func<bool> shouldCancel = null)
     {
+        LastSingleConfigExportOk = false;
+
         string folder = outputDirectory ?? ExportPaths.ElevationsDir;
         if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
+
+        List<PdfExporterLocal.PdfImageData> images = null;
+        bool waiting = true;
+
+        yield return rootSelectable.CapturePdfDataForExport(title, subtitle, null, (img, sel) =>
+        {
+            images = img;
+            waiting = false;
+        });
+
+        yield return new WaitUntil(() => !waiting || (shouldCancel != null && shouldCancel()));
+        if (shouldCancel != null && shouldCancel())
+            yield break;
+
+        if (images == null || images.Count == 0)
+        {
+            Debug.LogWarning($"Skipping elevation PDF for {rootSelectable?.name} — no captured images.");
+            LastSingleConfigExportOk = false;
+            yield break;
+        }
+
+        var assemblyDatas = UI_PdfExportOptions.GenerateAssemblyDataWithTitles(rootSelectable);
+        var additional = UI_PdfExportOptions.GetAdditionalData();
+        var meta = UI_PdfExportOptions.GetProjectMetaData();
+        var allAssemblyJson = PdfExporterLocal.ConvertToAssemblyJsonFull(assemblyDatas, additional);
 
         string safeTitle = string.Join("_", (title ?? "Export").Split(Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries));
         string fileName = $"Elevation_{safeTitle}_{DateTime.Now:yyyyMMdd_HHmmss}.pdf";
@@ -156,26 +226,11 @@ public class PdfBatchExporter : MonoBehaviour
         {
             PdfWriter writer = PdfWriter.GetInstance(doc, stream);
             doc.Open();
-
-            List<PdfExporterLocal.PdfImageData> images = null;
-            bool waiting = true;
-
-            yield return rootSelectable.CapturePdfDataForExport(title, subtitle, null, (img, sel) =>
-            {
-                images = img;
-                waiting = false;
-            });
-
-            yield return new WaitUntil(() => !waiting);
-
-            var assemblyDatas = UI_PdfExportOptions.GenerateAssemblyDataWithTitles(rootSelectable);
-            var additional = UI_PdfExportOptions.GetAdditionalData();
-            var meta = UI_PdfExportOptions.GetProjectMetaData();
-            var allAssemblyJson = PdfExporterLocal.ConvertToAssemblyJsonFull(assemblyDatas, additional);
-
             PdfExporterLocal.RenderSingleConfigPage(doc, writer, images, title, subtitle, allAssemblyJson, meta);
             doc.Close();
         }
+
+        LastSingleConfigExportOk = true;
 
         if (!suppressDialog)
         {
@@ -185,4 +240,7 @@ public class PdfBatchExporter : MonoBehaviour
                 new ButtonAction("Done"));
         }
     }
+
+    /// <summary>Result of the most recent <see cref="ExportSingleConfigToPdf"/> call.</summary>
+    public static bool LastSingleConfigExportOk { get; private set; } = true;
 }

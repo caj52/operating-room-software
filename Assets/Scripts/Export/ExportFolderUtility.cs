@@ -16,7 +16,12 @@ public static class ExportFolderUtility
             Directory.CreateDirectory(path);
 
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
-        Process.Start("explorer.exe", $"\"{target}\"");
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = "explorer.exe",
+            Arguments = $"\"{target.Replace('/', '\\')}\"",
+            UseShellExecute = true
+        });
 #elif UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
         Process.Start("open", $"\"{target}\"");
 #else

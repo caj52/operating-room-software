@@ -92,17 +92,40 @@ public class ScreenshotCapture : MonoBehaviour
 
     public void TakeScreenshot()
     {
+        LastPresentationBatchOk = false;
+
         // Make sure cameraPositions array is large enough for all positions (4 walls + ceiling)
-        if (cameraPositions.Length < 5)
+        if (cameraPositions == null || cameraPositions.Length < 5)
         {
             Debug.LogError("Camera positions array needs to be at least size 5 (4 walls + ceiling)");
+            screenshotBatchCompleted = true;
             return;
         }
+
+        if (rooms == null || rooms.currentRoom == null)
+        {
+            Debug.LogError("ScreenshotCapture: no current room — cannot capture presentation snapshots.");
+            screenshotBatchCompleted = true;
+            return;
+        }
+
         RoomBoundary[] roomBoundaries = rooms.currentRoom.GetComponentsInChildren<RoomBoundary>();
-        cameraPositions[0] = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.WallSouth).transform;
-        cameraPositions[1] = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.WallNorth).transform;
-        cameraPositions[2] = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.WallEast).transform;
-        cameraPositions[3] = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.WallWest).transform;
+        var south = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.WallSouth);
+        var north = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.WallNorth);
+        var east = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.WallEast);
+        var west = roomBoundaries.FirstOrDefault(rb => rb.RoomBoundaryType == RoomBoundaryType.WallWest);
+
+        if (south == null || north == null || east == null || west == null)
+        {
+            Debug.LogError("ScreenshotCapture: room is missing one or more walls — cannot capture presentation snapshots.");
+            screenshotBatchCompleted = true;
+            return;
+        }
+
+        cameraPositions[0] = south.transform;
+        cameraPositions[1] = north.transform;
+        cameraPositions[2] = east.transform;
+        cameraPositions[3] = west.transform;
 
         // Assign ceiling position if available or calculate it
         if (ceilingPosition != null)
@@ -119,7 +142,10 @@ public class ScreenshotCapture : MonoBehaviour
 
         // Calculate ceiling point at the center of the room but elevated
         Vector3 roomCenter = GetRoomCenter();
-        float ceilingHeight = RoomSize.Instance.CurrentDimensions.Height.ToMeters() + 9;
+        float roomHeight = RoomSize.Instance != null
+            ? RoomSize.Instance.CurrentDimensions.Height.ToMeters()
+            : 3f;
+        float ceilingHeight = roomHeight + 9;
         ceilingPoint = new Vector3(roomCenter.x, ceilingHeight, roomCenter.z);
 
         // Add all positions to the list
@@ -176,7 +202,9 @@ public class ScreenshotCapture : MonoBehaviour
     IEnumerator CaptureMultipleScreenshots()
     {
         screenshotBatchCompleted = false;
-        UI_GeneralLoadingScreen.instance.ShowLoadingScreen();
+        bool ownLoadingScreen = !ExportOrchestrator.SuppressIndividualDialogs;
+        if (ownLoadingScreen && UI_GeneralLoadingScreen.instance != null)
+            UI_GeneralLoadingScreen.instance.ShowLoadingScreen();
         // Hide UI before capturing
         if (uiCanvas != null)
             ToggleUI(false);
@@ -204,7 +232,9 @@ public class ScreenshotCapture : MonoBehaviour
             yield return new WaitUntil(() => screenshotCompleted); // Short delay for smooth capturing
         }
 
-        RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling).MeshRenderer.enabled = false;
+        var ceilingBoundary = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling);
+        if (ceilingBoundary != null && ceilingBoundary.MeshRenderer != null)
+            ceilingBoundary.MeshRenderer.enabled = false;
         // Now capture the ceiling position
         captureCamera.transform.position = ceilingPoint;
         // Look down from ceiling
@@ -220,7 +250,8 @@ public class ScreenshotCapture : MonoBehaviour
         originalState.Restore(captureCamera, urpCameraData);
         AdjustExposureForScreenshot(false);
 
-        UI_GeneralLoadingScreen.instance.HideLoadingScreen();
+        if (ownLoadingScreen && UI_GeneralLoadingScreen.instance != null)
+            UI_GeneralLoadingScreen.instance.HideLoadingScreen();
         // Re-enable UI after all screenshots are taken
         if (uiCanvas != null)
             ToggleUI(true);
@@ -232,12 +263,19 @@ public class ScreenshotCapture : MonoBehaviour
              new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = folderPath),
             new ButtonAction("Done"));
         }
-        if (OperatingRoomCamera.LiveCamera.CameraType == OperatingRoomCameraType.FreeLook)
+        if (OperatingRoomCamera.LiveCamera != null
+            && OperatingRoomCamera.LiveCamera.CameraType == OperatingRoomCameraType.FreeLook
+            && ceilingBoundary != null
+            && ceilingBoundary.MeshRenderer != null)
         {
-            RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling).MeshRenderer.enabled = true;
+            ceilingBoundary.MeshRenderer.enabled = true;
         }
+        LastPresentationBatchOk = true;
         screenshotBatchCompleted = true;
     }
+
+    /// <summary>Result of the most recent presentation-snapshot batch.</summary>
+    public bool LastPresentationBatchOk { get; private set; }
 
     public IEnumerator ExportPresentationSnapshots(string outputDirectory)
     {

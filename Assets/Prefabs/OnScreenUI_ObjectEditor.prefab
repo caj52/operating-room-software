@@ -1797,7 +1797,7 @@ MonoBehaviour:
       m_Calls:
       - m_Target: {fileID: 2493164082653182377}
         m_TargetAssemblyTypeName: UI_ButtonExportObj, Assembly-CSharp
-        m_MethodName: OpenObjOptions
+        m_MethodName: ExportObj
         m_Mode: 1
         m_Arguments:
           m_ObjectArgument: {fileID: 0}

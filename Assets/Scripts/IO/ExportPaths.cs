@@ -3,11 +3,14 @@ using System.IO;
 using UnityEngine;
 
 /// <summary>
-/// Resolves export output folders. Uses a custom folder when set; otherwise Documents.
+/// Resolves export output folders.
+/// Parent folder defaults to Documents/Operating Room Exports (override stored in PlayerPrefs).
+/// Every export always goes under a room-name subfolder inside that parent.
 /// </summary>
 public static class ExportPaths
 {
     private const string DocumentsFolderName = "Operating Room Exports";
+    private const string ParentFolderPrefsKey = "ExportParentFolder";
 
     public static string GetRoomExportName()
     {
@@ -40,16 +43,47 @@ public static class ExportPaths
         return name.Trim().Replace(' ', '_');
     }
 
-    public static string GetExportBasePath()
+    public static string GetDefaultParentFolder()
     {
-        string customPath = FullRoomSave.GetRoomPath();
-        if (!string.IsNullOrEmpty(customPath))
-            return customPath;
-
         return Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-            DocumentsFolderName,
-            SanitizeFolderName(GetRoomExportName()));
+            DocumentsFolderName);
+    }
+
+    /// <summary>Documents/Operating Room Exports, or the user-chosen parent from PlayerPrefs.</summary>
+    public static string GetParentFolder()
+    {
+        if (HasCustomParentFolder())
+            return PlayerPrefs.GetString(ParentFolderPrefsKey);
+
+        return GetDefaultParentFolder();
+    }
+
+    public static bool HasCustomParentFolder()
+    {
+        return PlayerPrefs.HasKey(ParentFolderPrefsKey)
+               && !string.IsNullOrWhiteSpace(PlayerPrefs.GetString(ParentFolderPrefsKey));
+    }
+
+    public static void SetParentFolder(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+
+        PlayerPrefs.SetString(ParentFolderPrefsKey, path.Trim());
+        PlayerPrefs.Save();
+    }
+
+    public static void ClearCustomParentFolder()
+    {
+        PlayerPrefs.DeleteKey(ParentFolderPrefsKey);
+        PlayerPrefs.Save();
+    }
+
+    /// <summary>Parent folder + room-name subfolder. All deliverables live under here.</summary>
+    public static string GetExportBasePath()
+    {
+        return Path.Combine(GetParentFolder(), SanitizeFolderName(GetRoomExportName()));
     }
 
     public static string ObjSceneDir => Path.Combine(GetExportBasePath(), "ObjFile");
@@ -61,6 +95,7 @@ public static class ExportPaths
 
     public static void EnsureDirectories()
     {
+        Directory.CreateDirectory(GetExportBasePath());
         Directory.CreateDirectory(ObjSceneDir);
         Directory.CreateDirectory(ElevationsDir);
         Directory.CreateDirectory(ProposalsDir);

@@ -16,6 +16,9 @@ public class ExportOrchestrator : MonoBehaviour
     private bool _cancelled;
     private ExportScope _activeScope = ExportScope.Room;
 
+    private bool _running;
+    private ProposalPDFGenerator _activeProposal;
+
     private void Awake()
     {
         if (Instance != null && Instance != this)
@@ -35,7 +38,18 @@ public class ExportOrchestrator : MonoBehaviour
 
     public static void Run(ExportRequest request)
     {
+        if (request == null)
+            return;
+
         EnsureInstance();
+        if (Instance._running)
+        {
+            UI_DialogPrompt.Open(
+                "An export is already running. Please wait for it to finish.",
+                new ButtonAction("OK"));
+            return;
+        }
+
         Instance.StartCoroutine(Instance.RunExportCoroutine(request));
     }
 
@@ -55,7 +69,18 @@ public class ExportOrchestrator : MonoBehaviour
         _completedSteps.Clear();
         _failedSteps.Clear();
         _cancelled = false;
+        _activeProposal = null;
 
+        if (UI_GeneralLoadingScreen.instance == null)
+        {
+            Debug.LogError("UI_GeneralLoadingScreen is missing — cannot run export.");
+            UI_DialogPrompt.Open(
+                "Export UI is missing from the scene.\nCannot show progress.",
+                new ButtonAction("OK"));
+            yield break;
+        }
+
+        _running = true;
         ExportPaths.EnsureDirectories();
         SuppressIndividualDialogs = true;
 
@@ -67,53 +92,57 @@ public class ExportOrchestrator : MonoBehaviour
             int stepCount = CountSteps(activeRequest);
             int stepIndex = 0;
 
-            if (activeRequest.IncludeObj)
+            if (activeRequest.IncludeObj && !_cancelled)
             {
-                if (_cancelled) yield break;
                 UI_GeneralLoadingScreen.instance.SetStatus("Exporting 3D model (OBJ)...");
                 UI_GeneralLoadingScreen.instance.SetProgress((float)stepIndex / stepCount);
                 yield return ExportObj(activeRequest.ObjOptions);
-                if (_cancelled) yield break;
                 stepIndex++;
             }
 
-            if (activeRequest.IncludeElevations)
+            if (activeRequest.IncludeElevations && !_cancelled)
             {
-                if (_cancelled) yield break;
                 UI_GeneralLoadingScreen.instance.SetStatus("Exporting elevation sheets (PDF)...");
                 UI_GeneralLoadingScreen.instance.SetProgress((float)stepIndex / stepCount);
                 yield return ExportElevations(activeRequest);
-                if (_cancelled) yield break;
                 stepIndex++;
             }
 
-            if (activeRequest.IncludeProposal)
+            if (activeRequest.IncludeProposal && !_cancelled)
             {
-                if (_cancelled) yield break;
                 UI_GeneralLoadingScreen.instance.SetStatus("Exporting sales proposal (PDF)...");
                 UI_GeneralLoadingScreen.instance.SetProgress((float)stepIndex / stepCount);
                 yield return ExportProposal();
-                if (_cancelled) yield break;
                 stepIndex++;
             }
 
-            if (activeRequest.IncludeSnapshots)
+            if (activeRequest.IncludeSnapshots && !_cancelled)
             {
-                if (_cancelled) yield break;
                 UI_GeneralLoadingScreen.instance.SetStatus("Exporting presentation snapshots...");
                 UI_GeneralLoadingScreen.instance.SetProgress((float)stepIndex / stepCount);
                 yield return ExportSnapshots();
-                if (_cancelled) yield break;
             }
 
-            UI_GeneralLoadingScreen.instance.SetProgress(1f);
-            ShowCompletionDialog();
+            if (!_cancelled)
+            {
+                UI_GeneralLoadingScreen.instance.SetProgress(1f);
+                ShowCompletionDialog();
+            }
+            else
+            {
+                UI_DialogPrompt.Open("Export cancelled.", new ButtonAction("OK"));
+            }
         }
         finally
         {
-            UI_GeneralLoadingScreen.instance.OnCancel -= OnCancelRequested;
-            UI_GeneralLoadingScreen.instance.HideLoadingScreen();
+            if (UI_GeneralLoadingScreen.instance != null)
+            {
+                UI_GeneralLoadingScreen.instance.OnCancel -= OnCancelRequested;
+                UI_GeneralLoadingScreen.instance.HideLoadingScreen();
+            }
             SuppressIndividualDialogs = false;
+            _activeProposal = null;
+            _running = false;
         }
     }
 
@@ -121,6 +150,7 @@ public class ExportOrchestrator : MonoBehaviour
     {
         // Only set the flag — do not StopAllCoroutines or the finally block never runs.
         _cancelled = true;
+        _activeProposal?.RequestCancel();
     }
 
     private static int CountSteps(ExportRequest request)
@@ -136,31 +166,78 @@ public class ExportOrchestrator : MonoBehaviour
     private IEnumerator ExportObj(ObjExportOptions options)
     {
         bool finished = false;
+        bool succeeded = false;
         UnityEngine.Events.UnityAction onFinished = () => finished = true;
+        UnityEngine.Events.UnityAction<string> onSuccess = _ => succeeded = true;
         ObjExporter.OnExportFinished.AddListener(onFinished);
+        ObjExporter.ExportFinishedSuccessfully.AddListener(onSuccess);
 
-        var opts = options ?? ObjExportOptions.CreateDefaults();
-
-        if (activeRequestScopeIsSelection())
+        try
         {
-            var selected = Selectable.SelectedSelectables[0];
-            if (selected.TryGetArmAssemblyRoot(out GameObject root))
-                UI_ObjExportOptions.DoExport(true, root, opts);
+            var opts = options ?? ObjExportOptions.CreateDefaults();
+
+            bool started;
+            if (activeRequestScopeIsSelection())
+            {
+                if (!ExportRequest.HasSelection())
+                {
+                    _failedSteps.Add("3D model (nothing selected)");
+                    yield break;
+                }
+
+                var selected = Selectable.SelectedSelectables[0];
+                if (selected.TryGetArmAssemblyRoot(out GameObject root))
+                    started = UI_ObjExportOptions.TryDoExport(true, root, opts);
+                else
+                    started = UI_ObjExportOptions.TryDoExport(true, selected.gameObject, opts);
+            }
             else
-                UI_ObjExportOptions.DoExport(true, selected.gameObject, opts);
+            {
+                if (Selectable.ActiveSelectables == null || Selectable.ActiveSelectables.Count == 0)
+                {
+                    _failedSteps.Add("Room 3D model (nothing in the room to export)");
+                    yield break;
+                }
+
+                started = UI_ObjExportOptions.TryDoExport(true, Selectable.ActiveSelectables, opts);
+            }
+
+            if (!started)
+            {
+                _failedSteps.Add(activeRequestScopeIsSelection()
+                    ? "3D model (no meshes matched export filters)"
+                    : "Room 3D model (no meshes matched export filters)");
+                yield break;
+            }
+
+            yield return new WaitUntil(() => finished || _cancelled);
+
+            // Keep SuppressIndividualDialogs until the in-flight OBJ finishes,
+            // otherwise a late success dialog can pop after "Export cancelled".
+            if (_cancelled && !finished)
+                yield return new WaitUntil(() => finished);
+
+            if (_cancelled)
+                yield break;
+
+            if (succeeded)
+            {
+                _completedSteps.Add(activeRequestScopeIsSelection()
+                    ? "Selected 3D model (OBJ)"
+                    : "Room 3D model (OBJ)");
+            }
+            else
+            {
+                _failedSteps.Add(activeRequestScopeIsSelection()
+                    ? "3D model (export failed)"
+                    : "Room 3D model (export failed)");
+            }
         }
-        else
+        finally
         {
-            UI_ObjExportOptions.DoExport(true, Selectable.ActiveSelectables, opts);
+            ObjExporter.OnExportFinished.RemoveListener(onFinished);
+            ObjExporter.ExportFinishedSuccessfully.RemoveListener(onSuccess);
         }
-
-        yield return new WaitUntil(() => finished || _cancelled);
-        ObjExporter.OnExportFinished.RemoveListener(onFinished);
-
-        if (!_cancelled)
-            _completedSteps.Add(activeRequestScopeIsSelection()
-                ? "Selected 3D model (OBJ)"
-                : "Room 3D model (OBJ)");
     }
 
     private bool activeRequestScopeIsSelection() => _activeScope == ExportScope.SelectedObject;
@@ -186,32 +263,69 @@ public class ExportOrchestrator : MonoBehaviour
             }
 
             var rootSelectable = root.GetComponent<Selectable>();
+            if (rootSelectable == null)
+            {
+                _failedSteps.Add("Elevation sheet (boom root has no Selectable)");
+                yield break;
+            }
+
             string objectTitle = string.IsNullOrWhiteSpace(rootSelectable.MetaData?.Name)
                 ? title
                 : rootSelectable.MetaData.Name;
 
             yield return PdfBatchExporter.ExportSingleConfigToPdf(
-                rootSelectable, objectTitle, subtitle, ExportPaths.ElevationsDir, suppressDialog: true);
-            if (!_cancelled)
+                rootSelectable, objectTitle, subtitle, ExportPaths.ElevationsDir, suppressDialog: true,
+                shouldCancel: () => _cancelled);
+            if (_cancelled)
+                yield break;
+            if (PdfBatchExporter.LastSingleConfigExportOk)
                 _completedSteps.Add("Elevation sheet for selected boom (PDF)");
+            else
+                _failedSteps.Add("Elevation sheet (capture produced no images)");
             yield break;
         }
 
         if (request.ElevationMode == ElevationExportMode.CombinedRoom)
         {
+            int boomCount = CountBoomAssemblies();
+            if (boomCount == 0)
+            {
+                _failedSteps.Add("Elevation sheets (no boom assemblies in the room)");
+                yield break;
+            }
+
             yield return PdfBatchExporter.ExportAllConfigsToMultipagePdf(
-                ExportPaths.ElevationsDir, title, subtitle, suppressDialog: true);
-            if (!_cancelled)
+                ExportPaths.ElevationsDir, title, subtitle, suppressDialog: true,
+                shouldCancel: () => _cancelled);
+            if (_cancelled)
+                yield break;
+            if (PdfBatchExporter.LastMultipageExportOk)
                 _completedSteps.Add("Elevation sheets (combined PDF)");
+            else
+                _failedSteps.Add("Elevation sheets (no pages could be generated)");
         }
         else
         {
+            int boomCount = CountBoomAssemblies();
+            if (boomCount == 0)
+            {
+                _failedSteps.Add("Elevation sheets (no boom assemblies in the room)");
+                yield break;
+            }
+
             yield return PdfBatchExporter.ExportPerAssemblyPdfs(
-                ExportPaths.ElevationsDir, title, subtitle, suppressDialog: true);
-            if (!_cancelled)
+                ExportPaths.ElevationsDir, title, subtitle, suppressDialog: true,
+                shouldCancel: () => _cancelled);
+            if (_cancelled)
+                yield break;
+            if (PdfBatchExporter.LastPerAssemblyExportOk)
                 _completedSteps.Add("Elevation sheets (one PDF per boom)");
+            else
+                _failedSteps.Add("Elevation sheets (no boom PDFs could be generated)");
         }
     }
+
+    private static int CountBoomAssemblies() => PdfBatchExporter.CollectBoomAssemblyRoots().Count;
 
     private IEnumerator ExportProposal()
     {
@@ -222,6 +336,7 @@ public class ExportOrchestrator : MonoBehaviour
             yield break;
         }
 
+        _activeProposal = generator;
         generator.ApplyExportDefaults();
         generator.SuppressCompletionDialog = true;
 
@@ -237,13 +352,19 @@ public class ExportOrchestrator : MonoBehaviour
         });
 
         yield return new WaitUntil(() => finished || _cancelled);
+        if (_cancelled && !finished)
+        {
+            generator.RequestCancel();
+            yield return new WaitUntil(() => finished);
+        }
         generator.SuppressCompletionDialog = false;
+        _activeProposal = null;
 
         if (_cancelled)
             yield break;
 
         if (hadError)
-            _failedSteps.Add($"Sales proposal ({error})");
+            _failedSteps.Add($"Sales proposal ({error ?? "unknown error"})");
         else
             _completedSteps.Add("Sales proposal (PDF)");
     }
@@ -258,18 +379,17 @@ public class ExportOrchestrator : MonoBehaviour
         }
 
         yield return capture.ExportPresentationSnapshots(ExportPaths.SnapshotsDir);
-        if (!_cancelled)
+        if (_cancelled)
+            yield break;
+
+        if (capture.LastPresentationBatchOk)
             _completedSteps.Add("Presentation snapshots");
+        else
+            _failedSteps.Add("Snapshots (capture failed — check room walls/setup)");
     }
 
     private void ShowCompletionDialog()
     {
-        if (_cancelled)
-        {
-            UI_DialogPrompt.Open("Export cancelled.", new ButtonAction("OK"));
-            return;
-        }
-
         string exportBase = ExportPaths.GetExportBasePath();
 
         if (_failedSteps.Count > 0 && _completedSteps.Count == 0)
@@ -277,7 +397,11 @@ public class ExportOrchestrator : MonoBehaviour
             UI_DialogPrompt.Open(
                 "Export failed:\n" + string.Join("\n", _failedSteps)
                 + $"\n\nFolder:\n{exportBase}",
-                new ButtonAction("Open Folder", () => ExportFolderUtility.RevealInFileManager(exportBase)),
+                new ButtonAction("Open Folder", () =>
+                {
+                    UI_DialogPrompt.Close();
+                    ExportFolderUtility.RevealInFileManager(exportBase);
+                }),
                 new ButtonAction("OK"));
             return;
         }
@@ -288,12 +412,18 @@ public class ExportOrchestrator : MonoBehaviour
               + "\n\nIssues:\n"
               + string.Join("\n", _failedSteps)
             : "Export finished.\n\n"
-              + string.Join("\n", _completedSteps)
+              + (_completedSteps.Count > 0
+                  ? string.Join("\n", _completedSteps)
+                  : "(No files were exported)")
               + $"\n\nSaved to:\n{exportBase}";
 
         UI_DialogPrompt.Open(
             summary,
-            new ButtonAction("Open Folder", () => ExportFolderUtility.RevealInFileManager(exportBase)),
+            new ButtonAction("Open Folder", () =>
+            {
+                UI_DialogPrompt.Close();
+                ExportFolderUtility.RevealInFileManager(exportBase);
+            }),
             new ButtonAction("Done"));
     }
 

@@ -33,13 +33,13 @@ public class UI_ExportOptions : MonoBehaviour
     private Button _buttonCancel;
     private Button _buttonCustomizeObj;
     private Button _buttonChooseFolder;
-    private Button _buttonResetFolder;
     private ExportScope _scope = ExportScope.Room;
     private ObjExportOptions _objOptions = ObjExportOptions.CreateDefaults();
     private bool _objOptionsCustomized;
     private bool _wired;
     private bool _preserveChoicesOnNextOpen;
     private bool _hasRoomChoices;
+    private ExportScope? _forcedScopeOnOpen;
 
     public static void Open()
     {
@@ -89,13 +89,24 @@ public class UI_ExportOptions : MonoBehaviour
     /// </summary>
     public static ExportRequest GetRequestForToolbar()
     {
+        // Object export is always just the selected 3D model — never room include filters.
         if (ExportRequest.CurrentScope() == ExportScope.SelectedObject)
             return ExportRequest.CreateDefaultsForSelection();
 
-        if (Instance != null && Instance._wired && Instance._hasRoomChoices)
-            return Instance.BuildRoomRequestFromUI();
+        ExportRequest request = (Instance != null && Instance._wired && Instance._hasRoomChoices)
+            ? Instance.BuildRoomRequestFromUI()
+            : ExportRequest.CreateDefaultsForRoom();
 
-        return ExportRequest.CreateDefaultsForRoom();
+        if (!request.IncludeObj && !request.IncludeElevations
+            && !request.IncludeProposal && !request.IncludeSnapshots)
+        {
+            UI_DialogPrompt.Open(
+                "Nothing is selected to export.\nOpen Export room options… and turn at least one item on.",
+                new ButtonAction("OK"));
+            return null;
+        }
+
+        return request;
     }
 
     private static void EnsureInstance()
@@ -188,6 +199,14 @@ public class UI_ExportOptions : MonoBehaviour
         SetToggleLabel(_toggleProposal, "Sales proposal (PDF)");
         SetToggleLabel(_toggleSnapshots, "Presentation snapshots (PNG)");
         SetToggleLabel(_togglePerAssembly, "One PDF per boom (instead of one combined PDF)");
+
+        _toggleElevations.onValueChanged.RemoveAllListeners();
+        _toggleElevations.onValueChanged.AddListener(_ =>
+        {
+            RefreshPerAssemblyVisibility();
+            if (isActiveAndEnabled)
+                RebuildLayout();
+        });
 
         // Nested separators under toggles fight the cleaned-up spacing — hide them.
         foreach (var toggle in new[]
@@ -322,39 +341,43 @@ public class UI_ExportOptions : MonoBehaviour
             _buttonCustomizeObj.onClick = new Button.ButtonClickedEvent();
             _buttonCustomizeObj.onClick.AddListener(() =>
             {
-                if (_scope == ExportScope.Room)
-                    _hasRoomChoices = true;
+                // Room-only: these toggles filter whole-room OBJ contents.
+                if (_scope != ExportScope.Room)
+                    return;
+
+                _hasRoomChoices = true;
                 Close();
                 UI_ObjExportOptions.OpenForCustomization(opts =>
                 {
                     _objOptions = opts;
                     _objOptionsCustomized = true;
+                    _forcedScopeOnOpen = ExportScope.Room;
                     Reopen();
                 });
             });
             StyleActionButton(_buttonCustomizeObj, 40f);
         }
 
-        if (_buttonCustomizeObj != null && _buttonChooseFolder == null)
+        if (_buttonChooseFolder == null)
         {
-            _buttonChooseFolder = CloneActionButton(_buttonCustomizeObj, "Button_ChooseExportFolder", "Choose export folder…");
-            _buttonChooseFolder.onClick = new Button.ButtonClickedEvent();
-            _buttonChooseFolder.onClick.AddListener(() =>
+            var template = _buttonCustomizeObj ?? _buttonCancel;
+            if (template != null)
             {
-                if (_scope == ExportScope.Room)
-                    _hasRoomChoices = true;
-                Close();
-                FullRoomSave.OpenChooseExportFolderPrompt(Reopen);
-            });
-
-            _buttonResetFolder = CloneActionButton(_buttonCustomizeObj, "Button_ResetExportFolder", "Use default Documents folder");
-            _buttonResetFolder.onClick = new Button.ButtonClickedEvent();
-            _buttonResetFolder.onClick.AddListener(() =>
-            {
-                FullRoomSave.ClearCustomFolder();
-                RefreshChrome();
-                RebuildLayout();
-            });
+                _buttonChooseFolder = CloneActionButton(template, "Button_ChooseExportFolder", "Choose export folder…");
+                _buttonChooseFolder.onClick = new Button.ButtonClickedEvent();
+                _buttonChooseFolder.onClick.AddListener(() =>
+                {
+                    var returnScope = _scope;
+                    if (_scope == ExportScope.Room)
+                        _hasRoomChoices = true;
+                    Close();
+                    FullRoomSave.OpenChooseExportFolderPrompt(() =>
+                    {
+                        _forcedScopeOnOpen = returnScope;
+                        Reopen();
+                    });
+                });
+            }
         }
     }
 
@@ -412,23 +435,29 @@ public class UI_ExportOptions : MonoBehaviour
         if (!_wired)
             WireExistingChrome();
 
-        _scope = ExportRequest.CurrentScope();
-        var defaults = ExportRequest.CreateDefaults();
-        _objOptions = defaults.ObjOptions ?? ObjExportOptions.CreateDefaults();
-        _objOptionsCustomized = false;
+        _scope = _forcedScopeOnOpen ?? ExportRequest.CurrentScope();
+        _forcedScopeOnOpen = null;
 
-        _toggleObj.isOn = defaults.IncludeObj;
-        _toggleElevations.isOn = defaults.IncludeElevations;
-        _toggleProposal.isOn = defaults.IncludeProposal;
-        _toggleSnapshots.isOn = defaults.IncludeSnapshots;
-        _togglePerAssembly.isOn = defaults.ElevationMode == ElevationExportMode.PerAssembly;
-
+        // Object options must not wipe room deliverable / 3D-include choices.
         if (_scope == ExportScope.SelectedObject)
         {
-            _toggleObj.isOn = true;
-            _toggleElevations.isOn = false;
-            _toggleProposal.isOn = false;
-            _toggleSnapshots.isOn = false;
+            RefreshChrome();
+            return;
+        }
+
+        // First time in room options this session: load defaults.
+        // After the user has confirmed choices once, leave their toggles alone.
+        if (!_hasRoomChoices)
+        {
+            var defaults = ExportRequest.CreateDefaultsForRoom();
+            if (!_objOptionsCustomized)
+                _objOptions = defaults.ObjOptions ?? ObjExportOptions.CreateDefaults();
+
+            _toggleObj.isOn = defaults.IncludeObj;
+            _toggleElevations.isOn = defaults.IncludeElevations;
+            _toggleProposal.isOn = defaults.IncludeProposal;
+            _toggleSnapshots.isOn = defaults.IncludeSnapshots;
+            _togglePerAssembly.isOn = defaults.ElevationMode == ElevationExportMode.PerAssembly;
         }
 
         RefreshChrome();
@@ -439,35 +468,59 @@ public class UI_ExportOptions : MonoBehaviour
         if (!_wired)
             WireExistingChrome();
 
-        _scope = ExportRequest.CurrentScope();
+        // Apply a one-shot scope override (e.g. returning from room 3D customize).
+        if (_forcedScopeOnOpen.HasValue)
+        {
+            _scope = _forcedScopeOnOpen.Value;
+            _forcedScopeOnOpen = null;
+        }
+        else if (!_preserveChoicesOnNextOpen)
+        {
+            _scope = ExportRequest.CurrentScope();
+        }
+
         bool objectMode = _scope == ExportScope.SelectedObject;
 
         if (_titleLabel != null)
-            _titleLabel.text = objectMode ? "Object 3D Export Options" : "Room Export Options";
+            _titleLabel.text = objectMode ? "Export Folder" : "Room Export Options";
 
         UpdateInfoText(objectMode);
 
+        // Deliverable toggles + room OBJ include customization are room-only.
         _objRow.SetActive(!objectMode);
         _elevationsRow.SetActive(!objectMode);
         _proposalRow.SetActive(!objectMode);
         _snapshotsRow.SetActive(!objectMode);
-        _perAssemblyRow.SetActive(!objectMode);
         _advancedRow.SetActive(false);
+        RefreshPerAssemblyVisibility();
 
         if (_buttonExport != null)
             _buttonExport.gameObject.SetActive(false);
 
+        // Include floor/ceiling/walls only applies to whole-room OBJ export.
         if (_buttonCustomizeObj != null)
-            _buttonCustomizeObj.gameObject.SetActive(true);
+            _buttonCustomizeObj.gameObject.SetActive(!objectMode);
+
+        // Folder choice applies to both room and object exports.
         if (_buttonChooseFolder != null)
             _buttonChooseFolder.gameObject.SetActive(true);
-        if (_buttonResetFolder != null)
-            _buttonResetFolder.gameObject.SetActive(FullRoomSave.HasCustomFolder());
+
         if (_buttonCancel != null)
         {
             _buttonCancel.gameObject.SetActive(true);
             SetButtonLabel(_buttonCancel, "Done");
         }
+    }
+
+    private void RefreshPerAssemblyVisibility()
+    {
+        bool show = _scope == ExportScope.Room
+                    && _elevationsRow != null
+                    && _elevationsRow.activeSelf
+                    && _toggleElevations != null
+                    && _toggleElevations.isOn;
+        if (_perAssemblyRow != null)
+            _perAssemblyRow.SetActive(show);
     }
 
     private void UpdateInfoText(bool objectMode)
@@ -476,23 +529,15 @@ public class UI_ExportOptions : MonoBehaviour
             return;
 
         string path = ShortenPath(ExportPaths.GetExportBasePath());
-        string folderLine = FullRoomSave.HasCustomFolder()
-            ? $"Save to (custom):\n{path}"
-            : $"Save to:\n{path}";
+        string folderLine = ExportPaths.HasCustomParentFolder()
+            ? $"Save under (custom):\n{path}"
+            : $"Save under:\n{path}";
 
-        string hint;
-        if (objectMode)
-        {
-            hint = _objOptionsCustomized
-                ? "Custom 3D contents will be used when you export from the toolbar."
-                : "Adjust folder and 3D contents here.\nExport from the toolbar button.";
-        }
-        else
-        {
-            hint = _objOptionsCustomized
+        string hint = objectMode
+            ? "Choose where the selected object's 3D model is saved,\nthen use Export object 3D model on the toolbar."
+            : (_objOptionsCustomized
                 ? "Choose what to include. Custom 3D contents are on.\nExport from the toolbar when ready."
-                : "Choose what to include, then export from the toolbar.";
-        }
+                : "Choose what to include, then export from the toolbar.");
 
         _infoLabel.text = folderLine + "\n\n" + hint;
         _infoLabel.ForceMeshUpdate();
@@ -529,7 +574,6 @@ public class UI_ExportOptions : MonoBehaviour
         AddGo(_perAssemblyRow);
         Add(_buttonCustomizeObj);
         Add(_buttonChooseFolder);
-        Add(_buttonResetFolder);
         Add(_buttonCancel);
 
         for (int i = 0; i < order.Count; i++)

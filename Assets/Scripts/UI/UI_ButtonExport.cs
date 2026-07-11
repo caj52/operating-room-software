@@ -40,7 +40,11 @@ public class UI_ButtonExport : MonoBehaviour
     /// <summary>One-click export for the current scope (room package or selected 3D model).</summary>
     public void Export()
     {
-        ExportOrchestrator.Run(UI_ExportOptions.GetRequestForToolbar());
+        var request = UI_ExportOptions.GetRequestForToolbar();
+        if (request == null)
+            return;
+
+        ExportOrchestrator.Run(request);
     }
 
     public void OpenExportOptions()

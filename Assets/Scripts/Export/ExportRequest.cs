@@ -67,6 +67,7 @@ public class ExportRequest
             IncludeProposal = false,
             IncludeSnapshots = false,
             ElevationMode = ElevationExportMode.PerAssembly,
+            // Room include filters are irrelevant for a single selected object.
             ObjOptions = ObjExportOptions.CreateDefaults()
         };
     }
