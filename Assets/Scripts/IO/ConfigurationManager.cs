@@ -121,7 +121,7 @@ public class ConfigurationManager : MonoBehaviour
         string configsPath = path + "Configs/";
         DeleteAllInDirectory(configsPath);
         Debug.Log("Nuked all saved arm configurations");
-        PlayerPrefs.SetString(_lastNukedSavesPlayerPrefsKey, Application.version);
+        PlayerPrefs.SetString(_lastNukedSavesPlayerPrefsKey, AppVersion.Number);
     }
 
     private void DeleteAllInDirectory(string path)
@@ -149,7 +149,7 @@ public class ConfigurationManager : MonoBehaviour
 
     private RoomConfiguration NewRoomSave()
     {
-        _roomConfiguration = new RoomConfiguration() { collections = new List<Tracker>(), version = Application.version };
+        _roomConfiguration = new RoomConfiguration() { collections = new List<Tracker>(), version = AppVersion.Number };
         return _roomConfiguration;
     }
 

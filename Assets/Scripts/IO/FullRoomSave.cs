@@ -46,7 +46,8 @@ public class FullRoomSave : MonoBehaviour
     }
 
     /// <summary>Opens the native OS folder browser and saves the chosen parent folder.</summary>
-    public static void OpenChooseExportFolderPrompt(Action onFolderChosen = null)
+    /// <param name="onComplete">Invoked when the picker closes. True if a folder was chosen.</param>
+    public static void OpenChooseExportFolderPrompt(Action<bool> onComplete = null)
     {
         string startDir = ExportPaths.GetParentFolder();
         try
@@ -67,7 +68,7 @@ public class FullRoomSave : MonoBehaviour
                 "Choose export folder",
                 startDir,
                 false,
-                items => OnFolderPicked(items, onFolderChosen));
+                items => OnFolderPicked(items, onComplete));
         }
         catch (Exception e)
         {
@@ -77,35 +78,21 @@ public class FullRoomSave : MonoBehaviour
                 new ButtonAction("OK", () =>
                 {
                     UI_DialogPrompt.Close();
-                    onFolderChosen?.Invoke();
+                    onComplete?.Invoke(false);
                 }));
         }
     }
 
-    private static void OnFolderPicked(IList<ItemWithStream> items, Action onFolderChosen)
+    private static void OnFolderPicked(IList<ItemWithStream> items, Action<bool> onComplete)
     {
         if (items == null || items.Count == 0 || string.IsNullOrWhiteSpace(items[0]?.Name))
         {
-            onFolderChosen?.Invoke();
+            onComplete?.Invoke(false);
             return;
         }
 
-        string chosen = items[0].Name;
-        ExportPaths.SetParentFolder(chosen);
-
-        string example = ExportPaths.GetExportBasePath();
-        UI_DialogPrompt.Open(
-            $"Export folder set.\nFiles will save under:\n{example}",
-            new ButtonAction("Open Folder", () =>
-            {
-                ExportPaths.EnsureDirectories();
-                ExportFolderUtility.RevealInFileManager(example);
-            }),
-            new ButtonAction("Done", () =>
-            {
-                UI_DialogPrompt.Close();
-                onFolderChosen?.Invoke();
-            }));
+        ExportPaths.SetParentFolder(items[0].Name);
+        onComplete?.Invoke(true);
     }
 
     /// <summary>Legacy alias — room export root (parent + room name).</summary>

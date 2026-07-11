@@ -40,6 +40,11 @@ public class UI_ButtonExport : MonoBehaviour
             _label = GetComponentInChildren<TMP_Text>(true);
         if (_label != null)
             _label.text = "Export object 3D model";
+
+        // Text button — never keep a hover tip.
+        var tip = GetComponent<UI_HoverTooltip>();
+        if (tip != null)
+            Destroy(tip);
     }
 
     /// <summary>One-click export of the selected object's 3D model.</summary>

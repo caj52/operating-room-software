@@ -6,7 +6,7 @@ public class Tracker
 {
     public Tracker()
     {
-        version = Application.version;
+        version = AppVersion.Number;
     }
 
     public string version;
@@ -18,7 +18,7 @@ public struct RoomConfiguration
 {
     public RoomConfiguration(string versionString) // c# 9 limitation, can remove parameter if this ever gets to c# 11
     {
-        version = Application.version;
+        version = AppVersion.Number;
         roomDimension = default;
         collections = null;
         // client metadata

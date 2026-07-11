@@ -20,8 +20,12 @@ public class UI_HoverTooltip : MonoBehaviour, IPointerEnterHandler, IPointerExit
 
     public void OnPointerEnter(PointerEventData eventData)
     {
-        if (!string.IsNullOrWhiteSpace(_text))
-            UI_HoverTooltipPopup.Show(_text, transform as RectTransform);
+        if (string.IsNullOrWhiteSpace(_text))
+            return;
+        // Never tip over a button that already shows a label.
+        if (HasOwnVisibleLabel())
+            return;
+        UI_HoverTooltipPopup.Show(_text, transform as RectTransform);
     }
 
     public void OnPointerExit(PointerEventData eventData)
@@ -32,6 +36,27 @@ public class UI_HoverTooltip : MonoBehaviour, IPointerEnterHandler, IPointerExit
     private void OnDisable()
     {
         UI_HoverTooltipPopup.Hide();
+    }
+
+    private bool HasOwnVisibleLabel()
+    {
+        foreach (var tmp in GetComponentsInChildren<TextMeshProUGUI>(true))
+        {
+            if (tmp == null || !tmp.gameObject.activeSelf)
+                continue;
+            if (!string.IsNullOrWhiteSpace(tmp.text))
+                return true;
+        }
+
+        foreach (var uiText in GetComponentsInChildren<Text>(true))
+        {
+            if (uiText == null || !uiText.gameObject.activeSelf)
+                continue;
+            if (!string.IsNullOrWhiteSpace(uiText.text))
+                return true;
+        }
+
+        return false;
     }
 }
 
@@ -187,13 +212,10 @@ public class UI_IconButtonTooltipBinder : MonoBehaviour
         { "Button_OpenSceneSelectablesMenu", "Objects in scene" },
         { "Button_DeleteObject", "Delete" },
         { "Button_DeleteObject (1)", "Delete" },
-        { "Button_ExportPDF", "Export boom elevation PDF" },
-        { "Button_ExportPdf", "Export boom elevation PDF" },
         { "Button_CycleCam", "Change view" },
         { "Button_MaterialPallete", "Material palette" },
         { "Button_SetRoomSize", "Room size" },
-        { "Button_Export", "Export" },
-        { "Button_ExportObj", "Room exports" },
+        // Text-labeled buttons (Export / Room exports / PDF) intentionally omitted.
     };
 
     private static UI_IconButtonTooltipBinder _runner;
@@ -208,14 +230,25 @@ public class UI_IconButtonTooltipBinder : MonoBehaviour
             var button = buttons[i];
             if (button == null)
                 continue;
+
+            var hover = button.GetComponent<UI_HoverTooltip>();
+
+            // Text buttons already show their label — no hover tip.
             if (!IsIconOnly(button))
+            {
+                if (hover != null)
+                    Object.Destroy(hover);
                 continue;
+            }
 
             string tip = ResolveLabel(button.gameObject);
             if (string.IsNullOrWhiteSpace(tip))
+            {
+                if (hover != null)
+                    Object.Destroy(hover);
                 continue;
+            }
 
-            var hover = button.GetComponent<UI_HoverTooltip>();
             if (hover == null)
                 hover = button.gameObject.AddComponent<UI_HoverTooltip>();
             hover.SetText(tip);
@@ -224,18 +257,22 @@ public class UI_IconButtonTooltipBinder : MonoBehaviour
 
     private static bool IsIconOnly(Button button)
     {
-        // Prefer known icon toolbar buttons even if a hidden TMP exists.
-        if (KnownLabels.ContainsKey(button.gameObject.name))
-            return true;
-
+        // Use activeSelf (not activeInHierarchy) so a temporarily hidden
+        // parent button with a real label (e.g. Export object 3D model)
+        // is still treated as a text button.
         foreach (var tmp in button.GetComponentsInChildren<TextMeshProUGUI>(true))
         {
-            if (tmp == null)
-                continue;
-            // Ignore inactive / empty labels.
-            if (!tmp.gameObject.activeInHierarchy)
+            if (tmp == null || !tmp.gameObject.activeSelf)
                 continue;
             if (!string.IsNullOrWhiteSpace(tmp.text))
+                return false;
+        }
+
+        foreach (var uiText in button.GetComponentsInChildren<Text>(true))
+        {
+            if (uiText == null || !uiText.gameObject.activeSelf)
+                continue;
+            if (!string.IsNullOrWhiteSpace(uiText.text))
                 return false;
         }
 

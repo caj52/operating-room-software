@@ -37,6 +37,7 @@ public class UI_ExportOptions : MonoBehaviour
     private bool _wired;
     private bool _preserveChoicesOnNextOpen;
     private ExportScope? _forcedScopeOnOpen;
+    private bool _showFolderChangedBanner;
 
     public static void Open()
     {
@@ -80,7 +81,10 @@ public class UI_ExportOptions : MonoBehaviour
     public static void Close()
     {
         if (Instance != null)
+        {
+            Instance._showFolderChangedBanner = false;
             Instance.gameObject.SetActive(false);
+        }
     }
 
     /// <summary>Toolbar one-click export — object 3D only (room uses per-deliverable buttons in this panel).</summary>
@@ -236,12 +240,14 @@ public class UI_ExportOptions : MonoBehaviour
                 _buttonChooseFolder.onClick = new Button.ButtonClickedEvent();
                 _buttonChooseFolder.onClick.AddListener(() =>
                 {
-                    var returnScope = _scope;
-                    Close();
-                    FullRoomSave.OpenChooseExportFolderPrompt(() =>
+                    FullRoomSave.OpenChooseExportFolderPrompt(changed =>
                     {
-                        _forcedScopeOnOpen = returnScope;
-                        Reopen();
+                        if (!changed)
+                            return;
+
+                        _showFolderChangedBanner = true;
+                        RefreshChrome();
+                        RebuildLayout();
                     });
                 });
                 StyleQuietButton(_buttonChooseFolder, 30f, -1f);
@@ -533,6 +539,7 @@ public class UI_ExportOptions : MonoBehaviour
 
         _scope = _forcedScopeOnOpen ?? ExportRequest.CurrentScope();
         _forcedScopeOnOpen = null;
+        _showFolderChangedBanner = false;
 
         if (_scope == ExportScope.SelectedObject)
         {
@@ -593,21 +600,26 @@ public class UI_ExportOptions : MonoBehaviour
             return;
 
         string path = ShortenPath(ExportPaths.GetExportBasePath());
+        string body;
         if (objectMode)
         {
-            _infoLabel.text = path;
+            body = path;
         }
         else
         {
-            _infoLabel.text = _objOptionsCustomized
+            body = _objOptionsCustomized
                 ? path + "  ·  3D options customized"
                 : path;
         }
 
+        _infoLabel.text = _showFolderChangedBanner
+            ? "New export folder set…  " + body
+            : body;
+
         _infoLabel.ForceMeshUpdate();
         var le = _infoLabel.GetComponent<LayoutElement>();
         if (le != null)
-            le.preferredHeight = Mathf.Clamp(_infoLabel.preferredHeight + 2f, 18f, 36f);
+            le.preferredHeight = Mathf.Clamp(_infoLabel.preferredHeight + 2f, 18f, 48f);
     }
 
     private void RebuildLayout()
