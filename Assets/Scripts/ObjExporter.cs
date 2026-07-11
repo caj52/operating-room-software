@@ -101,8 +101,8 @@ public static class ObjExporter
             data.Bake();
 
             string path = meshName.Equals("Scene")
-                ? Path.Combine(FullRoomSave.GetRoomPath(), "ObjFile")
-                : Path.Combine(FullRoomSave.GetRoomPath(), "ObjFile", meshName);
+                ? ExportPaths.ObjSceneDir
+                : Path.Combine(ExportPaths.GetExportBasePath(), "ObjFile", meshName);
 
             Directory.CreateDirectory(path);
             File.WriteAllText(Path.Combine(path, $"{meshName}.obj"), data.ObjString);

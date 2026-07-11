@@ -2,9 +2,9 @@ using TMPro;
 using UnityEngine;
 
 /// <summary>
-/// Opens export options. Object mode is 3D-model options only; room mode is the full package.
+/// Toolbar Export button — room package, or selected-object 3D model only.
 /// </summary>
-public class UI_ButtonExportObj : MonoBehaviour
+public class UI_ButtonExport : MonoBehaviour
 {
     private TMP_Text _label;
 
@@ -25,7 +25,7 @@ public class UI_ButtonExportObj : MonoBehaviour
         UpdateLabel();
     }
 
-    private void UpdateLabel()
+    public void UpdateLabel()
     {
         if (_label == null)
             _label = GetComponentInChildren<TMP_Text>(true);
@@ -33,18 +33,18 @@ public class UI_ButtonExportObj : MonoBehaviour
             return;
 
         _label.text = ExportRequest.HasSelection()
-            ? "Export object 3D options…"
-            : "Export room options…";
+            ? "Export object 3D model"
+            : "Export room";
     }
 
-    public void ExportObj()
+    /// <summary>One-click export for the current scope (room package or selected 3D model).</summary>
+    public void Export()
+    {
+        ExportOrchestrator.Run(UI_ExportOptions.GetRequestForToolbar());
+    }
+
+    public void OpenExportOptions()
     {
         UI_ExportOptions.Open();
-    }
-
-    public void OpenObjOptions()
-    {
-        ExportPaths.EnsureDirectories();
-        UI_ObjExportOptions.Open();
     }
 }

@@ -683,9 +683,10 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         if (SceneManager.GetActiveScene().name == "ObjectEditor")
             return;
 
+        // Clicking the already-selected object deselects it.
         if (IsSelected)
         {
-            SelectionDiagnostics.LogSelectBlocked(this, "already_selected");
+            Deselect();
             return;
         }
 
@@ -703,11 +704,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         if (SelectedSelectables.Count > 0)
         {
-            //Debug.Log($"Deselecting previously selected selectables");
             SelectedSelectables[0].Deselect(false);
         }
-
-        //Debug.Log($"Currently selected selectable count is {SelectedSelectables.Count} (should be 0)");
 
         SelectedSelectables = new List<Selectable>(RelatedSelectables);
 
@@ -724,8 +722,6 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         SelectionDiagnostics.LogSelectOk(this);
         SelectionChanged?.Invoke();
-
-
     }
 
     #region Gizmos

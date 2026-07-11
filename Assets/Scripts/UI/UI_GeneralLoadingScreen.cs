@@ -71,12 +71,19 @@ public class UI_GeneralLoadingScreen : MonoBehaviour
         isLoading = false;
     }
 
+    private void Update()
+    {
+        if (!gameObject.activeInHierarchy)
+            return;
+
+        if (Input.GetKeyDown(KeyCode.Escape))
+            OnCancel?.Invoke();
+    }
+
     public void SetStatus(string message)
     {
         if (statusText != null)
-        {
-            statusText.text = "Please wait .." +message;
-        }
+            statusText.text = "Please wait… " + message;
     }
 
 

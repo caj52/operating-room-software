@@ -17,6 +17,11 @@ public class ConfigurationManager : MonoBehaviour
 {
     public static ConfigurationManager Instance { get; private set; }
 
+    public string CurrentRoomSaveName { get; private set; }
+
+    public static string GetCurrentRoomSaveName()
+        => Instance != null ? Instance.CurrentRoomSaveName : null;
+
     public static UnityEvent OnRoomLoadComplete { get; } = new();
     public static UnityEvent<GameObject> OnConfigurationLoadComplete { get; } = new();
 
@@ -234,6 +239,7 @@ public class ConfigurationManager : MonoBehaviour
 
     public async void SaveRoom(string title)
     {
+        CurrentRoomSaveName = title;
         CreateTracker();
         NewRoomSave();
         var token = Loading.GetLoadingToken();
@@ -394,6 +400,7 @@ public class ConfigurationManager : MonoBehaviour
 
         if (File.Exists(file))
         {
+            CurrentRoomSaveName = Path.GetFileNameWithoutExtension(file).Replace("_", " ");
             CreateTracker();
             string json = File.ReadAllText(file);
 

@@ -1,12 +1,16 @@
-﻿using System;
-using System.Collections;
-using System.Collections.Generic;
+﻿using TMPro;
 using UnityEngine;
 
+/// <summary>
+/// Boom-only toolbar button: one-click elevation PDF for the selected boom assembly.
+/// </summary>
 public class UI_ButtonExportPdf : MonoBehaviour
 {
+    private TMP_Text _label;
+
     private void Awake()
     {
+        _label = GetComponentInChildren<TMP_Text>(true);
         Selectable.SelectionChanged += OnSelectionChanged;
         gameObject.SetActive(false);
     }
@@ -18,22 +22,27 @@ public class UI_ButtonExportPdf : MonoBehaviour
 
     private void OnSelectionChanged()
     {
-        gameObject.SetActive(Selectable.SelectedSelectables.Count > 0 && 
-            Selectable.SelectedSelectables[0].IsArmAssembly);
+        bool show = Selectable.SelectedSelectables.Count > 0 &&
+            Selectable.SelectedSelectables[0].IsArmAssembly;
+        gameObject.SetActive(show);
+        if (show && _label != null)
+            _label.text = "Export boom elevation PDF";
     }
 
     public void ExportPdf()
     {
-        if (string.IsNullOrEmpty(FullRoomSave.GetRoomPath()))
-        {
-            UI_DialogPrompt.Open(
-              $"Please Export Room First",
-              new ButtonAction("OK"));
-        }
-        else
-        {
-            UI_PdfExportOptions.Open(Selectable.SelectedSelectables[0]);
+        if (!ExportRequest.SelectionIsArmAssembly())
+            return;
 
-        }
+        ExportOrchestrator.Run(new ExportRequest
+        {
+            Scope = ExportScope.SelectedObject,
+            IncludeObj = false,
+            IncludeElevations = true,
+            IncludeProposal = false,
+            IncludeSnapshots = false,
+            ElevationMode = ElevationExportMode.PerAssembly,
+            ObjOptions = ObjExportOptions.CreateDefaults()
+        });
     }
 }

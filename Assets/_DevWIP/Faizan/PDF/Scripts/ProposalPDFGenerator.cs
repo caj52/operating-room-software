@@ -72,6 +72,8 @@ public class ProposalPDFGenerator : MonoBehaviour
     private float currentProgress = 0f;
     private bool isCancelled = false;
     private Coroutine pdfGenerationCoroutine = null;
+    public bool SuppressCompletionDialog { get; set; }
+    private Action<bool, string, string> _completionCallback;
     
     // Image cleanup tracking
     private List<string> tempImagePaths = new List<string>();
@@ -105,6 +107,33 @@ public class ProposalPDFGenerator : MonoBehaviour
         pdfGenerationCoroutine = StartCoroutine(GeneratePDFCoroutine());
     }
 
+    public void ApplyExportDefaults()
+    {
+        try
+        {
+            clientName = string.IsNullOrWhiteSpace(UI_ClientMetaData.AccountName)
+                ? clientName
+                : UI_ClientMetaData.AccountName;
+            projectName = UI_ClientMetaData.ProjectName ?? projectName;
+            projectNumber = UI_ClientMetaData.ProjectNumber ?? projectNumber;
+            accountName = UI_ClientMetaData.AccountName ?? accountName;
+            accountAddress = (UI_ClientMetaData.AccountAddressLine1 + UI_ClientMetaData.AccountAddressLine2) ?? accountAddress;
+            referenceNumber = UI_ClientMetaData.OrderReferenceNumber ?? referenceNumber;
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"Could not apply client metadata defaults: {e.Message}");
+        }
+
+        configName = "Configuration Name : \t" + ExportPaths.GetRoomExportName();
+    }
+
+    public void GeneratePDFWithCallback(Action<bool, string, string> callback)
+    {
+        _completionCallback = callback;
+        GeneratePDF();
+    }
+
     private IEnumerator GeneratePDFCoroutine()
     {
         path = null;
@@ -115,9 +144,12 @@ public class ProposalPDFGenerator : MonoBehaviour
         // Clear any previous temp image paths
         tempImagePaths.Clear();
 
-        // Show loading screen with cancel option
-        UI_GeneralLoadingScreen.instance.ShowLoadingScreen();
-        UI_GeneralLoadingScreen.instance.OnCancel += HandleCancellation;
+        // Show loading screen with cancel option (skip when unified export already owns it)
+        if (!ExportOrchestrator.SuppressIndividualDialogs)
+        {
+            UI_GeneralLoadingScreen.instance.ShowLoadingScreen();
+            UI_GeneralLoadingScreen.instance.OnCancel += HandleCancellation;
+        }
         UI_GeneralLoadingScreen.instance.SetStatus("Initializing PDF generation...");
         UI_GeneralLoadingScreen.instance.SetProgress(0f);
 
@@ -204,18 +236,8 @@ public class ProposalPDFGenerator : MonoBehaviour
             ? "Config"
             : string.Join("_", configName.Split(Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries));
         
-        // Resolve room path first with validation and fallback
-        string roomPath = FullRoomSave.GetRoomPath();
-        bool roomPathInvalid = string.IsNullOrWhiteSpace(roomPath) || roomPath.IndexOfAny(Path.GetInvalidPathChars()) >= 0;
-        
-        if (roomPathInvalid)
-        {
-            // Fallback to persistent data path if no room saved
-            roomPath = Application.persistentDataPath;
-        }
-        
-        // Always create SalesProposals subfolder for consistent organization
-        string salesProposalsPath = Path.Combine(roomPath, "SalesProposals");
+        // Resolve output path (Documents/Operating Room Exports/{room}/proposals by default)
+        string salesProposalsPath = ExportPaths.ProposalsDir;
         
         // Ensure target directory exists
         if (!Directory.Exists(salesProposalsPath))
@@ -319,8 +341,16 @@ public class ProposalPDFGenerator : MonoBehaviour
         
         // Clean up UI references
         UI_GeneralLoadingScreen.instance.OnCancel -= HandleCancellation;
-        UI_GeneralLoadingScreen.instance.HideLoadingScreen();
+        if (!ExportOrchestrator.SuppressIndividualDialogs)
+            UI_GeneralLoadingScreen.instance.HideLoadingScreen();
         pdfGenerationCoroutine = null;
+
+        var callback = _completionCallback;
+        _completionCallback = null;
+        callback?.Invoke(!cancelled && !hasError, filePath, errorMessage);
+
+        if (SuppressCompletionDialog || ExportOrchestrator.SuppressIndividualDialogs)
+            return;
 
         // Show result dialog
         if (cancelled)
@@ -340,7 +370,7 @@ public class ProposalPDFGenerator : MonoBehaviour
         else
         {
             UI_DialogPrompt.Open(
-                $"PDF generated successfully!\n\nFile saved to:\n{filePath}",
+                $"Sales proposal saved to:\n{filePath}",
                 new ButtonAction("Open PDF", () => OpenPDF(filePath)),
                 new ButtonAction("Copy Path", () => {
                     GUIUtility.systemCopyBuffer = filePath;

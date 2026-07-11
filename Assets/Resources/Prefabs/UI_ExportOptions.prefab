@@ -1307,19 +1307,7 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 8534613767493425727}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls:
-      - m_Target: {fileID: 5130672102856499016}
-        m_TargetAssemblyTypeName: UI_ObjExportOptions, Assembly-CSharp
-        m_MethodName: ExportAllObjects
-        m_Mode: 1
-        m_Arguments:
-          m_ObjectArgument: {fileID: 0}
-          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
-          m_IntArgument: 0
-          m_FloatArgument: 0
-          m_StringArgument: 
-          m_BoolArgument: 0
-        m_CallState: 2
+      m_Calls: []
 --- !u!114 &4587680712742115813
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1372,7 +1360,7 @@ GameObject:
   - component: {fileID: 5130672102856499016}
   - component: {fileID: 6172207676790916886}
   m_Layer: 5
-  m_Name: UI_ObjExportOptions
+  m_Name: UI_ExportOptions
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -1507,18 +1495,9 @@ MonoBehaviour:
   m_GameObject: {fileID: 4389348297330999549}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: df416aaf25fd6e946a865a1e9f1dc9ec, type: 3}
+  m_Script: {fileID: 11500000, guid: e2f3a4b5c6d7e8f901a2b3c4d5e6f708, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  <ToggleIncludeFloor>k__BackingField: {fileID: 2788712051638340526}
-  <ToggleIncludeFloorObjects>k__BackingField: {fileID: 6821230586223767311}
-  <ToggleIncludeCeiling>k__BackingField: {fileID: 4751434655025723354}
-  <ToggleIncludeCeilingObjects>k__BackingField: {fileID: 2957194883357951055}
-  <ToggleIncludeWalls>k__BackingField: {fileID: 1049030372853116206}
-  <ToggleIncludeWallObjects>k__BackingField: {fileID: 2891996596384124146}
-  <ToggleIncludeArmAssemblies>k__BackingField: {fileID: 6288504086830760519}
-  <ToggleIncludeAssemblyHeads>k__BackingField: {fileID: 5104145561176986390}
-  <ButtonExportSelectedObject>k__BackingField: {fileID: 2116209590076054527}
 --- !u!114 &6172207676790916886
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1941,19 +1920,7 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 6484423081506962998}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls:
-      - m_Target: {fileID: 5130672102856499016}
-        m_TargetAssemblyTypeName: UI_ObjExportOptions, Assembly-CSharp
-        m_MethodName: ExportSelectedObject
-        m_Mode: 1
-        m_Arguments:
-          m_ObjectArgument: {fileID: 0}
-          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
-          m_IntArgument: 0
-          m_FloatArgument: 0
-          m_StringArgument: 
-          m_BoolArgument: 0
-        m_CallState: 2
+      m_Calls: []
 --- !u!114 &5646551804296620293
 MonoBehaviour:
   m_ObjectHideFlags: 0

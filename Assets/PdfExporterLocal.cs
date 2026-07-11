@@ -156,7 +156,7 @@ public class PdfExporterLocal
         {
             string outputDir = !string.IsNullOrEmpty(options.OutputDirectory)
                 ? options.OutputDirectory
-                : Path.Combine(FullRoomSave.GetRoomPath(), "pdf");
+                : ExportPaths.PdfDir;
             if (!Directory.Exists(outputDir)) Directory.CreateDirectory(outputDir);
 
             string fileName = !string.IsNullOrEmpty(options.FileNameBase)
@@ -197,7 +197,7 @@ public class PdfExporterLocal
 
         string outputDir = !string.IsNullOrEmpty(options.OutputDirectory)
             ? options.OutputDirectory
-            : Path.Combine(FullRoomSave.GetRoomPath(), "pdf");
+            : ExportPaths.PdfDir;
         if (!Directory.Exists(outputDir)) Directory.CreateDirectory(outputDir);
 
         string fileName = !string.IsNullOrEmpty(options.FileNameBase)

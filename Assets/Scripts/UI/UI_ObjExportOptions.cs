@@ -1,11 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using UnityEngine;
 using UnityEngine.UI;
-using Debug = UnityEngine.Debug;
 
 [RequireComponent(typeof(FullScreenMenu))]
 public class UI_ObjExportOptions : MonoBehaviour
@@ -49,7 +47,10 @@ public class UI_ObjExportOptions : MonoBehaviour
 
     private void Awake()
     {
-        Instance = this;
+        // Don't steal the singleton if another live instance already owns it
+        // (e.g. temporary clones used as UI chrome templates).
+        if (Instance == null || Instance == this)
+            Instance = this;
         DontDestroyOnLoad(gameObject);
         gameObject.SetActive(false);
 
@@ -75,6 +76,12 @@ public class UI_ObjExportOptions : MonoBehaviour
 
     private void OnEnable()
     {
+        if (_customizeMode)
+        {
+            ButtonExportSelectedObject.gameObject.SetActive(false);
+            return;
+        }
+
         ButtonExportSelectedObject.gameObject.SetActive(Selectable.SelectedSelectables.Count > 0);
     }
 
@@ -104,23 +111,14 @@ public class UI_ObjExportOptions : MonoBehaviour
 
     private void OnExportFinishedSuccessfully(string path)
     {
+        if (ExportOrchestrator.SuppressIndividualDialogs)
+            return;
+
         UI_DialogPrompt.Open(
-            $"Success! OBJ saved to {path}",
+            $"3D model (OBJ) saved to:\n{path}",
             new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = path),
+            new ButtonAction("Open Folder", () => ExportFolderUtility.RevealInFileManager(path)),
             new ButtonAction("Done"));
-
-#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
-        // Hack fix for macOS not liking Application.OpenURL
-        string location = path;
-        ProcessStartInfo startInfo = new ProcessStartInfo("/System/Library/CoreServices/Finder.app")
-        {
-            WindowStyle = ProcessWindowStyle.Normal,
-            FileName = location.Trim()
-        };
-        Process.Start(startInfo);
-#endif
-
-        Application.OpenURL("file:///" + path);
     }
 
     private void OnMeshCombiningUpdate(float progress)
@@ -128,12 +126,90 @@ public class UI_ObjExportOptions : MonoBehaviour
         _loadingTokenCombiningMeshes.SetProgress(progress);
     }
 
+    private static Action<ObjExportOptions> _onCustomizeApplied;
+    private static bool _customizeMode;
+    private string _exportAllLabel;
+    private string _exportSelectionLabel;
+
     public static void Open()
     {
+        ExitCustomizeModeStatic();
         Instance.gameObject.SetActive(true);
     }
 
-    private ObjExportOptions GetOptions()
+    /// <summary>
+    /// Opens OBJ include toggles so the user can refine what goes into a later orchestrated export.
+    /// Does not export immediately — Apply returns the options to the caller.
+    /// </summary>
+    public static void OpenForCustomization(Action<ObjExportOptions> onApplied)
+    {
+        if (Instance == null)
+            return;
+
+        _onCustomizeApplied = onApplied;
+        _customizeMode = true;
+        Instance.ApplyCustomizeChrome(true);
+        Instance.gameObject.SetActive(true);
+    }
+
+    private static void ExitCustomizeModeStatic()
+    {
+        _customizeMode = false;
+        _onCustomizeApplied = null;
+        if (Instance != null)
+            Instance.ApplyCustomizeChrome(false);
+    }
+
+    private void ApplyCustomizeChrome(bool customize)
+    {
+        foreach (var button in GetComponentsInChildren<Button>(true))
+        {
+            string n = button.gameObject.name;
+            var label = button.GetComponentInChildren<TMPro.TextMeshProUGUI>(true);
+            if (label == null)
+                continue;
+
+            if (n.Contains("ExportScene") || n.Contains("ExportAll"))
+            {
+                if (customize)
+                {
+                    if (string.IsNullOrEmpty(_exportAllLabel))
+                        _exportAllLabel = label.text;
+                    label.text = "Use these settings";
+                }
+                else if (!string.IsNullOrEmpty(_exportAllLabel))
+                {
+                    label.text = _exportAllLabel;
+                }
+            }
+            else if (n.Contains("ExportSelection") || n.Contains("Selection"))
+            {
+                if (customize)
+                {
+                    if (string.IsNullOrEmpty(_exportSelectionLabel))
+                        _exportSelectionLabel = label.text;
+                    button.gameObject.SetActive(false);
+                }
+                else if (!string.IsNullOrEmpty(_exportSelectionLabel))
+                {
+                    label.text = _exportSelectionLabel;
+                    button.gameObject.SetActive(Selectable.SelectedSelectables.Count > 0);
+                }
+            }
+        }
+    }
+
+    private void OnDisable()
+    {
+        // Closed without Apply while refining options — return to the export hub.
+        if (!_customizeMode)
+            return;
+
+        ExitCustomizeModeStatic();
+        UI_ExportOptions.Reopen();
+    }
+
+    public ObjExportOptions GetOptions()
     {
         return new()
         {
@@ -150,6 +226,16 @@ public class UI_ObjExportOptions : MonoBehaviour
 
     public void ExportAllObjects()
     {
+        if (_customizeMode)
+        {
+            var opts = GetOptions();
+            var cb = _onCustomizeApplied;
+            ExitCustomizeModeStatic();
+            gameObject.SetActive(false);
+            cb?.Invoke(opts);
+            return;
+        }
+
         DoExport(
             true, 
             Selectable.ActiveSelectables,
@@ -160,6 +246,12 @@ public class UI_ObjExportOptions : MonoBehaviour
 
     public void ExportSelectedObject()
     {
+        if (_customizeMode)
+        {
+            ExportAllObjects();
+            return;
+        }
+
         if (Selectable.SelectedSelectables.Count == 0)
             return;
 
@@ -294,4 +386,19 @@ public class ObjExportOptions
     public bool IncludeCeilingObjects { get; set; }
     public bool IncludeArmBoomAssemblies { get; set; }
     public bool IncludeArmBoomHeads { get; set; }
+
+    public static ObjExportOptions CreateDefaults()
+    {
+        return new ObjExportOptions
+        {
+            IncludeFloor = true,
+            IncludeFloorObjects = true,
+            IncludeWalls = true,
+            IncludeWallObjects = true,
+            IncludeCeiling = true,
+            IncludeCeilingObjects = true,
+            IncludeArmBoomAssemblies = true,
+            IncludeArmBoomHeads = true
+        };
+    }
 }

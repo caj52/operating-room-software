@@ -175,6 +175,7 @@ public class ScreenshotCapture : MonoBehaviour
 
     IEnumerator CaptureMultipleScreenshots()
     {
+        screenshotBatchCompleted = false;
         UI_GeneralLoadingScreen.instance.ShowLoadingScreen();
         // Hide UI before capturing
         if (uiCanvas != null)
@@ -224,14 +225,29 @@ public class ScreenshotCapture : MonoBehaviour
         if (uiCanvas != null)
             ToggleUI(true);
         Debug.Log("Capturing Screenshot...");
-        UI_DialogPrompt.Open(
+        if (!ExportOrchestrator.SuppressIndividualDialogs)
+        {
+            UI_DialogPrompt.Open(
                   $"Success! Enhanced screenshots saved to {folderPath}",
              new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = folderPath),
             new ButtonAction("Done"));
+        }
         if (OperatingRoomCamera.LiveCamera.CameraType == OperatingRoomCameraType.FreeLook)
         {
             RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling).MeshRenderer.enabled = true;
         }
+        screenshotBatchCompleted = true;
+    }
+
+    public IEnumerator ExportPresentationSnapshots(string outputDirectory)
+    {
+        folderPath = outputDirectory;
+        if (!Directory.Exists(folderPath))
+            Directory.CreateDirectory(folderPath);
+
+        screenshotBatchCompleted = false;
+        TakeScreenshot();
+        yield return new WaitUntil(() => screenshotBatchCompleted);
     }
 
     public Vector3 GetRoomCenter()
@@ -255,18 +271,13 @@ public class ScreenshotCapture : MonoBehaviour
 
     // Add this flag as a class member variable
     private bool screenshotCompleted = false;
+    private bool screenshotBatchCompleted = false;
 
     // Modified TakeScreenshot method
     string TakeScreenshot(int index)
     {
-        if (string.IsNullOrEmpty(FullRoomSave.GetRoomPath()))
-        {
-            folderPath = Path.Combine(Application.persistentDataPath, "Renders");
-        }
-        else
-        {
-            folderPath = Path.Combine(FullRoomSave.GetRoomPath(), "Renders");
-        }
+        if (string.IsNullOrEmpty(folderPath))
+            folderPath = ExportPaths.RendersDir;
         if (!Directory.Exists(folderPath))
             Directory.CreateDirectory(folderPath);
         string fileName = $"{screenshotFileName}_HD_{index}_{System.DateTime.Now:yyyy-MM-dd_HH-mm-ss}.png";
