@@ -355,7 +355,7 @@ public class ExportOrchestrator : MonoBehaviour
 
     private IEnumerator ExportProposal()
     {
-        var generator = FindAnyObjectByType<ProposalPDFGenerator>();
+        var generator = FindAnyObjectByType<ProposalPDFGenerator>(FindObjectsInactive.Include);
         if (generator == null)
         {
             _failedSteps.Add("Sales proposal (generator not found in scene)");

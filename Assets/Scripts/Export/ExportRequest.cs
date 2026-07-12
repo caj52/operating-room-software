@@ -19,7 +19,7 @@ public class ExportRequest
 
     public bool IncludeObj = true;
     public bool IncludeElevations = true;
-    public bool IncludeProposal = true;
+    public bool IncludeProposal = false;
     public bool IncludeSnapshots = true;
 
     public ElevationExportMode ElevationMode = ElevationExportMode.CombinedRoom;
@@ -50,7 +50,7 @@ public class ExportRequest
             Scope = ExportScope.Room,
             IncludeObj = true,
             IncludeElevations = true,
-            IncludeProposal = true,
+            IncludeProposal = false,
             IncludeSnapshots = true,
             ElevationMode = ElevationExportMode.CombinedRoom,
             ObjOptions = ObjExportOptions.CreateDefaults()

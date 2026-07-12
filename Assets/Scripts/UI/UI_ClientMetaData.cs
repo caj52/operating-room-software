@@ -109,6 +109,8 @@ public class UI_ClientMetaData : MonoBehaviour
         OnClosed?.Invoke();
     }
 
+    public static bool IsOpen => Instance != null && Instance.gameObject.activeSelf;
+
     public static void Open()
     {
         if (Instance == null)
@@ -120,6 +122,13 @@ public class UI_ClientMetaData : MonoBehaviour
         Instance.EnsureSalesRepFields();
         Instance.LoadSalesRepIntoFields();
         Instance.gameObject.SetActive(true);
+    }
+
+    public static void Close()
+    {
+        if (Instance == null || !Instance.gameObject.activeSelf)
+            return;
+        Instance.gameObject.SetActive(false);
     }
 
     private void LoadSalesRepIntoFields()

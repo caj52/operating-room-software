@@ -1,6 +1,5 @@
 using System.Collections;
 using System.Collections.Generic;
-using System.Text.RegularExpressions;
 using SplenSoft.AssetBundles;
 using TMPro;
 using UnityEngine;
@@ -215,6 +214,7 @@ public class UI_IconButtonTooltipBinder : MonoBehaviour
         { "Button_CycleCam", "Change view" },
         { "Button_MaterialPallete", "Material palette" },
         { "Button_SetRoomSize", "Room size" },
+        { "Button_Quotation", "Sales proposal" },
         // Text-labeled buttons (Export / Room exports / PDF) intentionally omitted.
     };
 
@@ -241,8 +241,10 @@ public class UI_IconButtonTooltipBinder : MonoBehaviour
                 continue;
             }
 
-            string tip = ResolveLabel(button.gameObject);
-            if (string.IsNullOrWhiteSpace(tip))
+            // Only the known in-room toolbar icons — never invent tips for
+            // leftover/dev buttons (e.g. Button_LoadModel) from their GameObject name.
+            if (!KnownLabels.TryGetValue(button.gameObject.name, out string tip)
+                || string.IsNullOrWhiteSpace(tip))
             {
                 if (hover != null)
                     Object.Destroy(hover);
@@ -277,22 +279,6 @@ public class UI_IconButtonTooltipBinder : MonoBehaviour
         }
 
         return button.targetGraphic != null || button.GetComponentInChildren<Image>(true) != null;
-    }
-
-    private static string ResolveLabel(GameObject go)
-    {
-        if (KnownLabels.TryGetValue(go.name, out string known))
-            return known;
-
-        string n = go.name;
-        if (n.StartsWith("Button_"))
-            n = n.Substring("Button_".Length);
-        n = Regex.Replace(n, @"\s*\(\d+\)\s*$", "");
-        n = n.Replace('_', ' ');
-        n = Regex.Replace(n, "([a-z])([A-Z])", "$1 $2");
-        if (string.IsNullOrWhiteSpace(n))
-            return null;
-        return char.ToUpperInvariant(n[0]) + n.Substring(1);
     }
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]

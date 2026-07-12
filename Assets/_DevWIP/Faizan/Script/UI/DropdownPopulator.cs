@@ -33,6 +33,11 @@ public class DropdownPopulator : MonoBehaviour
         Instances.Add(this);
     }
 
+    void OnDestroy()
+    {
+        Instances.Remove(this);
+    }
+
     private void PopulateDropdown()
     {
         if (dropdown == null || excelReader == null)
@@ -86,8 +91,13 @@ public class DropdownPopulator : MonoBehaviour
     {
         List<(DropdownPopulator, PriceExcelData)> currentStates = new List<(DropdownPopulator, PriceExcelData)>();
 
+        // Prune destroyed instances so stale refs don't break export / preview.
+        Instances.RemoveAll(instance => instance == null);
+
         foreach (var instance in Instances)
         {
+            if (instance.dropdown == null)
+                continue;
             int currentIndex = instance.dropdown.value;
             if (instance.optionDataMap.TryGetValue(currentIndex, out PriceExcelData selectedData))
             {

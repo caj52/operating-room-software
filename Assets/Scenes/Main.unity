@@ -1697,7 +1697,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2134582125063512049, guid: 2ccc5f2bcc0d58e4ab8897fbbca3d2dc, type: 3}
       propertyPath: m_IsActive
-      value: 1
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 2134582125063512053, guid: 2ccc5f2bcc0d58e4ab8897fbbca3d2dc, type: 3}
       propertyPath: tab1Panel
@@ -3890,6 +3890,7 @@ GameObject:
   - component: {fileID: 438935756}
   - component: {fileID: 438935755}
   - component: {fileID: 438935754}
+  - component: {fileID: 438935757}
   m_Layer: 5
   m_Name: Button_Quotation
   m_TagString: Untagged
@@ -3961,19 +3962,7 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 438935755}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls:
-      - m_Target: {fileID: 220015417}
-        m_TargetAssemblyTypeName: UnityEngine.GameObject, UnityEngine
-        m_MethodName: SetActive
-        m_Mode: 6
-        m_Arguments:
-          m_ObjectArgument: {fileID: 0}
-          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
-          m_IntArgument: 0
-          m_FloatArgument: 0
-          m_StringArgument: 
-          m_BoolArgument: 1
-        m_CallState: 2
+      m_Calls: []
 --- !u!114 &438935755
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -4012,6 +4001,18 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 438935752}
   m_CullTransparentMesh: 1
+--- !u!114 &438935757
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 438935752}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a1b2c3d4e5f60718293a4b5c6d7e8f90, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!1 &463064938
 GameObject:
   m_ObjectHideFlags: 0

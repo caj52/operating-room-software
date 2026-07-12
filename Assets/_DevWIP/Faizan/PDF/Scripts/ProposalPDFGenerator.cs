@@ -115,6 +115,7 @@ public class ProposalPDFGenerator : MonoBehaviour
         // Job / client fields already live in Client Metadata (saved with the room).
         // Room equipment, accessories, prices, and images are read live during PDF generation.
         // Sales rep is the only Carlyn-noted manual field — persisted on this machine.
+        // Notes / discount may also come from the proposal workspace preview model.
         try
         {
             string account = UI_ClientMetaData.AccountName;
@@ -155,16 +156,34 @@ public class ProposalPDFGenerator : MonoBehaviour
         if (IsPlaceholder(salesRepEmail))
             salesRepEmail = "";
 
-        // Configuration title = saved room name (already required before export).
-        if (ExportPaths.HasSavedRoomName())
+        // Configuration title: workspace override → saved room name → fallback.
+        if (!string.IsNullOrWhiteSpace(ProposalPreviewModel.ConfigNameOverride))
+            configName = ProposalPreviewModel.ConfigNameOverride;
+        else if (ExportPaths.HasSavedRoomName())
             configName = ExportPaths.GetRoomExportName();
         else if (string.IsNullOrWhiteSpace(configName)
                  || configName.Equals("Tandem Equipment Boom with Light", StringComparison.OrdinalIgnoreCase))
             configName = "Configuration";
 
-        // Prefer an explicit discount typed in the pricing UI; else last saved value.
-        if (!TryPullDiscountFromPricingUi() && discountPercentage <= 0f)
+        // Prefer live workspace discount, then pricing UI, then last saved value.
+        if (UI_ProposalWorkspace.LiveDiscountPercentage.HasValue)
+        {
+            discountPercentage = Mathf.Max(0f, UI_ProposalWorkspace.LiveDiscountPercentage.Value);
+            SaveDiscountPercentage(discountPercentage);
+        }
+        else if (!TryPullDiscountFromPricingUi() && discountPercentage <= 0f)
             discountPercentage = GetSavedDiscountPercentage();
+
+        note1 = PlayerPrefs.GetString(ProposalPreviewModel.PrefsNote1, note1);
+        note2 = PlayerPrefs.GetString(ProposalPreviewModel.PrefsNote2, note2);
+        note3 = PlayerPrefs.GetString(ProposalPreviewModel.PrefsNote3, note3);
+
+        // If the document workspace is open, keep mock and PDF identical.
+        var workspaceModel = UI_ProposalWorkspace.Instance != null
+            ? UI_ProposalWorkspace.Instance.ActiveModel
+            : null;
+        if (workspaceModel != null)
+            workspaceModel.ApplyTo(this);
     }
 
     private bool TryPullDiscountFromPricingUi()
@@ -1399,7 +1418,10 @@ public class ProposalPDFGenerator : MonoBehaviour
             if (state.Item1.isBoomExcelFileDropDown != isBoom) continue;
 
             var data = state.Item2;
-            if (data.ListPrice == 0) continue;
+            if (data == null || data.ListPrice == 0) continue;
+            if (string.IsNullOrWhiteSpace(data.ObjectName)
+                || data.ObjectName.Trim().Equals("None", StringComparison.OrdinalIgnoreCase))
+                continue;
 
             int qty = 1; // Default quantity for dropdown items
             double unitPrice = data.ListPrice;
@@ -1612,8 +1634,11 @@ public class ProposalPDFGenerator : MonoBehaviour
             }
         }
 
-        double dropdownTotal = DropdownPopulator.GetAllCurrentStates().Sum(state => state.Item2.ListPrice);
-        Debug.LogError("+++dropdownTotal" + dropdownTotal);
+        double dropdownTotal = DropdownPopulator.GetAllCurrentStates()
+            .Where(state => state.Item2 != null
+                && !string.IsNullOrWhiteSpace(state.Item2.ObjectName)
+                && !state.Item2.ObjectName.Trim().Equals("None", StringComparison.OrdinalIgnoreCase))
+            .Sum(state => state.Item2.ListPrice);
         double install = FindObjectOfType<ExcelReader>()?.GetInstallationLightsCharges()?.ListPrice ?? 0;
         double ship = FindObjectOfType<ExcelReader>()?.GetShippingLightsCharges()?.ListPrice ?? 0;
 

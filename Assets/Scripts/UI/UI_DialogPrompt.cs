@@ -10,6 +10,9 @@ using UnityEngine.UI;
 public class UI_DialogPrompt : MonoBehaviour
 {
     private static UI_DialogPrompt Instance { get; set; }
+
+    public static bool IsOpen => Instance != null && Instance.gameObject.activeSelf;
+
     [field: SerializeField] private Button ButtonTemplate { get; set; }
     [field: SerializeField] private TextMeshProUGUI Text { get; set; }
 

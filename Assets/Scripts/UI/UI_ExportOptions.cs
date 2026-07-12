@@ -22,7 +22,6 @@ public class UI_ExportOptions : MonoBehaviour
 
     private GameObject _rowObj;
     private GameObject _rowElevations;
-    private GameObject _rowProposal;
     private GameObject _rowSnapshots;
 
     private Button _buttonExportTemplate;
@@ -260,11 +259,6 @@ public class UI_ExportOptions : MonoBehaviour
             () => RunRoomExport(includeElevations: true),
             includeCustomize: false);
 
-        _rowProposal = CreateDeliverableRow(
-            "Sales proposal",
-            () => RunRoomExport(includeProposal: true),
-            includeCustomize: false);
-
         _rowSnapshots = CreateDeliverableRow(
             "Snapshots",
             () => RunRoomExport(includeSnapshots: true),
@@ -373,7 +367,6 @@ public class UI_ExportOptions : MonoBehaviour
     private void RunRoomExport(
         bool includeObj = false,
         bool includeElevations = false,
-        bool includeProposal = false,
         bool includeSnapshots = false)
     {
         Close();
@@ -382,7 +375,7 @@ public class UI_ExportOptions : MonoBehaviour
             Scope = ExportScope.Room,
             IncludeObj = includeObj,
             IncludeElevations = includeElevations,
-            IncludeProposal = includeProposal,
+            IncludeProposal = false,
             IncludeSnapshots = includeSnapshots,
             ElevationMode = _togglePerAssembly != null && _togglePerAssembly.isOn
                 ? ElevationExportMode.PerAssembly
@@ -582,7 +575,6 @@ public class UI_ExportOptions : MonoBehaviour
         // Object mode mirrors room: one 3D Export row + change folder (no room deliverables).
         SetActive(_rowObj, true);
         SetActive(_rowElevations, !objectMode);
-        SetActive(_rowProposal, !objectMode);
         SetActive(_rowSnapshots, !objectMode);
         SetActive(_perAssemblyRow, !objectMode);
 
@@ -642,7 +634,6 @@ public class UI_ExportOptions : MonoBehaviour
         AddGo(_rowObj);
         AddGo(_rowElevations);
         AddGo(_perAssemblyRow);
-        AddGo(_rowProposal);
         AddGo(_rowSnapshots);
         Add(_buttonCancel);
 
