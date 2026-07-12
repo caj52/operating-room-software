@@ -201,14 +201,17 @@ public static class ProposalPricingResolver
         {
             var data = sp.objectPricingData;
             if (data == null) continue;
-            double part = data.ListPrice;
-            if (!simFlexOnce && data.isSimFlexArmAvailable)
+
+            double part = sp.UIRefPricingRowDataFill != null
+                ? sp.UIRefPricingRowDataFill.Price
+                : data.ListPrice;
+
+            if (!simFlexOnce && data.isSimFlexArmAvailable && sp.UIRefPricingRowDataFill == null)
             {
                 part += data.SimFlexPrice;
                 simFlexOnce = true;
             }
-            else if (sp.UIRefPricingRowDataFill != null)
-                part = sp.UIRefPricingRowDataFill.Price;
+
             sum += part;
         }
 
@@ -302,8 +305,8 @@ public static class ProposalPricingResolver
             InferSizesFromSelectables(boomRoot, ref topMm, ref bottomMm, ref shMm);
         }
 
-        // Service head size from BoomHeadScaleHandler when possible.
-        if (boomRoot != null)
+        // Service head size from BoomHeadScaleHandler when possible (not used for Large Monitor keys).
+        if (boomRoot != null && !family.StartsWith("Large Monitor", StringComparison.OrdinalIgnoreCase))
         {
             foreach (var sel in boomRoot.GetComponentsInChildren<Selectable>(true))
             {
@@ -319,6 +322,13 @@ public static class ProposalPricingResolver
                     break;
                 }
             }
+        }
+
+        // Sheet keys: "Large Monitor Boom, Top Arm 600 mm" (space before mm, no SH).
+        if (family.StartsWith("Large Monitor", StringComparison.OrdinalIgnoreCase))
+        {
+            string lmArm = xlTop ? "XL Top Arm" : "Top Arm";
+            return $"{family}, {lmArm} {topMm} mm";
         }
 
         if (family.StartsWith("Fixed", StringComparison.OrdinalIgnoreCase))
