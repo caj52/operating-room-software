@@ -1,7 +1,7 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
 using System.Linq;
 using TMPro;
 using UnityEngine;
@@ -9,12 +9,17 @@ using UnityEngine.Events;
 using UnityEngine.UI;
 
 /// <summary>
-/// Near-fullscreen interactive sales-proposal mock. Replaces the tabbed Pricing/Quote panel.
+/// Near-fullscreen sales-proposal viewer. Shows the real generated PDF as rasterized
+/// page images, with popover editors for editable fields.
 /// </summary>
 [RequireComponent(typeof(FullScreenMenu))]
 public class UI_ProposalWorkspace : MonoBehaviour
 {
     public static UI_ProposalWorkspace Instance { get; private set; }
+
+    const float PreviewDebounceSeconds = 0.45f;
+    /// <summary>A4 portrait aspect (210 / 297).</summary>
+    const float A4Aspect = 210f / 297f;
 
     /// <summary>Live discount for PDF default pull while the workspace is open.</summary>
     public static float? LiveDiscountPercentage =>
@@ -22,7 +27,6 @@ public class UI_ProposalWorkspace : MonoBehaviour
             ? Instance._model.DiscountPercentage
             : (float?)null;
 
-    // Visual language: soft document viewer, Imagine Unlimited orange accent.
     static class Theme
     {
         public static readonly Color Dimmer = new(0.12f, 0.14f, 0.16f, 0.58f);
@@ -38,7 +42,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
         public static readonly Color Editable = new(0.99f, 0.97f, 0.94f, 1f);
         public static readonly Color EditableHover = new(0.98f, 0.93f, 0.86f, 1f);
         public static readonly Color EditableBorder = new(0.90f, 0.82f, 0.70f, 1f);
-        public static readonly Color Accent = new(0.91f, 0.47f, 0.13f, 1f); // Imagine orange
+        public static readonly Color Accent = new(0.91f, 0.47f, 0.13f, 1f);
         public static readonly Color AccentDark = new(0.78f, 0.38f, 0.08f, 1f);
         public static readonly Color Ghost = new(1f, 1f, 1f, 0.92f);
         public static readonly Color GhostBorder = new(0.72f, 0.74f, 0.78f, 1f);
@@ -61,33 +65,21 @@ public class UI_ProposalWorkspace : MonoBehaviour
     public ProposalPreviewModel ActiveModel => isActiveAndEnabled ? _model : null;
 
     RectTransform _root;
-    RectTransform _pageHost;
     RectTransform _popoverHost;
+    RectTransform _dotsHost;
+    ScrollRect _pageScroll;
+    Image _pageImage;
+    AspectRatioFitter _pageAspect;
     TMP_Text _pageLabel;
+    TMP_Text _statusLabel;
     readonly List<Image> _pageDots = new();
 
-    GameObject _page1;
-    GameObject _page2;
-    GameObject _page3;
+    readonly List<Texture2D> _pageTextures = new();
+    readonly List<Sprite> _pageSprites = new();
 
-    TMP_Text _salesRepNameLabel;
-    TMP_Text _salesRepEmailLabel;
-    TMP_Text _submittedToLabel;
-    TMP_Text _projectLabel;
-    TMP_Text _configTitleLabel;
-    TMP_Text _optionsSummaryLabel;
-    TMP_Text _equipmentTotalLabel;
-    RectTransform _configBlocksHost;
-
-    RectTransform _pricingRowsHost;
-    TMP_Text _discountLabel;
-    TMP_Text _grandTotalLabel;
-    TMP_Text _note1Label;
-    TMP_Text _note2Label;
-    TMP_Text _acceptanceLabel;
-
-    // Binding moved to UI_OpenProposalWorkspaceButton (scene component + sceneLoaded).
-    // Kept no-op Bootstrap so older references still compile if any remain.
+    int _previewGenerationId;
+    Coroutine _previewDebounce;
+    bool _pendingForceVisuals;
 
     public static void Open()
     {
@@ -95,7 +87,6 @@ public class UI_ProposalWorkspace : MonoBehaviour
         {
             HideLegacyPricingPanel();
             EnsureInstance();
-            // Re-open while already visible: keep last persisted edits, then recapture live room data.
             if (Instance.isActiveAndEnabled)
             {
                 Instance._model?.PersistEditableFields();
@@ -107,9 +98,11 @@ public class UI_ProposalWorkspace : MonoBehaviour
             Instance.gameObject.SetActive(true);
             Instance.EnsureBlocksRaycasts();
             Instance._pageIndex = 0;
-            Instance.RefreshAll();
-            Instance.ShowPage(0);
             Instance.ClosePopover();
+            Instance.SetStatus("Rendering preview…");
+            Instance.ShowPage(0);
+            // First open: start immediately (no debounce).
+            Instance.BeginPreviewGeneration(forceVisuals: true);
             Canvas.ForceUpdateCanvases();
             if (Instance._root != null)
                 LayoutRebuilder.ForceRebuildLayoutImmediate(Instance._root);
@@ -143,6 +136,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
             return;
         Instance._model?.PersistEditableFields();
         Instance.ClosePopover();
+        Instance.CancelPreviewRefresh();
         Instance.gameObject.SetActive(false);
     }
 
@@ -154,7 +148,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
         var go = new GameObject(nameof(UI_ProposalWorkspace), typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster), typeof(Image), typeof(CanvasGroup));
         var canvas = go.GetComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 280; // Below Client Data / dialogs (299), above room UI (100)
+        canvas.sortingOrder = 280;
         var scaler = go.GetComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1920, 1080);
@@ -179,12 +173,10 @@ public class UI_ProposalWorkspace : MonoBehaviour
         if (DropdownPopulator.Instances != null && DropdownPopulator.Instances.Count > 0)
             return;
 
-        // Awake on DropdownPopulator only runs when the panel (or children) become active.
         var panel = FindPricingQuotePanel();
         if (panel == null)
             return;
 
-        // Hide before enabling so the legacy tabbed UI never flashes.
         var cg = panel.GetComponent<CanvasGroup>();
         if (cg == null)
             cg = panel.AddComponent<CanvasGroup>();
@@ -194,7 +186,6 @@ public class UI_ProposalWorkspace : MonoBehaviour
 
         panel.SetActive(true);
 
-        // Dropdowns live on Additional Price tabs that may start inactive.
         foreach (var pop in panel.GetComponentsInChildren<DropdownPopulator>(true))
         {
             if (pop == null)
@@ -210,7 +201,6 @@ public class UI_ProposalWorkspace : MonoBehaviour
             }
         }
 
-        // Keep the old panel out of the way; Instances remain after Awake.
         panel.SetActive(false);
     }
 
@@ -241,6 +231,8 @@ public class UI_ProposalWorkspace : MonoBehaviour
 
     void OnDestroy()
     {
+        CancelPreviewRefresh();
+        ReleasePageTextures();
         if (Instance == this)
             Instance = null;
     }
@@ -271,6 +263,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
         }
 
         UI_ClientMetaData.OnClosed.RemoveListener(OnClientDataClosed);
+        CancelPreviewRefresh();
     }
 
     void Update()
@@ -284,7 +277,6 @@ public class UI_ProposalWorkspace : MonoBehaviour
             return;
         }
 
-        // Overlays above the workspace own Escape first.
         if (UI_ClientMetaData.IsOpen)
         {
             UI_ClientMetaData.Close();
@@ -299,17 +291,24 @@ public class UI_ProposalWorkspace : MonoBehaviour
         Close();
     }
 
-    void OnPricingChanged() => RefreshLiveData(syncSalesRep: false);
-    void OnClientDataClosed() => RefreshLiveData(syncSalesRep: true);
+    void OnPricingChanged()
+    {
+        RefreshLiveData(syncSalesRep: false);
+        SchedulePreviewRefresh(forceVisuals: false);
+    }
 
-    /// <summary>Refresh room/client-driven fields without wiping in-progress edits.</summary>
+    void OnClientDataClosed()
+    {
+        RefreshLiveData(syncSalesRep: true);
+        SchedulePreviewRefresh(forceVisuals: false);
+    }
+
     void RefreshLiveData(bool syncSalesRep = false)
     {
         if (_model == null)
             _model = ProposalPreviewModel.Capture();
         else
             _model.RefreshLive(syncSalesRep);
-        RefreshAll();
     }
 
     void EnsureBlocksRaycasts()
@@ -347,7 +346,6 @@ public class UI_ProposalWorkspace : MonoBehaviour
         _root = transform as RectTransform;
         StretchFull(_root);
 
-        // Light shell — reads as a document viewer, not a dark tool panel.
         var chrome = CreatePanel("Chrome", _root, Theme.Shell);
         var chromeRt = chrome.GetComponent<RectTransform>();
         chromeRt.anchorMin = new Vector2(0.5f, 0f);
@@ -358,7 +356,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
 
         var chromeLayout = chrome.AddComponent<VerticalLayoutGroup>();
         chromeLayout.padding = new RectOffset(20, 20, 14, 14);
-        chromeLayout.spacing = 12f;
+        chromeLayout.spacing = 10f;
         chromeLayout.childAlignment = TextAnchor.UpperCenter;
         chromeLayout.childControlHeight = true;
         chromeLayout.childControlWidth = true;
@@ -394,6 +392,39 @@ public class UI_ProposalWorkspace : MonoBehaviour
 
         CreateGhostButton(header.transform, "Close", Close, 88f, 36f);
 
+        // Toolbar — editors + refresh
+        var toolbar = CreatePanel("Toolbar", chrome.transform, Color.clear);
+        toolbar.GetComponent<Image>().raycastTarget = false;
+        var toolbarLe = toolbar.AddComponent<LayoutElement>();
+        toolbarLe.preferredHeight = 40f;
+        toolbarLe.minHeight = 40f;
+        toolbarLe.flexibleHeight = 0f;
+        var toolbarLayout = toolbar.AddComponent<HorizontalLayoutGroup>();
+        toolbarLayout.padding = new RectOffset(0, 0, 0, 0);
+        toolbarLayout.spacing = 6f;
+        toolbarLayout.childAlignment = TextAnchor.MiddleLeft;
+        toolbarLayout.childForceExpandWidth = false;
+        toolbarLayout.childControlWidth = true;
+        toolbarLayout.childControlHeight = true;
+
+        CreateGhostButton(toolbar.transform, "Sales Rep", EditSalesRep, 96f, 32f);
+        CreateGhostButton(toolbar.transform, "Client Data", EditClientData, 108f, 32f);
+        CreateGhostButton(toolbar.transform, "Title", EditConfigTitle, 72f, 32f);
+        CreateGhostButton(toolbar.transform, "Options", EditOptions, 88f, 32f);
+        CreateGhostButton(toolbar.transform, "Discount", EditDiscount, 92f, 32f);
+        CreateGhostButton(toolbar.transform, "Notes", EditNotes, 80f, 32f);
+
+        var toolbarSpacer = new GameObject("Spacer", typeof(RectTransform), typeof(LayoutElement));
+        toolbarSpacer.transform.SetParent(toolbar.transform, false);
+        toolbarSpacer.GetComponent<LayoutElement>().flexibleWidth = 1f;
+
+        CreateGhostButton(toolbar.transform, "Refresh visuals", () => BeginPreviewGeneration(forceVisuals: true), 132f, 32f);
+
+        _statusLabel = CreateLabel(chrome.transform, "Rendering preview…", 12f, FontStyles.Italic,
+            TextAlignmentOptions.MidlineLeft, -1f, 20f);
+        _statusLabel.color = Theme.InkFaint;
+        _statusLabel.GetComponent<LayoutElement>().flexibleHeight = 0f;
+
         // Desk + paper stage
         var stage = CreatePanel("Stage", chrome.transform, Theme.Desk);
         var stageLe = stage.AddComponent<LayoutElement>();
@@ -422,64 +453,253 @@ public class UI_ProposalWorkspace : MonoBehaviour
         viewport.GetComponent<Image>().color = new Color(1f, 1f, 1f, 0.02f);
         viewport.GetComponent<Image>().raycastTarget = true;
 
-        _pageHost = new GameObject("PageHost", typeof(RectTransform), typeof(VerticalLayoutGroup), typeof(ContentSizeFitter))
-            .GetComponent<RectTransform>();
-        _pageHost.SetParent(viewport.transform, false);
-        _pageHost.anchorMin = new Vector2(0, 1);
-        _pageHost.anchorMax = new Vector2(1, 1);
-        _pageHost.pivot = new Vector2(0.5f, 1f);
-        _pageHost.anchoredPosition = Vector2.zero;
-        _pageHost.sizeDelta = new Vector2(0, 900f);
-        var vlg = _pageHost.GetComponent<VerticalLayoutGroup>();
-        vlg.padding = new RectOffset(40, 40, 36, 40);
-        vlg.spacing = 6f;
-        vlg.childAlignment = TextAnchor.UpperLeft;
-        vlg.childControlHeight = true;
-        vlg.childControlWidth = true;
-        vlg.childForceExpandWidth = true;
-        vlg.childForceExpandHeight = false;
-        var csf = _pageHost.GetComponent<ContentSizeFitter>();
+        var content = new GameObject("PageHost", typeof(RectTransform), typeof(VerticalLayoutGroup), typeof(ContentSizeFitter));
+        content.transform.SetParent(viewport.transform, false);
+        var contentRt = content.GetComponent<RectTransform>();
+        contentRt.anchorMin = new Vector2(0, 1);
+        contentRt.anchorMax = new Vector2(1, 1);
+        contentRt.pivot = new Vector2(0.5f, 1f);
+        contentRt.anchoredPosition = Vector2.zero;
+        contentRt.sizeDelta = new Vector2(0, 0);
+        var contentV = content.GetComponent<VerticalLayoutGroup>();
+        contentV.padding = new RectOffset(24, 24, 24, 24);
+        contentV.spacing = 0f;
+        contentV.childAlignment = TextAnchor.UpperCenter;
+        contentV.childControlHeight = true;
+        contentV.childControlWidth = true;
+        contentV.childForceExpandWidth = true;
+        contentV.childForceExpandHeight = false;
+        var csf = content.GetComponent<ContentSizeFitter>();
         csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
         csf.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
 
-        var scroll = pageScroll.GetComponent<ScrollRect>();
-        scroll.viewport = viewport.GetComponent<RectTransform>();
-        scroll.content = _pageHost;
-        scroll.horizontal = false;
-        scroll.vertical = true;
-        scroll.movementType = ScrollRect.MovementType.Clamped;
-        scroll.scrollSensitivity = 40f;
+        var pageFrame = CreatePanel("PageFrame", content.transform, Theme.Placeholder);
+        var pageFrameLe = pageFrame.AddComponent<LayoutElement>();
+        pageFrameLe.flexibleWidth = 1f;
+        pageFrameLe.preferredHeight = 900f;
+        pageFrameLe.minHeight = 400f;
+        _pageAspect = pageFrame.AddComponent<AspectRatioFitter>();
+        _pageAspect.aspectMode = AspectRatioFitter.AspectMode.WidthControlsHeight;
+        _pageAspect.aspectRatio = A4Aspect;
 
-        BuildPages();
+        _pageImage = pageFrame.GetComponent<Image>();
+        _pageImage.color = Theme.Placeholder;
+        _pageImage.preserveAspect = true;
+        _pageImage.type = Image.Type.Simple;
+        _pageImage.raycastTarget = false;
 
-        // Page nav — quiet pills + dots
+        _pageScroll = pageScroll.GetComponent<ScrollRect>();
+        _pageScroll.viewport = viewport.GetComponent<RectTransform>();
+        _pageScroll.content = contentRt;
+        _pageScroll.horizontal = false;
+        _pageScroll.vertical = true;
+        _pageScroll.movementType = ScrollRect.MovementType.Clamped;
+        _pageScroll.scrollSensitivity = 40f;
+
+        // Bottom nav: Previous / dots / N / pages / Next + Export
         var nav = CreatePanel("Nav", chrome.transform, Color.clear);
         nav.GetComponent<Image>().raycastTarget = false;
         var navLe = nav.AddComponent<LayoutElement>();
-        navLe.preferredHeight = 40f;
+        navLe.preferredHeight = 52f;
         navLe.flexibleHeight = 0f;
-        navLe.minHeight = 40f;
+        navLe.minHeight = 52f;
         var navLayout = nav.AddComponent<HorizontalLayoutGroup>();
         navLayout.padding = new RectOffset(4, 4, 2, 2);
-        navLayout.spacing = 14f;
+        navLayout.spacing = 12f;
         navLayout.childAlignment = TextAnchor.MiddleCenter;
         navLayout.childForceExpandWidth = false;
+        navLayout.childControlWidth = true;
+        navLayout.childControlHeight = true;
 
-        CreateGhostButton(nav.transform, "Previous", () => ShowPage(_pageIndex - 1), 100f, 32f);
+        CreateGhostButton(nav.transform, "Previous", () => ShowPage(_pageIndex - 1), 100f, 36f);
 
-        var dots = new GameObject("Dots", typeof(RectTransform), typeof(HorizontalLayoutGroup), typeof(LayoutElement));
-        dots.transform.SetParent(nav.transform, false);
-        dots.GetComponent<LayoutElement>().preferredWidth = 72f;
-        var dotsLayout = dots.GetComponent<HorizontalLayoutGroup>();
+        _dotsHost = new GameObject("Dots", typeof(RectTransform), typeof(HorizontalLayoutGroup), typeof(LayoutElement))
+            .GetComponent<RectTransform>();
+        _dotsHost.SetParent(nav.transform, false);
+        _dotsHost.GetComponent<LayoutElement>().preferredWidth = 96f;
+        var dotsLayout = _dotsHost.GetComponent<HorizontalLayoutGroup>();
         dotsLayout.spacing = 8f;
         dotsLayout.childAlignment = TextAnchor.MiddleCenter;
         dotsLayout.childForceExpandWidth = false;
+
+        _pageLabel = CreateLabel(nav.transform, "— / —", 13f, FontStyles.Normal, TextAlignmentOptions.Center, 64f, 20f);
+        _pageLabel.color = Theme.InkMuted;
+
+        CreateGhostButton(nav.transform, "Next", () => ShowPage(_pageIndex + 1), 88f, 36f);
+
+        var navSpacer = new GameObject("NavSpacer", typeof(RectTransform), typeof(LayoutElement));
+        navSpacer.transform.SetParent(nav.transform, false);
+        navSpacer.GetComponent<LayoutElement>().flexibleWidth = 1f;
+
+        CreatePrimaryButton(nav.transform, "Export PDF", ExportPdf, 160f, 40f);
+
+        _popoverHost = CreatePanel("PopoverHost", _root, new Color(0.08f, 0.09f, 0.11f, 0.45f)).GetComponent<RectTransform>();
+        StretchFull(_popoverHost);
+        _popoverHost.gameObject.SetActive(false);
+        var popBtn = _popoverHost.gameObject.AddComponent<Button>();
+        popBtn.transition = UnityEngine.UI.Selectable.Transition.None;
+        popBtn.targetGraphic = _popoverHost.GetComponent<Image>();
+        popBtn.onClick.AddListener(ClosePopover);
+
+        RebuildPageDots(0);
+        EnsureBlocksRaycasts();
+        TMP_RuntimeFontRepair.RepairAll();
+        Canvas.ForceUpdateCanvases();
+        LayoutRebuilder.ForceRebuildLayoutImmediate(chromeRt);
+    }
+
+    #region PDF preview
+
+    void SchedulePreviewRefresh(bool forceVisuals = false)
+    {
+        if (!isActiveAndEnabled)
+            return;
+
+        if (forceVisuals)
+            _pendingForceVisuals = true;
+
+        if (_previewDebounce != null)
+            StopCoroutine(_previewDebounce);
+        _previewDebounce = StartCoroutine(PreviewDebounceRoutine());
+    }
+
+    IEnumerator PreviewDebounceRoutine()
+    {
+        yield return new WaitForSecondsRealtime(PreviewDebounceSeconds);
+        _previewDebounce = null;
+        bool forceVisuals = _pendingForceVisuals;
+        _pendingForceVisuals = false;
+        BeginPreviewGeneration(forceVisuals);
+    }
+
+    void CancelPreviewRefresh()
+    {
+        if (_previewDebounce != null)
+        {
+            StopCoroutine(_previewDebounce);
+            _previewDebounce = null;
+        }
+        _previewGenerationId++;
+        _pendingForceVisuals = false;
+    }
+
+    void BeginPreviewGeneration(bool forceVisuals)
+    {
+        if (!isActiveAndEnabled)
+            return;
+
+        int generationId = ++_previewGenerationId;
+        SetStatus("Rendering preview…");
+
+        if (_model == null)
+            _model = ProposalPreviewModel.Capture();
+        else
+            _model.RefreshLive();
+
+        _model.PersistEditableFields();
+
+        var generator = FindAnyObjectByType<ProposalPDFGenerator>(FindObjectsInactive.Include);
+        if (generator == null)
+        {
+            if (generationId != _previewGenerationId)
+                return;
+            SetStatus("Sales proposal generator is missing from the scene.");
+            return;
+        }
+
+        bool reuseVisuals = !forceVisuals;
+        generator.GeneratePreviewPdf((ok, path, err) =>
+        {
+            if (generationId != _previewGenerationId || !isActiveAndEnabled)
+                return;
+
+            if (!ok || string.IsNullOrEmpty(path))
+            {
+                SetStatus(string.IsNullOrWhiteSpace(err) ? "Preview failed." : err);
+                return;
+            }
+
+            try
+            {
+                var textures = ProposalPdfPreviewRasterizer.RasterizePages(path);
+                ApplyPageTextures(textures);
+                SetStatus("Preview up to date");
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"Proposal preview rasterize failed: {e.Message}");
+                SetStatus("Could not rasterize preview: " + e.Message);
+            }
+        }, reuseVisuals);
+    }
+
+    void ApplyPageTextures(List<Texture2D> textures)
+    {
+        ReleasePageTextures();
+
+        if (textures == null || textures.Count == 0)
+        {
+            RebuildPageDots(0);
+            ShowPage(0);
+            return;
+        }
+
+        for (int i = 0; i < textures.Count; i++)
+        {
+            var tex = textures[i];
+            if (tex == null)
+                continue;
+            _pageTextures.Add(tex);
+            var sprite = Sprite.Create(
+                tex,
+                new Rect(0, 0, tex.width, tex.height),
+                new Vector2(0.5f, 0.5f),
+                100f);
+            sprite.name = "ProposalPage_" + i;
+            _pageSprites.Add(sprite);
+        }
+
+        RebuildPageDots(_pageSprites.Count);
+        ShowPage(Mathf.Clamp(_pageIndex, 0, Mathf.Max(0, _pageSprites.Count - 1)));
+    }
+
+    void ReleasePageTextures()
+    {
+        if (_pageImage != null)
+        {
+            _pageImage.sprite = null;
+            _pageImage.color = Theme.Placeholder;
+        }
+
+        for (int i = 0; i < _pageSprites.Count; i++)
+        {
+            if (_pageSprites[i] != null)
+                Destroy(_pageSprites[i]);
+        }
+        _pageSprites.Clear();
+
+        for (int i = 0; i < _pageTextures.Count; i++)
+        {
+            if (_pageTextures[i] != null)
+                Destroy(_pageTextures[i]);
+        }
+        _pageTextures.Clear();
+    }
+
+    void RebuildPageDots(int pageCount)
+    {
         _pageDots.Clear();
-        for (int i = 0; i < 3; i++)
+        if (_dotsHost == null)
+            return;
+
+        for (int i = _dotsHost.childCount - 1; i >= 0; i--)
+            Destroy(_dotsHost.GetChild(i).gameObject);
+
+        for (int i = 0; i < pageCount; i++)
         {
             int page = i;
             var dot = new GameObject("Dot" + i, typeof(RectTransform), typeof(Image), typeof(Button), typeof(LayoutElement));
-            dot.transform.SetParent(dots.transform, false);
+            dot.transform.SetParent(_dotsHost, false);
             var img = dot.GetComponent<Image>();
             img.color = Theme.NavIdle;
             var dle = dot.GetComponent<LayoutElement>();
@@ -491,355 +711,74 @@ public class UI_ProposalWorkspace : MonoBehaviour
             btn.onClick.AddListener(() => ShowPage(page));
             _pageDots.Add(img);
         }
-
-        _pageLabel = CreateLabel(nav.transform, "1 / 3", 13f, FontStyles.Normal, TextAlignmentOptions.Center, 48f, 20f);
-        _pageLabel.color = Theme.InkMuted;
-
-        CreateGhostButton(nav.transform, "Next", () => ShowPage(_pageIndex + 1), 88f, 32f);
-
-        // Footer
-        var footer = CreatePanel("Footer", chrome.transform, Color.clear);
-        footer.GetComponent<Image>().raycastTarget = false;
-        var footerLe = footer.AddComponent<LayoutElement>();
-        footerLe.preferredHeight = 52f;
-        footerLe.flexibleHeight = 0f;
-        footerLe.minHeight = 52f;
-        var footerLayout = footer.AddComponent<HorizontalLayoutGroup>();
-        footerLayout.padding = new RectOffset(4, 4, 4, 4);
-        footerLayout.spacing = 12f;
-        footerLayout.childAlignment = TextAnchor.MiddleCenter;
-        footerLayout.childForceExpandWidth = true;
-
-        CreatePrimaryButton(footer.transform, "Export PDF", ExportPdf, -1f, 44f);
-
-        _popoverHost = CreatePanel("PopoverHost", _root, new Color(0.08f, 0.09f, 0.11f, 0.45f)).GetComponent<RectTransform>();
-        StretchFull(_popoverHost);
-        _popoverHost.gameObject.SetActive(false);
-        var popBtn = _popoverHost.gameObject.AddComponent<Button>();
-        popBtn.transition = UnityEngine.UI.Selectable.Transition.None;
-        popBtn.targetGraphic = _popoverHost.GetComponent<Image>();
-        popBtn.onClick.AddListener(ClosePopover);
-
-        EnsureBlocksRaycasts();
-        TMP_RuntimeFontRepair.RepairAll();
-        Canvas.ForceUpdateCanvases();
-        LayoutRebuilder.ForceRebuildLayoutImmediate(chromeRt);
-    }
-
-    void BuildPages()
-    {
-        _page1 = BuildPage1();
-        _page2 = BuildPage2();
-        _page3 = BuildPage3();
-    }
-
-    GameObject BuildPage1()
-    {
-        var page = CreatePageRoot("Page1_Summary");
-
-        // Document masthead: title + logo
-        var masthead = new GameObject("Masthead", typeof(RectTransform), typeof(HorizontalLayoutGroup), typeof(LayoutElement));
-        masthead.transform.SetParent(page.transform, false);
-        masthead.GetComponent<LayoutElement>().preferredHeight = 72f;
-        var mh = masthead.GetComponent<HorizontalLayoutGroup>();
-        mh.childAlignment = TextAnchor.UpperLeft;
-        mh.childForceExpandWidth = false;
-        mh.spacing = 12f;
-
-        var left = new GameObject("Left", typeof(RectTransform), typeof(VerticalLayoutGroup), typeof(LayoutElement));
-        left.transform.SetParent(masthead.transform, false);
-        left.GetComponent<LayoutElement>().flexibleWidth = 1f;
-        var lv = left.GetComponent<VerticalLayoutGroup>();
-        lv.spacing = 2f;
-        lv.childControlHeight = true;
-        lv.childForceExpandHeight = false;
-        CreateLabel(left.transform, "Proposal", 28f, FontStyles.Bold, TextAlignmentOptions.Left, -1f, 34f).color = Theme.Ink;
-        AddHairline(left.transform);
-
-        TryAddLogo(masthead.transform);
-
-        AddSpacer(page.transform, 10f);
-        _salesRepNameLabel = CreateEditableRow(page.transform, "Sales Rep", "—", EditSalesRep);
-        _salesRepEmailLabel = CreateEditableRow(page.transform, "Email", "—", EditSalesRep);
-
-        CreateLabel(page.transform, "Imagine Unlimited", 13f, FontStyles.Normal, TextAlignmentOptions.Left, -1f, 20f).color = Theme.Ink;
-        CreateLabel(page.transform, "9155 Sterling St Suite 120 · Irving, TX 75063", 12f, FontStyles.Normal, TextAlignmentOptions.Left, -1f, 18f).color = Theme.InkMuted;
-        CreateLabel(page.transform, "Tel: 1 877 789 8106", 12f, FontStyles.Normal, TextAlignmentOptions.Left, -1f, 18f).color = Theme.InkMuted;
-
-        AddSpacer(page.transform, 14f);
-        _submittedToLabel = CreateEditableBanner(page.transform, "Submitted To: —", EditClientData);
-        AddSpacer(page.transform, 6f);
-        _projectLabel = CreateEditableRow(page.transform, "Project", "—", EditClientData);
-
-        AddSpacer(page.transform, 10f);
-        _configTitleLabel = CreateEditableRow(page.transform, "Configuration", "—", EditConfigTitle);
-
-        _configBlocksHost = new GameObject("ConfigBlocks", typeof(RectTransform), typeof(VerticalLayoutGroup), typeof(ContentSizeFitter), typeof(LayoutElement))
-            .GetComponent<RectTransform>();
-        _configBlocksHost.SetParent(page.transform, false);
-        var cbV = _configBlocksHost.GetComponent<VerticalLayoutGroup>();
-        cbV.spacing = 8f;
-        cbV.childForceExpandWidth = true;
-        cbV.childControlHeight = false;
-        _configBlocksHost.GetComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-        _configBlocksHost.gameObject.AddComponent<LayoutElement>().minHeight = 40f;
-
-        AddSpacer(page.transform, 8f);
-        CreateSectionHeader(page.transform, "OPTION / ACCESSORY DESCRIPTION");
-        _optionsSummaryLabel = CreateEditableMultiline(
-            page.transform,
-            "Click to edit light & boom options…",
-            EditOptions);
-
-        AddSpacer(page.transform, 16f);
-        AddHairline(page.transform);
-        // Page 1 PDF shows selectable equipment only (no dropdown/install/ship) as EQUIPMENT TOTAL.
-        _equipmentTotalLabel = CreateLabel(page.transform, "EQUIPMENT TOTAL LIST PRICE  —", 14f, FontStyles.Bold, TextAlignmentOptions.Right, -1f, 28f);
-        _equipmentTotalLabel.color = Theme.Ink;
-
-        CreateHint(page.transform, "Highlighted areas are editable. Visuals fill in on export · pricing is on page 3.");
-
-        return page;
-    }
-
-    GameObject BuildPage2()
-    {
-        var page = CreatePageRoot("Page2_Visuals");
-        CreateLabel(page.transform, "Visuals", 22f, FontStyles.Bold, TextAlignmentOptions.Left, -1f, 30f).color = Theme.Ink;
-        CreateHint(page.transform,
-            "Ceiling plan and elevations are captured when you export. This preview shows placeholders only.");
-
-        CreatePlaceholderBox(page.transform, "Ceiling plan\nCaptured on export");
-        AddSpacer(page.transform, 14f);
-        CreatePlaceholderBox(page.transform, "Elevations\nCaptured on export");
-        return page;
-    }
-
-    GameObject BuildPage3()
-    {
-        var page = CreatePageRoot("Page3_Pricing");
-        CreateLabel(page.transform, "Pricing", 22f, FontStyles.Bold, TextAlignmentOptions.Left, -1f, 30f).color = Theme.Ink;
-
-        var header = CreatePanel("PriceHeader", page.transform, Theme.TableHead);
-        header.AddComponent<LayoutElement>().preferredHeight = 30f;
-        var hl = header.AddComponent<HorizontalLayoutGroup>();
-        hl.padding = new RectOffset(10, 10, 4, 4);
-        hl.childForceExpandWidth = true;
-        CreateLabel(header.transform, "PART #", 11f, FontStyles.Bold, TextAlignmentOptions.Left, -1f, 20f).color = Color.white;
-        CreateLabel(header.transform, "DESCRIPTION", 11f, FontStyles.Bold, TextAlignmentOptions.Left, -1f, 20f).color = Color.white;
-        CreateLabel(header.transform, "QTY", 11f, FontStyles.Bold, TextAlignmentOptions.Center, -1f, 20f).color = Color.white;
-        CreateLabel(header.transform, "LIST", 11f, FontStyles.Bold, TextAlignmentOptions.Right, -1f, 20f).color = Color.white;
-        CreateLabel(header.transform, "EXT", 11f, FontStyles.Bold, TextAlignmentOptions.Right, -1f, 20f).color = Color.white;
-
-        _pricingRowsHost = new GameObject("Rows", typeof(RectTransform), typeof(VerticalLayoutGroup), typeof(ContentSizeFitter))
-            .GetComponent<RectTransform>();
-        _pricingRowsHost.SetParent(page.transform, false);
-        var rowsV = _pricingRowsHost.GetComponent<VerticalLayoutGroup>();
-        rowsV.spacing = 0f;
-        rowsV.childForceExpandWidth = true;
-        rowsV.childControlHeight = false;
-        _pricingRowsHost.GetComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-        _pricingRowsHost.gameObject.AddComponent<LayoutElement>().minHeight = 40f;
-
-        AddSpacer(page.transform, 14f);
-        _discountLabel = CreateEditableRow(page.transform, "DISCOUNT %", "0.0%", EditDiscount);
-        _grandTotalLabel = CreateLabel(page.transform, "GRAND TOTAL  —", 16f, FontStyles.Bold, TextAlignmentOptions.Right, -1f, 30f);
-        _grandTotalLabel.color = Theme.Ink;
-
-        AddSpacer(page.transform, 16f);
-        CreateLabel(page.transform, "Notes", 14f, FontStyles.Bold, TextAlignmentOptions.Left, -1f, 22f).color = Theme.Ink;
-        _note1Label = CreateEditableMultiline(page.transform, "Note 1", EditNotes);
-        AddSpacer(page.transform, 6f);
-        _note2Label = CreateEditableMultiline(page.transform, "Note 2", EditNotes);
-
-        AddSpacer(page.transform, 14f);
-        CreateSectionHeader(page.transform, "ACCEPTANCE");
-        _acceptanceLabel = CreateEditableMultiline(page.transform, "Acceptance / client fields…", EditClientData);
-
-        return page;
-    }
-
-    GameObject CreatePageRoot(string name)
-    {
-        var go = new GameObject(name, typeof(RectTransform), typeof(VerticalLayoutGroup), typeof(ContentSizeFitter), typeof(LayoutElement));
-        go.transform.SetParent(_pageHost, false);
-        var v = go.GetComponent<VerticalLayoutGroup>();
-        v.spacing = 4f;
-        v.childForceExpandWidth = true;
-        v.childControlHeight = true;
-        v.childControlWidth = true;
-        v.childForceExpandHeight = false;
-        go.GetComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-        var le = go.GetComponent<LayoutElement>();
-        le.minHeight = 400f;
-        le.preferredHeight = -1f;
-        le.flexibleWidth = 1f;
-        return go;
     }
 
     void ShowPage(int index)
     {
-        _pageIndex = Mathf.Clamp(index, 0, 2);
-        if (_page1 != null) _page1.SetActive(_pageIndex == 0);
-        if (_page2 != null) _page2.SetActive(_pageIndex == 1);
-        if (_page3 != null) _page3.SetActive(_pageIndex == 2);
+        int pageCount = _pageSprites.Count;
+        if (pageCount <= 0)
+        {
+            _pageIndex = 0;
+            if (_pageImage != null)
+            {
+                _pageImage.sprite = null;
+                _pageImage.color = Theme.Placeholder;
+            }
+            if (_pageLabel != null)
+                _pageLabel.text = "— / —";
+            for (int i = 0; i < _pageDots.Count; i++)
+            {
+                if (_pageDots[i] != null)
+                    _pageDots[i].color = Theme.NavIdle;
+            }
+            return;
+        }
+
+        _pageIndex = Mathf.Clamp(index, 0, pageCount - 1);
+
+        var sprite = _pageSprites[_pageIndex];
+        if (_pageImage != null)
+        {
+            _pageImage.sprite = sprite;
+            _pageImage.color = Color.white;
+            _pageImage.preserveAspect = true;
+        }
+
+        if (_pageAspect != null && sprite != null && sprite.rect.height > 0.01f)
+            _pageAspect.aspectRatio = sprite.rect.width / sprite.rect.height;
+        else if (_pageAspect != null)
+            _pageAspect.aspectRatio = A4Aspect;
+
         if (_pageLabel != null)
-            _pageLabel.text = $"{_pageIndex + 1} / 3";
+            _pageLabel.text = $"{_pageIndex + 1} / {pageCount}";
+
         for (int i = 0; i < _pageDots.Count; i++)
         {
             if (_pageDots[i] != null)
                 _pageDots[i].color = i == _pageIndex ? Theme.Accent : Theme.NavIdle;
         }
+
+        if (_pageScroll != null)
+            _pageScroll.verticalNormalizedPosition = 1f;
+
         ClosePopover();
     }
 
-    void RefreshAll()
+    void SetStatus(string text)
     {
-        if (_model == null)
-            _model = ProposalPreviewModel.Capture();
-
-        if (_salesRepNameLabel != null)
-            _salesRepNameLabel.text = string.IsNullOrWhiteSpace(_model.SalesRepName) ? "Click to set" : _model.SalesRepName;
-        if (_salesRepEmailLabel != null)
-            _salesRepEmailLabel.text = string.IsNullOrWhiteSpace(_model.SalesRepEmail) ? "Click to set" : _model.SalesRepEmail;
-        if (_submittedToLabel != null)
-            _submittedToLabel.text = "Submitted To: " + (string.IsNullOrWhiteSpace(_model.ClientName) ? "Click to open Client Data" : _model.ClientName);
-        if (_projectLabel != null)
-            _projectLabel.text = string.IsNullOrWhiteSpace(_model.ProjectName) ? "From Client Data" : _model.ProjectName;
-        if (_configTitleLabel != null)
-            _configTitleLabel.text = _model.ConfigName;
-
-        RebuildConfigBlocksUi();
-
-        if (_optionsSummaryLabel != null)
-        {
-            var parts = new List<string>();
-            foreach (var block in _model.ConfigBlocks)
-            {
-                if (!string.IsNullOrWhiteSpace(block.LightOptionsText))
-                    parts.Add("LIGHT: " + block.LightOptionsText);
-                if (!string.IsNullOrWhiteSpace(block.BoomOptionsText))
-                    parts.Add("BOOM: " + block.BoomOptionsText);
-            }
-            if (parts.Count == 0)
-                parts.Add("No priced equipment yet. Place boom/light objects, then set options here.");
-            _optionsSummaryLabel.text = string.Join("\n\n", parts);
-        }
-
-        if (_equipmentTotalLabel != null)
-            _equipmentTotalLabel.text = "EQUIPMENT TOTAL LIST PRICE  " + _model.Page1EquipmentTotal.ToString("C", CultureInfo.CurrentCulture);
-
-        RebuildPricingRows();
-
-        if (_discountLabel != null)
-            _discountLabel.text = _model.DiscountPercentage.ToString("F1", CultureInfo.InvariantCulture) + "%";
-        if (_grandTotalLabel != null)
-            _grandTotalLabel.text = "GRAND TOTAL  " + _model.GrandTotal.ToString("C", CultureInfo.CurrentCulture);
-        if (_note1Label != null)
-            _note1Label.text = _model.Note1;
-        if (_note2Label != null)
-            _note2Label.text = _model.Note2;
-        if (_acceptanceLabel != null)
-        {
-            _acceptanceLabel.text =
-                _model.Note3 + "\n\n" +
-                "Account Name: " + _model.AccountName + "\n" +
-                "Account Address: " + _model.AccountAddressLine1 + "\n" +
-                " " + _model.AccountAddressLine2 + "\n" +
-                "Project Name: " + _model.ProjectName + "\n" +
-                "Project Number: " + _model.ProjectNumber + "\n" +
-                "Order Reference #: " + _model.OrderReference + "\n\n" +
-                "Click to edit Client Data";
-        }
+        if (_statusLabel != null)
+            _statusLabel.text = text ?? "";
     }
 
-    void RebuildConfigBlocksUi()
-    {
-        if (_configBlocksHost == null || _model == null)
-            return;
-
-        for (int i = _configBlocksHost.childCount - 1; i >= 0; i--)
-            Destroy(_configBlocksHost.GetChild(i).gameObject);
-
-        bool any = false;
-        foreach (var block in _model.ConfigBlocks)
-        {
-            if (!block.HasLights && !block.HasBooms)
-                continue;
-            any = true;
-
-            if (block.HasLights)
-            {
-                CreateModelQtyRow(_configBlocksHost, "LIGHT", block.LightQty);
-            }
-            if (block.HasBooms)
-            {
-                CreateModelQtyRow(_configBlocksHost, "ARTICULATING BOOM", block.BoomQty);
-            }
-        }
-
-        if (!any)
-            CreateLabel(_configBlocksHost, "No boom/light configuration in the room yet.", 12f, FontStyles.Italic, TextAlignmentOptions.Left, -1f, 22f);
-    }
-
-    static void CreateModelQtyRow(Transform parent, string model, int qty)
-    {
-        var header = CreatePanel("ModelHeader", parent, Theme.TableHead);
-        header.AddComponent<LayoutElement>().preferredHeight = 26f;
-        var hl = header.AddComponent<HorizontalLayoutGroup>();
-        hl.padding = new RectOffset(10, 10, 2, 2);
-        hl.childForceExpandWidth = true;
-        CreateLabel(header.transform, "MODEL DESCRIPTION", 11f, FontStyles.Bold, TextAlignmentOptions.Left, -1f, 20f).color = Color.white;
-        CreateLabel(header.transform, "QTY", 11f, FontStyles.Bold, TextAlignmentOptions.Center, -1f, 20f).color = Color.white;
-
-        var row = CreatePanel("ModelRow", parent, Theme.RowAlt);
-        row.AddComponent<LayoutElement>().preferredHeight = 26f;
-        var rl = row.AddComponent<HorizontalLayoutGroup>();
-        rl.padding = new RectOffset(10, 10, 2, 2);
-        rl.childForceExpandWidth = true;
-        CreateLabel(row.transform, model, 12f, FontStyles.Normal, TextAlignmentOptions.Left, -1f, 20f).color = Theme.Ink;
-        CreateLabel(row.transform, qty.ToString(), 12f, FontStyles.Normal, TextAlignmentOptions.Center, -1f, 20f).color = Theme.Ink;
-    }
-
-    void RebuildPricingRows()
-    {
-        if (_pricingRowsHost == null || _model == null)
-            return;
-
-        for (int i = _pricingRowsHost.childCount - 1; i >= 0; i--)
-            Destroy(_pricingRowsHost.GetChild(i).gameObject);
-
-        if (_model.PricingLines.Count == 0)
-        {
-            CreateLabel(_pricingRowsHost, "No line items yet.", 13f, FontStyles.Italic, TextAlignmentOptions.Left, -1f, 24f);
-            return;
-        }
-
-        foreach (var line in _model.PricingLines)
-        {
-            if (line.IsSectionHeader)
-            {
-                CreateSectionHeader(_pricingRowsHost, line.SectionTitle);
-                continue;
-            }
-
-            var row = CreatePanel("Row", _pricingRowsHost, Theme.RowAlt);
-            row.AddComponent<LayoutElement>().preferredHeight = 24f;
-            var hl = row.AddComponent<HorizontalLayoutGroup>();
-            hl.padding = new RectOffset(10, 10, 2, 2);
-            hl.childForceExpandWidth = true;
-            CreateLabel(row.transform, line.PartNumber ?? "", 11f, FontStyles.Normal, TextAlignmentOptions.Left, -1f, 18f).color = Theme.Ink;
-            CreateLabel(row.transform, line.Description ?? "", 11f, FontStyles.Normal, TextAlignmentOptions.Left, -1f, 18f).color = Theme.Ink;
-            CreateLabel(row.transform, line.Qty.ToString(), 11f, FontStyles.Normal, TextAlignmentOptions.Center, -1f, 18f).color = Theme.Ink;
-            CreateLabel(row.transform, line.UnitPrice.ToString("C", CultureInfo.CurrentCulture), 11f, FontStyles.Normal, TextAlignmentOptions.Right, -1f, 18f).color = Theme.Ink;
-            CreateLabel(row.transform, line.ExtPrice.ToString("C", CultureInfo.CurrentCulture), 11f, FontStyles.Normal, TextAlignmentOptions.Right, -1f, 18f).color = Theme.Ink;
-        }
-    }
+    #endregion
 
     #region Editors
 
     void EditSalesRep()
     {
+        if (_model == null)
+            _model = ProposalPreviewModel.Capture();
+
         OpenTextPopover("Sales rep",
             new[]
             {
@@ -851,7 +790,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
                 _model.SalesRepName = values[0];
                 _model.SalesRepEmail = values[1];
                 _model.PersistEditableFields();
-                RefreshAll();
+                SchedulePreviewRefresh(forceVisuals: false);
             });
     }
 
@@ -863,13 +802,15 @@ public class UI_ProposalWorkspace : MonoBehaviour
 
     void EditConfigTitle()
     {
+        if (_model == null)
+            _model = ProposalPreviewModel.Capture();
+
         OpenTextPopover("Configuration title",
             new[] { ("Title", _model.ConfigName) },
             values =>
             {
                 if (string.IsNullOrWhiteSpace(values[0]))
                 {
-                    // Empty title clears the session override and falls back to saved room name.
                     ProposalPreviewModel.ConfigNameOverride = null;
                     _model.ConfigName = ExportPaths.HasSavedRoomName()
                         ? ExportPaths.GetRoomExportName()
@@ -880,13 +821,16 @@ public class UI_ProposalWorkspace : MonoBehaviour
                     _model.ConfigName = values[0].Trim();
                     ProposalPreviewModel.ConfigNameOverride = _model.ConfigName;
                 }
-                RefreshAll();
+                SchedulePreviewRefresh(forceVisuals: false);
             },
             footerHint: "Export normally uses the saved room name. Clear the title to remove this override.");
     }
 
     void EditDiscount()
     {
+        if (_model == null)
+            _model = ProposalPreviewModel.Capture();
+
         OpenTextPopover("Discount %",
             new[] { ("Percent", _model.DiscountPercentage.ToString("0.##", CultureInfo.InvariantCulture)) },
             values =>
@@ -894,18 +838,21 @@ public class UI_ProposalWorkspace : MonoBehaviour
                 if (float.TryParse(values[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float d))
                     _model.DiscountPercentage = Mathf.Max(0f, d);
                 _model.PersistEditableFields();
-                RefreshAll();
+                SchedulePreviewRefresh(forceVisuals: false);
             });
     }
 
     void EditNotes()
     {
+        if (_model == null)
+            _model = ProposalPreviewModel.Capture();
+
         OpenTextPopover("Notes",
             new[]
             {
-                ("Note 1", _model.Note1),
-                ("Note 2", _model.Note2),
-                ("Acceptance", _model.Note3),
+                ("Note 1", _model.Note1, true),
+                ("Note 2", _model.Note2, true),
+                ("Acceptance", _model.Note3, true),
             },
             values =>
             {
@@ -913,15 +860,17 @@ public class UI_ProposalWorkspace : MonoBehaviour
                 _model.Note2 = values[1];
                 _model.Note3 = values[2];
                 _model.PersistEditableFields();
-                RefreshAll();
+                SchedulePreviewRefresh(forceVisuals: false);
             });
     }
 
     void EditOptions()
     {
         EnsurePricingOptionsInitialized();
-        // Re-capture after init so OptionSelections populate.
-        _model.RefreshLive();
+        if (_model == null)
+            _model = ProposalPreviewModel.Capture();
+        else
+            _model.RefreshLive();
 
         ClosePopover();
         _popoverHost.gameObject.SetActive(true);
@@ -931,27 +880,31 @@ public class UI_ProposalWorkspace : MonoBehaviour
         rt.anchorMin = new Vector2(0.5f, 0.5f);
         rt.anchorMax = new Vector2(0.5f, 0.5f);
         rt.pivot = new Vector2(0.5f, 0.5f);
-        rt.sizeDelta = new Vector2(500f, 440f);
+        rt.sizeDelta = new Vector2(480f, 520f);
         var stop = panel.AddComponent<Button>();
         stop.transition = UnityEngine.UI.Selectable.Transition.None;
         stop.targetGraphic = panel.GetComponent<Image>();
         stop.onClick.AddListener(() => { });
 
         var layout = panel.AddComponent<VerticalLayoutGroup>();
-        layout.padding = new RectOffset(22, 22, 20, 18);
-        layout.spacing = 10f;
+        layout.padding = new RectOffset(20, 20, 18, 16);
+        layout.spacing = 8f;
         layout.childForceExpandWidth = true;
-        layout.childControlHeight = false;
+        layout.childControlHeight = true;
+        layout.childControlWidth = true;
+        layout.childForceExpandHeight = false;
 
-        CreateLabel(panel.transform, "Light & boom options", 18f, FontStyles.Bold, TextAlignmentOptions.Left, -1f, 28f)
+        CreateLabel(panel.transform, "Light & boom options", 17f, FontStyles.Bold, TextAlignmentOptions.Left, -1f, 24f)
             .color = Theme.Ink;
-        CreateHint(panel.transform, "Same lists as before. Changes update the proposal immediately.");
+        CreateHint(panel.transform, "Same accessory lists as the previous quote menu. Changes update live.");
 
         var scrollGo = new GameObject("OptScroll", typeof(RectTransform), typeof(Image), typeof(ScrollRect), typeof(LayoutElement));
         scrollGo.transform.SetParent(panel.transform, false);
         scrollGo.GetComponent<Image>().color = Theme.InputFill;
-        scrollGo.GetComponent<LayoutElement>().flexibleHeight = 1f;
-        scrollGo.GetComponent<LayoutElement>().minHeight = 240f;
+        var scrollLe = scrollGo.GetComponent<LayoutElement>();
+        scrollLe.flexibleHeight = 1f;
+        scrollLe.minHeight = 280f;
+        scrollLe.preferredHeight = 360f;
 
         var viewport = new GameObject("Viewport", typeof(RectTransform), typeof(RectMask2D));
         viewport.transform.SetParent(scrollGo.transform, false);
@@ -965,10 +918,12 @@ public class UI_ProposalWorkspace : MonoBehaviour
         contentRt.pivot = new Vector2(0.5f, 1f);
         contentRt.sizeDelta = Vector2.zero;
         var cv = content.GetComponent<VerticalLayoutGroup>();
-        cv.spacing = 10f;
-        cv.padding = new RectOffset(8, 8, 8, 8);
+        cv.spacing = 8f;
+        cv.padding = new RectOffset(10, 10, 10, 10);
         cv.childForceExpandWidth = true;
-        cv.childControlHeight = false;
+        cv.childControlHeight = true;
+        cv.childControlWidth = true;
+        cv.childForceExpandHeight = false;
         content.GetComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
         var sr = scrollGo.GetComponent<ScrollRect>();
@@ -976,23 +931,41 @@ public class UI_ProposalWorkspace : MonoBehaviour
         sr.content = contentRt;
         sr.horizontal = false;
 
-        var populators = DropdownPopulator.Instances;
-        if (populators == null || populators.Count == 0)
+        var populators = DropdownPopulator.Instances?
+            .Where(p => p != null)
+            .OrderBy(p => p.isBoomExcelFileDropDown ? 1 : 0)
+            .ThenBy(p => p.gameObject.name)
+            .ToList() ?? new List<DropdownPopulator>();
+
+        if (populators.Count == 0)
         {
-            CreateLabel(content.transform, "Option dropdowns are not available yet. Open the room with pricing data loaded, then try again.", 13f, FontStyles.Italic, TextAlignmentOptions.Left, -1f, 60f)
+            CreateLabel(content.transform, "Option dropdowns are not available yet. Load pricing data for this room, then try again.", 13f, FontStyles.Italic, TextAlignmentOptions.Left, -1f, 56f)
                 .color = Theme.InkMuted;
         }
         else
         {
-            foreach (var pop in populators.ToList())
+            bool wroteLightHeader = false;
+            bool wroteBoomHeader = false;
+            foreach (var pop in populators)
             {
-                if (pop == null) continue;
                 var dd = pop.GetComponent<TMP_Dropdown>() ?? pop.GetComponentInChildren<TMP_Dropdown>(true);
                 if (dd == null) continue;
 
+                if (!pop.isBoomExcelFileDropDown && !wroteLightHeader)
+                {
+                    CreateSectionHeader(content.transform, "LIGHT OPTIONS");
+                    wroteLightHeader = true;
+                }
+                else if (pop.isBoomExcelFileDropDown && !wroteBoomHeader)
+                {
+                    AddSpacer(content.transform, 4f);
+                    CreateSectionHeader(content.transform, "BOOM OPTIONS");
+                    wroteBoomHeader = true;
+                }
+
                 string title = FriendlyOptionLabel(pop.gameObject.name, pop.isBoomExcelFileDropDown);
-                CreateLabel(content.transform, title, 13f, FontStyles.Bold, TextAlignmentOptions.Left, -1f, 20f)
-                    .color = Theme.Ink;
+                CreateLabel(content.transform, title, 12f, FontStyles.Bold, TextAlignmentOptions.Left, -1f, 18f)
+                    .color = Theme.InkMuted;
 
                 CreateDropdownMirror(content.transform, dd);
             }
@@ -1002,6 +975,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
         {
             ClosePopover();
             RefreshLiveData();
+            SchedulePreviewRefresh(forceVisuals: false);
         }, -1f, 40f);
     }
 
@@ -1016,15 +990,21 @@ public class UI_ProposalWorkspace : MonoBehaviour
         var go = new GameObject("MirrorDropdown", typeof(RectTransform), typeof(Image), typeof(TMP_Dropdown), typeof(LayoutElement));
         go.transform.SetParent(parent, false);
         go.GetComponent<Image>().color = Theme.Ghost;
-        go.GetComponent<LayoutElement>().preferredHeight = 38f;
+        var le = go.GetComponent<LayoutElement>();
+        le.preferredHeight = 34f;
+        le.minHeight = 34f;
 
         var labelGo = new GameObject("Label", typeof(RectTransform), typeof(TextMeshProUGUI));
         labelGo.transform.SetParent(go.transform, false);
-        StretchFull(labelGo.GetComponent<RectTransform>(), 12f);
+        StretchFull(labelGo.GetComponent<RectTransform>(), 10f);
+        var labelRt = labelGo.GetComponent<RectTransform>();
+        labelRt.offsetMax = new Vector2(-28f, labelRt.offsetMax.y);
         var label = labelGo.GetComponent<TextMeshProUGUI>();
-        label.fontSize = 14f;
+        label.fontSize = 13f;
         label.color = Theme.Ink;
         label.alignment = TextAlignmentOptions.MidlineLeft;
+        label.enableWordWrapping = false;
+        label.overflowMode = TextOverflowModes.Ellipsis;
         TMP_RuntimeFontRepair.Repair(label);
 
         var arrowGo = new GameObject("Arrow", typeof(RectTransform), typeof(TextMeshProUGUI));
@@ -1033,7 +1013,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
         art.anchorMin = new Vector2(1, 0);
         art.anchorMax = new Vector2(1, 1);
         art.pivot = new Vector2(1, 0.5f);
-        art.sizeDelta = new Vector2(28f, 0);
+        art.sizeDelta = new Vector2(26f, 0);
         art.anchoredPosition = Vector2.zero;
         var arrow = arrowGo.GetComponent<TextMeshProUGUI>();
         arrow.text = "▾";
@@ -1060,6 +1040,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
             source.value = idx;
             source.RefreshShownValue();
             RefreshLiveData();
+            SchedulePreviewRefresh(forceVisuals: false);
         });
 
         return go;
@@ -1110,7 +1091,6 @@ public class UI_ProposalWorkspace : MonoBehaviour
         itemLabelTmp.color = Theme.Ink;
         TMP_RuntimeFontRepair.Repair(itemLabelTmp);
 
-        // Stash for caller via GetComponentInChildren after return — use a holder.
         var holder = template.AddComponent<DropdownTemplateRefs>();
         holder.ItemLabel = itemLabelTmp;
 
@@ -1127,7 +1107,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
         public TextMeshProUGUI ItemLabel;
     }
 
-    void OpenTextPopover(string title, (string label, string value)[] fields, Action<string[]> onSave, string footerHint = null)
+    void OpenTextPopover(string title, (string label, string value, bool multiline)[] fields, Action<string[]> onSave, string footerHint = null)
     {
         ClosePopover();
         _popoverHost.gameObject.SetActive(true);
@@ -1137,28 +1117,34 @@ public class UI_ProposalWorkspace : MonoBehaviour
         rt.anchorMin = new Vector2(0.5f, 0.5f);
         rt.anchorMax = new Vector2(0.5f, 0.5f);
         rt.pivot = new Vector2(0.5f, 0.5f);
-        float height = 130f + fields.Length * 72f + (footerHint != null ? 44f : 0f);
-        rt.sizeDelta = new Vector2(460f, height);
+        rt.sizeDelta = new Vector2(420f, 0f);
+
         panel.AddComponent<Button>().transition = UnityEngine.UI.Selectable.Transition.None;
         var panelBtn = panel.GetComponent<Button>();
         panelBtn.targetGraphic = panel.GetComponent<Image>();
         panelBtn.onClick.AddListener(() => { });
 
         var layout = panel.AddComponent<VerticalLayoutGroup>();
-        layout.padding = new RectOffset(22, 22, 20, 18);
-        layout.spacing = 8f;
+        layout.padding = new RectOffset(18, 18, 16, 14);
+        layout.spacing = 6f;
         layout.childForceExpandWidth = true;
-        layout.childControlHeight = false;
+        layout.childForceExpandHeight = false;
+        layout.childControlHeight = true;
+        layout.childControlWidth = true;
 
-        CreateLabel(panel.transform, title, 18f, FontStyles.Bold, TextAlignmentOptions.Left, -1f, 28f)
+        var fitter = panel.AddComponent<ContentSizeFitter>();
+        fitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+        fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        CreateLabel(panel.transform, title, 16f, FontStyles.Bold, TextAlignmentOptions.Left, -1f, 24f)
             .color = Theme.Ink;
 
         var inputs = new List<TMP_InputField>();
-        foreach (var (label, value) in fields)
+        foreach (var (label, value, multiline) in fields)
         {
-            CreateLabel(panel.transform, label, 12f, FontStyles.Normal, TextAlignmentOptions.Left, -1f, 18f)
+            CreateLabel(panel.transform, label, 11f, FontStyles.Normal, TextAlignmentOptions.Left, -1f, 16f)
                 .color = Theme.InkMuted;
-            inputs.Add(CreateInputField(panel.transform, value ?? ""));
+            inputs.Add(CreateInputField(panel.transform, value ?? "", multiline));
         }
 
         if (!string.IsNullOrEmpty(footerHint))
@@ -1166,17 +1152,25 @@ public class UI_ProposalWorkspace : MonoBehaviour
 
         var row = CreatePanel("Buttons", panel.transform, Color.clear);
         row.GetComponent<Image>().raycastTarget = false;
-        row.AddComponent<LayoutElement>().preferredHeight = 40f;
+        row.AddComponent<LayoutElement>().preferredHeight = 36f;
         var hl = row.AddComponent<HorizontalLayoutGroup>();
-        hl.spacing = 10f;
+        hl.spacing = 8f;
         hl.childForceExpandWidth = true;
+        hl.childControlHeight = true;
+        hl.childControlWidth = true;
 
-        CreateGhostButton(row.transform, "Cancel", ClosePopover, -1f, 36f);
+        CreateGhostButton(row.transform, "Cancel", ClosePopover, -1f, 34f);
         CreatePrimaryButton(row.transform, "Save", () =>
         {
             onSave(inputs.Select(i => i.text).ToArray());
             ClosePopover();
-        }, -1f, 36f);
+        }, -1f, 34f);
+    }
+
+    void OpenTextPopover(string title, (string label, string value)[] fields, Action<string[]> onSave, string footerHint = null)
+    {
+        var mapped = fields.Select(f => (f.label, f.value, false)).ToArray();
+        OpenTextPopover(title, mapped, onSave, footerHint);
     }
 
     void ClosePopover()
@@ -1209,7 +1203,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
             return;
         }
 
-        // GeneratePDF → ApplyExportDefaults → workspace ActiveModel.ApplyTo (parity).
+        _model.ApplyTo(generator);
         generator.GeneratePDF();
     }
 
@@ -1230,43 +1224,6 @@ public class UI_ProposalWorkspace : MonoBehaviour
         go.transform.SetParent(parent, false);
         go.GetComponent<Image>().color = color;
         return go;
-    }
-
-    static void AddHairline(Transform parent)
-    {
-        var line = CreatePanel("Hairline", parent, Theme.Rule);
-        line.AddComponent<LayoutElement>().preferredHeight = 1f;
-    }
-
-    static void TryAddLogo(Transform parent)
-    {
-        try
-        {
-            string path = Path.Combine(Application.streamingAssetsPath, "Data/quotes/IMAGINE-UNLIMITED_FullLogo_orange.png");
-            if (!File.Exists(path))
-                return;
-
-            byte[] bytes = File.ReadAllBytes(path);
-            var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-            if (!tex.LoadImage(bytes))
-                return;
-
-            var go = new GameObject("Logo", typeof(RectTransform), typeof(Image), typeof(LayoutElement));
-            go.transform.SetParent(parent, false);
-            var le = go.GetComponent<LayoutElement>();
-            le.preferredWidth = 140f;
-            le.preferredHeight = 56f;
-            le.flexibleWidth = 0f;
-            var sprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f), 100f);
-            var img = go.GetComponent<Image>();
-            img.sprite = sprite;
-            img.preserveAspect = true;
-            img.raycastTarget = false;
-        }
-        catch (Exception e)
-        {
-            Debug.LogWarning($"Could not load proposal logo: {e.Message}");
-        }
     }
 
     static TMP_Text CreateLabel(Transform parent, string text, float size, FontStyles style,
@@ -1294,7 +1251,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
 
     static TMP_Text CreateHint(Transform parent, string text)
     {
-        var t = CreateLabel(parent, text, 12f, FontStyles.Normal, TextAlignmentOptions.Left, -1f, 36f);
+        var t = CreateLabel(parent, text, 11f, FontStyles.Normal, TextAlignmentOptions.Left, -1f, 20f);
         t.color = Theme.InkFaint;
         t.fontStyle = FontStyles.Italic;
         return t;
@@ -1303,21 +1260,11 @@ public class UI_ProposalWorkspace : MonoBehaviour
     static void CreateSectionHeader(Transform parent, string text)
     {
         var panel = CreatePanel("Section", parent, Theme.Section);
-        panel.AddComponent<LayoutElement>().preferredHeight = 28f;
-        var label = CreateLabel(panel.transform, text, 11f, FontStyles.Bold, TextAlignmentOptions.MidlineLeft, -1f, 22f);
+        panel.AddComponent<LayoutElement>().preferredHeight = 26f;
+        var label = CreateLabel(panel.transform, text, 11f, FontStyles.Bold, TextAlignmentOptions.MidlineLeft, -1f, 20f);
         label.color = Theme.InkMuted;
         StretchFull(label.rectTransform, 10f);
         label.GetComponent<LayoutElement>().ignoreLayout = true;
-    }
-
-    static void CreatePlaceholderBox(Transform parent, string text)
-    {
-        var panel = CreatePanel("Placeholder", parent, Theme.Placeholder);
-        panel.AddComponent<LayoutElement>().preferredHeight = 168f;
-        var label = CreateLabel(panel.transform, text, 13f, FontStyles.Normal, TextAlignmentOptions.Center, -1f, 40f);
-        StretchFull(label.rectTransform);
-        label.GetComponent<LayoutElement>().ignoreLayout = true;
-        label.color = Theme.InkFaint;
     }
 
     static void AddSpacer(Transform parent, float height)
@@ -1325,79 +1272,6 @@ public class UI_ProposalWorkspace : MonoBehaviour
         var go = new GameObject("Spacer", typeof(RectTransform), typeof(LayoutElement));
         go.transform.SetParent(parent, false);
         go.GetComponent<LayoutElement>().preferredHeight = height;
-    }
-
-    TMP_Text CreateEditableRow(Transform parent, string caption, string value, UnityAction onClick)
-    {
-        var row = CreatePanel("Editable_" + caption, parent, Theme.Editable);
-        row.AddComponent<LayoutElement>().preferredHeight = 32f;
-        var hl = row.AddComponent<HorizontalLayoutGroup>();
-        hl.padding = new RectOffset(12, 12, 4, 4);
-        hl.spacing = 10f;
-        hl.childForceExpandWidth = false;
-        hl.childControlWidth = false;
-
-        var accent = CreatePanel("Accent", row.transform, Theme.Accent);
-        var ale = accent.AddComponent<LayoutElement>();
-        ale.preferredWidth = 3f;
-        ale.preferredHeight = 18f;
-        ale.flexibleWidth = 0f;
-
-        CreateLabel(row.transform, caption, 11f, FontStyles.Bold, TextAlignmentOptions.MidlineLeft, 110f, 20f)
-            .color = Theme.InkMuted;
-        var valueLabel = CreateLabel(row.transform, value, 13f, FontStyles.Normal, TextAlignmentOptions.MidlineLeft, -1f, 20f);
-        valueLabel.color = Theme.Ink;
-        valueLabel.GetComponent<LayoutElement>().flexibleWidth = 1f;
-
-        var btn = row.AddComponent<Button>();
-        btn.targetGraphic = row.GetComponent<Image>();
-        var colors = btn.colors;
-        colors.normalColor = Theme.Editable;
-        colors.highlightedColor = Theme.EditableHover;
-        colors.pressedColor = Theme.EditableBorder;
-        colors.selectedColor = Theme.EditableHover;
-        btn.colors = colors;
-        btn.onClick.AddListener(onClick);
-        return valueLabel;
-    }
-
-    TMP_Text CreateEditableBanner(Transform parent, string text, UnityAction onClick)
-    {
-        var row = CreatePanel("Banner", parent, Theme.Banner);
-        row.AddComponent<LayoutElement>().preferredHeight = 34f;
-        var label = CreateLabel(row.transform, text, 13f, FontStyles.Bold, TextAlignmentOptions.MidlineLeft, -1f, 28f);
-        label.color = Theme.Ink;
-        StretchFull(label.rectTransform, 12f);
-        label.GetComponent<LayoutElement>().ignoreLayout = true;
-
-        var btn = row.AddComponent<Button>();
-        btn.targetGraphic = row.GetComponent<Image>();
-        var colors = btn.colors;
-        colors.highlightedColor = Theme.EditableHover;
-        colors.pressedColor = Theme.EditableBorder;
-        btn.colors = colors;
-        btn.onClick.AddListener(onClick);
-        return label;
-    }
-
-    TMP_Text CreateEditableMultiline(Transform parent, string text, UnityAction onClick)
-    {
-        var row = CreatePanel("EditableMulti", parent, Theme.Editable);
-        row.AddComponent<LayoutElement>().preferredHeight = 78f;
-        var label = CreateLabel(row.transform, text, 12f, FontStyles.Normal, TextAlignmentOptions.TopLeft, -1f, 68f);
-        label.color = Theme.Ink;
-        StretchFull(label.rectTransform, 12f);
-        label.GetComponent<LayoutElement>().ignoreLayout = true;
-
-        var btn = row.AddComponent<Button>();
-        btn.targetGraphic = row.GetComponent<Image>();
-        var colors = btn.colors;
-        colors.normalColor = Theme.Editable;
-        colors.highlightedColor = Theme.EditableHover;
-        colors.pressedColor = Theme.EditableBorder;
-        btn.colors = colors;
-        btn.onClick.AddListener(onClick);
-        return label;
     }
 
     static Button CreateGhostButton(Transform parent, string label, UnityAction onClick, float width, float height)
@@ -1466,33 +1340,29 @@ public class UI_ProposalWorkspace : MonoBehaviour
         return btn;
     }
 
-    static Button CreateButton(Transform parent, string label, Color color, UnityAction onClick,
-        float width, float height, float fontSize = 15f)
+    static TMP_InputField CreateInputField(Transform parent, string value, bool multiline = false)
     {
-        // Legacy helper — route accent fills to primary styling when possible.
-        if (color.r > 0.7f && color.g < 0.55f)
-            return CreatePrimaryButton(parent, label, onClick, width, height);
-        return CreateGhostButton(parent, label, onClick, width, height);
-    }
-
-    static TMP_InputField CreateInputField(Transform parent, string value)
-    {
+        float height = multiline ? 72f : 32f;
         var go = new GameObject("Input", typeof(RectTransform), typeof(Image), typeof(TMP_InputField), typeof(LayoutElement));
         go.transform.SetParent(parent, false);
         go.GetComponent<Image>().color = Theme.InputFill;
-        go.GetComponent<LayoutElement>().preferredHeight = 38f;
+        var le = go.GetComponent<LayoutElement>();
+        le.preferredHeight = height;
+        le.minHeight = height;
 
         var textArea = new GameObject("Text Area", typeof(RectTransform), typeof(RectMask2D));
         textArea.transform.SetParent(go.transform, false);
-        StretchFull(textArea.GetComponent<RectTransform>(), 10f);
+        StretchFull(textArea.GetComponent<RectTransform>(), 8f);
 
         var textGo = new GameObject("Text", typeof(RectTransform), typeof(TextMeshProUGUI));
         textGo.transform.SetParent(textArea.transform, false);
         StretchFull(textGo.GetComponent<RectTransform>());
         var tmp = textGo.GetComponent<TextMeshProUGUI>();
-        tmp.fontSize = 14f;
+        tmp.fontSize = 13f;
         tmp.color = Theme.Ink;
-        tmp.enableWordWrapping = false;
+        tmp.enableWordWrapping = multiline;
+        tmp.overflowMode = multiline ? TextOverflowModes.Overflow : TextOverflowModes.Ellipsis;
+        tmp.alignment = multiline ? TextAlignmentOptions.TopLeft : TextAlignmentOptions.MidlineLeft;
         TMP_RuntimeFontRepair.Repair(tmp);
 
         var placeholderGo = new GameObject("Placeholder", typeof(RectTransform), typeof(TextMeshProUGUI));
@@ -1500,9 +1370,10 @@ public class UI_ProposalWorkspace : MonoBehaviour
         StretchFull(placeholderGo.GetComponent<RectTransform>());
         var ph = placeholderGo.GetComponent<TextMeshProUGUI>();
         ph.text = "";
-        ph.fontSize = 14f;
+        ph.fontSize = 13f;
         ph.fontStyle = FontStyles.Italic;
         ph.color = Theme.InkFaint;
+        ph.alignment = tmp.alignment;
         TMP_RuntimeFontRepair.Repair(ph);
 
         var input = go.GetComponent<TMP_InputField>();
@@ -1510,7 +1381,10 @@ public class UI_ProposalWorkspace : MonoBehaviour
         input.textComponent = tmp;
         input.placeholder = ph;
         input.text = value ?? "";
-        input.pointSize = 14f;
+        input.pointSize = 13f;
+        input.lineType = multiline
+            ? TMP_InputField.LineType.MultiLineNewline
+            : TMP_InputField.LineType.SingleLine;
         return input;
     }
 

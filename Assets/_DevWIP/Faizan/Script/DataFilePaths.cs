@@ -11,14 +11,14 @@ public class DataFilePaths
 
     public static string sheetNameLight = "2025_03_28 3D Light Pricing";
     public static string sheetNameBoomIndividual = "2025_03_28 Boom Pricing";
-    public static string sheetNameBoomCombined = "2025_03_28 3D Boom Pricing";//This is only using for Boom Dropdown only!
+    public static string sheetNameBoomCombined = "2025_03_28 3D Boom Pricing"; // Bundled boom configuration list prices
 
     // Column mappings for each sheet
     public static readonly Dictionary<string, ExcelColumnMapping> SheetColumnMappings = new Dictionary<string, ExcelColumnMapping>
     {
         { sheetNameLight, new ExcelColumnMapping { PartNumber = 0, ObjectName = 2, ListPrice = 3, ObjectSize = -1 } },
         { sheetNameBoomIndividual, new ExcelColumnMapping { PartNumber = 0, ObjectName = 1, ListPrice = 4, ObjectSize = 5 } },
-        { sheetNameBoomCombined, new ExcelColumnMapping { PartNumber = 1, ObjectName = 2, ListPrice = 3, ObjectSize = -1 } }
+        { sheetNameBoomCombined, new ExcelColumnMapping { PartNumber = 0, ObjectName = 1, ListPrice = 3, ObjectSize = -1 } }
     };
 }
 

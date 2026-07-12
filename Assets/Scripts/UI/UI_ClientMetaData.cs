@@ -208,6 +208,21 @@ public class UI_ClientMetaData : MonoBehaviour
                 ph.text = placeholder;
         }
 
+        // Keep cloned rows the same compact height as the template, even if
+        // the parent layout doesn't drive child heights.
+        var srcRt = template.transform as RectTransform;
+        var dstRt = go.transform as RectTransform;
+        if (srcRt != null && dstRt != null)
+        {
+            dstRt.sizeDelta = srcRt.sizeDelta;
+            float h = Mathf.Max(28f, srcRt.rect.height > 1f ? srcRt.rect.height : srcRt.sizeDelta.y);
+            var le = go.GetComponent<UnityEngine.UI.LayoutElement>()
+                     ?? go.AddComponent<UnityEngine.UI.LayoutElement>();
+            le.preferredHeight = h;
+            le.minHeight = h;
+            le.flexibleHeight = 0f;
+        }
+
         if (insertBefore != null)
             go.transform.SetSiblingIndex(insertBefore.GetSiblingIndex());
         else

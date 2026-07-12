@@ -80,6 +80,12 @@ public sealed class ProposalPreviewModel
         public double ExtPrice;
         public bool IsSectionHeader;
         public string SectionTitle;
+        /// <summary>Matches PDF Subtotal row (right-aligned label + amount).</summary>
+        public bool IsSubtotal;
+        /// <summary>True for OPTION/ACCESSORY DESCRIPTION headers (gray in PDF).</summary>
+        public bool IsOptionHeader;
+        /// <summary>Config title row (AddTableTitle in PDF pricing page).</summary>
+        public bool IsConfigTitle;
     }
 
     public sealed class OptionSelection
@@ -247,16 +253,7 @@ public sealed class ProposalPreviewModel
                 continue;
 
             int boomQty = ResolveBoomQty(group);
-            double subtotal = 0;
-            foreach (var sp in group)
-            {
-                if (sp.UIRefPricingRowDataFill != null)
-                    subtotal += sp.UIRefPricingRowDataFill.Price;
-                else if (sp.objectPricingData != null)
-                    subtotal += sp.objectPricingData.ListPrice +
-                        (sp.objectPricingData.isSimFlexArmAvailable ? sp.objectPricingData.SimFlexPrice : 0);
-            }
-            // Dropdown option totals are global (not per root group) — omit here to avoid double-count.
+            double subtotal = ProposalPricingResolver.SumEquipment(group);
 
             string lightText = BuildOptionsText(lights, false);
             string boomText = BuildOptionsText(booms, true);
@@ -294,38 +291,196 @@ public sealed class ProposalPreviewModel
         var selectablePrices = UnityEngine.Object.FindObjectsByType<SelectablePrice>(
             FindObjectsInactive.Exclude, FindObjectsSortMode.None)
             .Where(sp => sp != null && sp.objectPricingData != null)
-            .OrderBy(sp => HierarchyPath(sp.transform))
             .ToList();
 
-        var lights = selectablePrices.Where(sp => !sp.isBoomObject).ToList();
-        var booms = selectablePrices.Where(sp => sp.isBoomObject).ToList();
+        var rootConfigs = selectablePrices
+            .GroupBy(sp => sp.transform.root)
+            .ToList();
 
-        if (lights.Count > 0)
+        // Mirror ProposalPDFGenerator.GeneratePricingPage via ProposalPricingResolver.
+        bool optionsEmitted = false;
+        foreach (var configGroup in rootConfigs)
         {
-            PricingLines.Add(new LineItem { IsSectionHeader = true, SectionTitle = "LIGHT" });
-            foreach (var sp in lights)
-                AddSelectableLine(sp);
-            AddDropdownLines(false);
+            double subtotal = 0;
+            bool emitOptions = !optionsEmitted;
+            var first = configGroup.FirstOrDefault();
+            var lights = configGroup.Where(sp => !sp.isBoomObject).ToList();
+            var booms = configGroup.Where(sp => sp.isBoomObject).ToList();
+            var lightLines = ProposalPricingResolver.ResolveLightLines(lights);
+            var boomLine = ProposalPricingResolver.ResolveBoomLine(
+                first != null ? first.transform.root.gameObject : null, booms);
+
+            PricingLines.Add(new LineItem
+            {
+                IsConfigTitle = true,
+                Description = string.IsNullOrWhiteSpace(ConfigName) ? "Configuration" : ConfigName
+            });
+
+            if (lightLines.Count > 0)
+            {
+                PricingLines.Add(new LineItem { IsSectionHeader = true, SectionTitle = "MODEL DESCRIPTION" });
+                foreach (var line in lightLines)
+                {
+                    PricingLines.Add(new LineItem
+                    {
+                        PartNumber = string.IsNullOrEmpty(line.PartNumber) ? "N/A" : line.PartNumber,
+                        Description = line.Description,
+                        Qty = line.Qty,
+                        UnitPrice = line.UnitPrice,
+                        ExtPrice = line.ExtPrice
+                    });
+                    subtotal += line.ExtPrice;
+                }
+            }
+
+            var lightOptions = emitOptions
+                ? OptionSelections.Where(o => !o.IsBoom && !IsNoneOption(o.SelectedName) && o.Price > 0).ToList()
+                : new List<OptionSelection>();
+            if (lightOptions.Count > 0)
+            {
+                optionsEmitted = true;
+                PricingLines.Add(new LineItem
+                {
+                    IsSectionHeader = true,
+                    IsOptionHeader = true,
+                    SectionTitle = "OPTION/ACCESSORY DESCRIPTION"
+                });
+                foreach (var opt in lightOptions)
+                {
+                    PricingLines.Add(new LineItem
+                    {
+                        PartNumber = string.IsNullOrEmpty(opt.PartNumber) ? "N/A" : opt.PartNumber,
+                        Description = opt.SelectedName,
+                        Qty = 1,
+                        UnitPrice = opt.Price,
+                        ExtPrice = opt.Price
+                    });
+                    subtotal += opt.Price;
+                }
+            }
+
+            if (boomLine != null)
+            {
+                PricingLines.Add(new LineItem { IsSectionHeader = true, SectionTitle = "MODEL DESCRIPTION" });
+                PricingLines.Add(new LineItem
+                {
+                    PartNumber = string.IsNullOrEmpty(boomLine.PartNumber) ? "N/A" : boomLine.PartNumber,
+                    Description = string.IsNullOrWhiteSpace(boomLine.Description)
+                        ? "ARTICULATING BOOM"
+                        : boomLine.Description,
+                    Qty = boomLine.Qty,
+                    UnitPrice = boomLine.UnitPrice,
+                    ExtPrice = boomLine.ExtPrice
+                });
+                subtotal += boomLine.ExtPrice;
+            }
+
+            var boomOptions = emitOptions
+                ? OptionSelections.Where(o => o.IsBoom && !IsNoneOption(o.SelectedName) && o.Price > 0).ToList()
+                : new List<OptionSelection>();
+            if (boomOptions.Count > 0)
+            {
+                optionsEmitted = true;
+                PricingLines.Add(new LineItem
+                {
+                    IsSectionHeader = true,
+                    IsOptionHeader = true,
+                    SectionTitle = "OPTION/ACCESSORY DESCRIPTION"
+                });
+                foreach (var opt in boomOptions)
+                {
+                    PricingLines.Add(new LineItem
+                    {
+                        PartNumber = string.IsNullOrEmpty(opt.PartNumber) ? "N/A" : opt.PartNumber,
+                        Description = opt.SelectedName,
+                        Qty = 1,
+                        UnitPrice = opt.Price,
+                        ExtPrice = opt.Price
+                    });
+                    subtotal += opt.Price;
+                }
+            }
+
+            if (lightLines.Count > 0 || lightOptions.Count > 0 || boomLine != null || boomOptions.Count > 0)
+            {
+                PricingLines.Add(new LineItem
+                {
+                    IsSubtotal = true,
+                    Description = "Subtotal",
+                    ExtPrice = subtotal
+                });
+            }
         }
 
-        if (booms.Count > 0)
+        // Options with no boom/light selectables still need page-3 rows (PDF empty-config path missed these).
+        if (!optionsEmitted)
         {
-            PricingLines.Add(new LineItem { IsSectionHeader = true, SectionTitle = "ARTICULATING BOOM" });
-            foreach (var sp in booms)
-                AddSelectableLine(sp);
-            AddDropdownLines(true);
+            double optSub = 0;
+            var lightOptions = OptionSelections
+                .Where(o => !o.IsBoom && !IsNoneOption(o.SelectedName) && o.Price > 0).ToList();
+            if (lightOptions.Count > 0)
+            {
+                PricingLines.Add(new LineItem
+                {
+                    IsSectionHeader = true,
+                    IsOptionHeader = true,
+                    SectionTitle = "OPTION/ACCESSORY DESCRIPTION"
+                });
+                foreach (var opt in lightOptions)
+                {
+                    PricingLines.Add(new LineItem
+                    {
+                        PartNumber = string.IsNullOrEmpty(opt.PartNumber) ? "N/A" : opt.PartNumber,
+                        Description = opt.SelectedName,
+                        Qty = 1,
+                        UnitPrice = opt.Price,
+                        ExtPrice = opt.Price
+                    });
+                    optSub += opt.Price;
+                }
+            }
+
+            var boomOptions = OptionSelections
+                .Where(o => o.IsBoom && !IsNoneOption(o.SelectedName) && o.Price > 0).ToList();
+            if (boomOptions.Count > 0)
+            {
+                PricingLines.Add(new LineItem
+                {
+                    IsSectionHeader = true,
+                    IsOptionHeader = true,
+                    SectionTitle = "OPTION/ACCESSORY DESCRIPTION"
+                });
+                foreach (var opt in boomOptions)
+                {
+                    PricingLines.Add(new LineItem
+                    {
+                        PartNumber = string.IsNullOrEmpty(opt.PartNumber) ? "N/A" : opt.PartNumber,
+                        Description = opt.SelectedName,
+                        Qty = 1,
+                        UnitPrice = opt.Price,
+                        ExtPrice = opt.Price
+                    });
+                    optSub += opt.Price;
+                }
+            }
+
+            if (optSub > 0)
+            {
+                PricingLines.Add(new LineItem
+                {
+                    IsSubtotal = true,
+                    Description = "Subtotal",
+                    ExtPrice = optSub
+                });
+            }
         }
 
-        // Options with no matching equipment section still need to appear (parity with PDF totals).
-        if (lights.Count == 0)
-            AddDropdownLines(false);
-        if (booms.Count == 0)
-            AddDropdownLines(true);
-
+        // Install / ship — same placement as PDF (after configs). Include when Excel returns a row.
         var reader = UnityEngine.Object.FindAnyObjectByType<ExcelReader>();
         var install = reader?.GetInstallationLightsCharges();
-        if (install != null && install.ListPrice > 0)
+        if (install != null)
         {
+            InstallCharge = install.ListPrice;
             PricingLines.Add(new LineItem
             {
                 PartNumber = install.PartNumber ?? "N/A",
@@ -334,14 +489,14 @@ public sealed class ProposalPreviewModel
                 UnitPrice = install.ListPrice,
                 ExtPrice = install.ListPrice
             });
-            InstallCharge = install.ListPrice;
         }
         else
             InstallCharge = 0;
 
         var ship = reader?.GetShippingLightsCharges();
-        if (ship != null && ship.ListPrice > 0)
+        if (ship != null)
         {
+            ShippingCharge = ship.ListPrice;
             PricingLines.Add(new LineItem
             {
                 PartNumber = ship.PartNumber ?? "N/A",
@@ -350,70 +505,21 @@ public sealed class ProposalPreviewModel
                 UnitPrice = ship.ListPrice,
                 ExtPrice = ship.ListPrice
             });
-            ShippingCharge = ship.ListPrice;
         }
         else
             ShippingCharge = 0;
     }
 
-    void AddSelectableLine(SelectablePrice sp)
-    {
-        var data = sp.objectPricingData;
-        double unit = data.ListPrice + (data.isSimFlexArmAvailable ? data.SimFlexPrice : 0);
-        if (sp.UIRefPricingRowDataFill != null)
-            unit = sp.UIRefPricingRowDataFill.Price;
-
-        string name = string.IsNullOrEmpty(data.ObjectSize)
-            ? data.ObjectName
-            : $"{data.ObjectSize} {data.ObjectName}".Trim();
-
-        PricingLines.Add(new LineItem
-        {
-            PartNumber = string.IsNullOrEmpty(data.PartNumber) ? "N/A" : data.PartNumber,
-            Description = name,
-            Qty = 1,
-            UnitPrice = unit,
-            ExtPrice = unit
-        });
-    }
-
-    void AddDropdownLines(bool isBoom)
-    {
-        foreach (var opt in OptionSelections.Where(o => o.IsBoom == isBoom))
-        {
-            if (opt.Price <= 0 || IsNoneOption(opt.SelectedName))
-                continue;
-            PricingLines.Add(new LineItem
-            {
-                PartNumber = string.IsNullOrEmpty(opt.PartNumber) ? "N/A" : opt.PartNumber,
-                Description = opt.SelectedName,
-                Qty = 1,
-                UnitPrice = opt.Price,
-                ExtPrice = opt.Price
-            });
-        }
-    }
-
     void RecalcTotals()
     {
-        double selectables = 0;
         var selectablePrices = UnityEngine.Object.FindObjectsByType<SelectablePrice>(
             FindObjectsInactive.Exclude, FindObjectsSortMode.None);
-        foreach (var sp in selectablePrices)
-        {
-            if (sp == null) continue;
-            if (sp.UIRefPricingRowDataFill != null)
-                selectables += sp.UIRefPricingRowDataFill.Price;
-            else if (sp.objectPricingData != null)
-                selectables += sp.objectPricingData.ListPrice +
-                    (sp.objectPricingData.isSimFlexArmAvailable ? sp.objectPricingData.SimFlexPrice : 0);
-        }
-
-        // Match ProposalPDFGenerator.CalculateTotalPrice — priced options only (skip None).
+        double selectables = ProposalPricingResolver.SumEquipment(selectablePrices);
+        // Match page-3 / CalculateTotalPrice: skip None and $0 options.
         double dropdownTotal = OptionSelections
-            .Where(o => !IsNoneOption(o.SelectedName))
+            .Where(o => !IsNoneOption(o.SelectedName) && o.Price > 0)
             .Sum(o => o.Price);
-        Page1EquipmentTotal = selectables; // PDF page 1 config total (selectables only)
+        Page1EquipmentTotal = selectables;
         EquipmentTotal = selectables + dropdownTotal + InstallCharge + ShippingCharge;
         GrandTotal = EquipmentTotal - (EquipmentTotal * DiscountPercentage / 100.0);
     }
@@ -440,9 +546,10 @@ public sealed class ProposalPreviewModel
 
     static string BuildOptionsText(List<SelectablePrice> group, bool isBoom)
     {
+        // Mirror ProposalPDFGenerator.BuildOptionsDescriptionString exactly.
         var filtered = group
             .Where(sp => sp != null && sp.objectPricingData != null && sp.isBoomObject == isBoom)
-            .OrderBy(sp => HierarchyPath(sp.transform))
+            .OrderBy(sp => ProposalPDFGenerator.GetHierarchyPath(sp.transform))
             .ToList();
 
         var baseNames = filtered.Select(sp =>
@@ -455,8 +562,16 @@ public sealed class ProposalPreviewModel
             .Select(s => s.Item2.ObjectName)
             .Where(name => !IsNoneOption(name));
 
+        IEnumerable<string> btParts = Enumerable.Empty<string>();
+        if (isBoom)
+        {
+            var btGrouped = ProposalPDFGenerator.GetBtNamesGroupedByType(filtered);
+            if (btGrouped.TryGetValue("Boom", out var boomList) && boomList != null)
+                btParts = boomList;
+        }
+
         return string.Join(", ",
-            baseNames.Concat(ddValues)
+            baseNames.Concat(ddValues).Concat(btParts)
                 .Where(s => !string.IsNullOrWhiteSpace(s))
                 .Select(s => s.Trim())
                 .Distinct());
@@ -465,15 +580,4 @@ public sealed class ProposalPreviewModel
     static bool IsNoneOption(string name)
         => string.IsNullOrWhiteSpace(name)
            || name.Trim().Equals("None", StringComparison.OrdinalIgnoreCase);
-
-    static string HierarchyPath(Transform transform)
-    {
-        string path = transform.name;
-        while (transform.parent != null)
-        {
-            transform = transform.parent;
-            path = transform.name + "/" + path;
-        }
-        return path;
-    }
 }

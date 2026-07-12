@@ -1,0 +1,34 @@
+{
+    "name": "de.sungaila.pdftoimage",
+    "version": "5.2.2",
+    "displayName": "PDFtoImage",
+    "description": "A .NET library to render PDF files into images.",
+    "unity": "6000.0",
+    "documentationUrl": "https://github.com/sungaila/PDFtoImage",
+    "changelogUrl": "https://github.com/sungaila/PDFtoImage/releases/tag/v5.2.1",
+    "license": "MIT",
+    "licensesUrl": "https://github.com/sungaila/PDFtoImage/blob/master/LICENSE",
+    "keywords": [
+        "PDF",
+        "Bitmap",
+        "Image",
+        "Convert",
+        "Conversion",
+        "PDFium",
+        "SkiaSharp",
+        "Skia",
+        "PNG",
+        "JPG",
+        "JPEG",
+        "WEBP",
+        "Windows",
+        "Linux",
+        "macOS",
+        "Android"
+    ],
+    "author": {
+        "name": "David Sungaila",
+        "email": "david.sungaila@arcor.de",
+        "url": "https://www.sungaila.de/"
+    }
+}

@@ -1,4 +1,4 @@
-﻿using HighlightPlus;
+using HighlightPlus;
 using SplenSoft.AssetBundles;
 using System;
 using System.Collections;
@@ -1242,9 +1242,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         {
             if (rootObj != gameObject)
             {
-                rootObj.GetComponent<Selectable>().ExportElevationPdf();
                 Debug.Log($"going to root object! root {rootObj.name} and current {gameObject.name}");
-                return null;
+                return rootObj.GetComponent<Selectable>().ExportElevationPdf();
             }
 
             // this obj is the ceiling mount
@@ -1259,25 +1258,32 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             //store visibility states of all selectables in scene for later
             List<bool> visibilities = ActiveSelectables.ConvertAll(x => x.gameObject.activeSelf);
 
-            //shut off all selectables in the scene except for the ones in this arm assembly
-            ActiveSelectables
-                .Where(x => !_assemblySelectables.Contains(x))
-                .ToList()
-                .ForEach(x => x.gameObject.SetActive(false));
+            try
+            {
+                //shut off all selectables in the scene except for the ones in this arm assembly
+                ActiveSelectables
+                    .Where(x => !_assemblySelectables.Contains(x))
+                    .ToList()
+                    .ForEach(x => x.gameObject.SetActive(false));
 
-            //PdfExporter.ExportElevationPdf(GetAssemblyPDFImageData(camera), _assemblySelectables, title, subtitle, assemblyDatas);
+                return GetAssemblyPDFImageData(camera);
+            }
+            finally
+            {
+                for (int i = 0; i < ActiveSelectables.Count; i++)
+                {
+                    if (ActiveSelectables[i] != null)
+                        ActiveSelectables[i].gameObject.SetActive(visibilities[i]);
+                }
 
-            // Generate PDF image data before restoring visibility
-            var pdfImageData = GetAssemblyPDFImageData(camera);
-
-            for (int i = 0; i < ActiveSelectables.Count; i++)
-                ActiveSelectables[i].gameObject.SetActive(visibilities[i]);
-
-            RestoreArmAssemblyRotations();
-            _assemblySelectables.ForEach(x => x.FaceZTowardGround());
-            IsInElevationPhotoMode = false;
-            ToggleMeasurableActiveStates(false);
-            return pdfImageData;
+                RestoreArmAssemblyRotations();
+                _assemblySelectables.ForEach(x =>
+                {
+                    if (x != null) x.FaceZTowardGround();
+                });
+                IsInElevationPhotoMode = false;
+                ToggleMeasurableActiveStates(false);
+            }
         }
 
         return null;
