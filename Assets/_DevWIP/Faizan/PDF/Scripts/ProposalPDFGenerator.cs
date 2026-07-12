@@ -97,6 +97,9 @@ public class ProposalPDFGenerator : MonoBehaviour
 
     public void GeneratePDF()
     {
+        // Always pull Client Metadata + room + saved sales rep before writing.
+        ApplyExportDefaults();
+
         // Cancel any existing generation
         if (pdfGenerationCoroutine != null)
         {
@@ -109,23 +112,105 @@ public class ProposalPDFGenerator : MonoBehaviour
 
     public void ApplyExportDefaults()
     {
+        // Job / client fields already live in Client Metadata (saved with the room).
+        // Room equipment, accessories, prices, and images are read live during PDF generation.
+        // Sales rep is the only Carlyn-noted manual field — persisted on this machine.
         try
         {
-            clientName = string.IsNullOrWhiteSpace(UI_ClientMetaData.AccountName)
-                ? clientName
-                : UI_ClientMetaData.AccountName;
-            projectName = UI_ClientMetaData.ProjectName ?? projectName;
-            projectNumber = UI_ClientMetaData.ProjectNumber ?? projectNumber;
-            accountName = UI_ClientMetaData.AccountName ?? accountName;
-            accountAddress = (UI_ClientMetaData.AccountAddressLine1 + UI_ClientMetaData.AccountAddressLine2) ?? accountAddress;
-            referenceNumber = UI_ClientMetaData.OrderReferenceNumber ?? referenceNumber;
+            string account = UI_ClientMetaData.AccountName;
+            string project = UI_ClientMetaData.ProjectName;
+            string projectNo = UI_ClientMetaData.ProjectNumber;
+            string addr1 = UI_ClientMetaData.AccountAddressLine1;
+            string addr2 = UI_ClientMetaData.AccountAddressLine2;
+            string orderRef = UI_ClientMetaData.OrderReferenceNumber;
+
+            clientName = account;
+            accountName = account;
+            projectName = project;
+            projectNumber = projectNo;
+            referenceNumber = orderRef;
+
+            var addressParts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(addr1))
+                addressParts.Add(addr1.Trim());
+            if (!string.IsNullOrWhiteSpace(addr2))
+                addressParts.Add(addr2.Trim());
+            accountAddress = addressParts.Count > 0 ? string.Join(", ", addressParts) : "";
         }
         catch (Exception e)
         {
             Debug.LogWarning($"Could not apply client metadata defaults: {e.Message}");
+            if (IsPlaceholder(clientName))
+                clientName = "";
+            if (IsPlaceholder(projectName))
+                projectName = "";
+            if (IsPlaceholder(projectNumber))
+                projectNumber = "";
         }
 
-        configName = ExportPaths.GetRoomExportName();
+        salesRepName = UI_ClientMetaData.SalesRepName ?? "";
+        salesRepEmail = UI_ClientMetaData.SalesRepEmail ?? "";
+        if (IsPlaceholder(salesRepName))
+            salesRepName = "";
+        if (IsPlaceholder(salesRepEmail))
+            salesRepEmail = "";
+
+        // Configuration title = saved room name (already required before export).
+        if (ExportPaths.HasSavedRoomName())
+            configName = ExportPaths.GetRoomExportName();
+        else if (string.IsNullOrWhiteSpace(configName)
+                 || configName.Equals("Tandem Equipment Boom with Light", StringComparison.OrdinalIgnoreCase))
+            configName = "Configuration";
+
+        // Prefer an explicit discount typed in the pricing UI; else last saved value.
+        if (!TryPullDiscountFromPricingUi() && discountPercentage <= 0f)
+            discountPercentage = GetSavedDiscountPercentage();
+    }
+
+    private bool TryPullDiscountFromPricingUi()
+    {
+        try
+        {
+            var ui = FindAnyObjectByType<PDFGeneratorUIHandler>();
+            if (ui?.inputDiscountPercentage == null)
+                return false;
+            if (string.IsNullOrWhiteSpace(ui.inputDiscountPercentage.text))
+                return false;
+            if (!float.TryParse(ui.inputDiscountPercentage.text, out float discount) || discount < 0f)
+                return false;
+
+            discountPercentage = discount;
+            SaveDiscountPercentage(discount);
+            return true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    private const string PrefsDiscount = "SalesProposal.DiscountPercentage";
+
+    public static float GetSavedDiscountPercentage()
+        => PlayerPrefs.GetFloat(PrefsDiscount, 0f);
+
+    public static void SaveDiscountPercentage(float value)
+    {
+        PlayerPrefs.SetFloat(PrefsDiscount, Mathf.Max(0f, value));
+        PlayerPrefs.Save();
+    }
+
+    private static bool IsPlaceholder(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return true;
+
+        value = value.Trim();
+        return value.Equals("Client Name", StringComparison.OrdinalIgnoreCase)
+               || value.Equals("Project Name", StringComparison.OrdinalIgnoreCase)
+               || value.Equals("Sales Rep Name", StringComparison.OrdinalIgnoreCase)
+               || value.Equals("SalesRepEmail@igoimagine.com", StringComparison.OrdinalIgnoreCase)
+               || value.Equals("N/A", StringComparison.OrdinalIgnoreCase);
     }
 
     public void GeneratePDFWithCallback(Action<bool, string, string> callback)
@@ -1410,19 +1495,33 @@ public class ProposalPDFGenerator : MonoBehaviour
         PdfPTable inner = new PdfPTable(1);
         inner.WidthPercentage = 100;
 
-        // Safe access to UI_ClientMetaData
-        string accountName = GetClientMetaDataSafely("AccountName");
+        // Prefer values already applied for this export; fall back to live Client Metadata.
+        string acct = !string.IsNullOrWhiteSpace(accountName)
+            ? accountName
+            : GetClientMetaDataSafely("AccountName");
         string addressLine1 = GetClientMetaDataSafely("AccountAddressLine1");
         string addressLine2 = GetClientMetaDataSafely("AccountAddressLine2");
-        string projectName = GetClientMetaDataSafely("ProjectName");
-        string projectNumber = GetClientMetaDataSafely("ProjectNumber");
-        string orderRef = GetClientMetaDataSafely("OrderReferenceNumber");
+        if (string.IsNullOrWhiteSpace(addressLine1) && !string.IsNullOrWhiteSpace(accountAddress))
+        {
+            addressLine1 = accountAddress;
+            addressLine2 = "";
+        }
 
-        AddRowWithBottomBorder(inner, "Account Name: " + accountName, normalFont);
+        string proj = !string.IsNullOrWhiteSpace(projectName)
+            ? projectName
+            : GetClientMetaDataSafely("ProjectName");
+        string projNo = !string.IsNullOrWhiteSpace(projectNumber)
+            ? projectNumber
+            : GetClientMetaDataSafely("ProjectNumber");
+        string orderRef = !string.IsNullOrWhiteSpace(referenceNumber)
+            ? referenceNumber
+            : GetClientMetaDataSafely("OrderReferenceNumber");
+
+        AddRowWithBottomBorder(inner, "Account Name: " + acct, normalFont);
         AddRowWithBottomBorder(inner, "Account Address: " + addressLine1, normalFont);
         AddRowWithBottomBorder(inner, " " + addressLine2, normalFont);
-        AddRowWithBottomBorder(inner, "Project Name: " + projectName, normalFont);
-        AddRowWithBottomBorder(inner, "Project Number: " + projectNumber, normalFont);
+        AddRowWithBottomBorder(inner, "Project Name: " + proj, normalFont);
+        AddRowWithBottomBorder(inner, "Project Number: " + projNo, normalFont);
         AddRowWithBottomBorder(inner, "Order Reference #: " + orderRef, normalFont, false);
 
         left.AddElement(inner);
