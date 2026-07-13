@@ -643,7 +643,8 @@ public class PdfExporterLocal
             stripe = !stripe;
         }
 
-        AddConditionalRows(fldTbl, asm.TableName, rowH, TableStripeGray, white, itemFont, ref stripe);
+        // Engineering rows (circuits/weight/torque/med-gas/payload) are appended onto
+        // asm.Fields by ElevationEngineeringResolver.Enrich during ConvertToAssemblyJsonFull.
         container.AddElement(fldTbl);
 
         if (serviceAttachments.Count > 0)
@@ -652,25 +653,6 @@ public class PdfExporterLocal
         }
 
         container.AddElement(new Paragraph(" "));
-    }
-
-    private static void AddConditionalRows(PdfPTable fldTbl, string tableName, float rowH, BaseColor gray, BaseColor white, Font itemFont, ref bool stripe)
-    {
-        if (string.IsNullOrEmpty(tableName)) return;
-        if (tableName == "Flat Panel Arm" || tableName == "Lights - U | ONE" || tableName == "Spring Arm (Low Ceiling)")
-        {
-            AddAdditionalRow(fldTbl, "Circuits Required", string.Empty, rowH, stripe ? gray : white, itemFont); stripe = !stripe;
-            AddAdditionalRow(fldTbl, "Overall Weight", string.Empty, rowH, stripe ? gray : white, itemFont); stripe = !stripe;
-            AddAdditionalRow(fldTbl, "Torque Moment", string.Empty, rowH, stripe ? gray : white, itemFont); stripe = !stripe;
-            AddAdditionalRow(fldTbl, "Vertical Force Nm", string.Empty, rowH, stripe ? gray : white, itemFont);
-        }
-        if (tableName.Contains("Boom - Service Head"))
-        {
-            AddAdditionalRow(fldTbl, "Med-Gas Connection Type", string.Empty, rowH, stripe ? gray : white, itemFont); stripe = !stripe;
-            AddAdditionalRow(fldTbl, "Overall Weight", string.Empty, rowH, stripe ? gray : white, itemFont); stripe = !stripe;
-            AddAdditionalRow(fldTbl, "Vertical Force", string.Empty, rowH, stripe ? gray : white, itemFont); stripe = !stripe;
-            AddAdditionalRow(fldTbl, "Payload Capacity", string.Empty, rowH, stripe ? gray : white, itemFont);
-        }
     }
 
     private static void ProcessServiceAttachments(PdfPCell container, List<PdfField> serviceAttachments, Font serviceheaderFont, Font itemFont, Font valueFont, float rowH, BaseColor gray, BaseColor white)
@@ -718,28 +700,6 @@ public class PdfExporterLocal
         }
 
         container.AddElement(attachTbl);
-    }
-
-    private static void AddAdditionalRow(PdfPTable table, string itemText, string valueText, float rowHeight, BaseColor backgroundColor, Font itemFont)
-    {
-        PdfPCell itemCell = new PdfPCell(new Phrase(itemText, itemFont))
-        {
-            FixedHeight = rowHeight,
-            BackgroundColor = backgroundColor,
-            HorizontalAlignment = Element.ALIGN_LEFT,
-            Border = Rectangle.BOX,
-            Padding = 4
-        };
-        PdfPCell valueCell = new PdfPCell(new Phrase(valueText, itemFont))
-        {
-            FixedHeight = rowHeight,
-            BackgroundColor = backgroundColor,
-            HorizontalAlignment = Element.ALIGN_LEFT,
-            Border = Rectangle.BOX,
-            Padding = 4
-        };
-        table.AddCell(itemCell);
-        table.AddCell(valueCell);
     }
 
     public static string Distance { get; private set; } = string.Empty;
@@ -1090,6 +1050,7 @@ public class PdfExporterLocal
     {
         List<AssemblyJson> allTables = new List<AssemblyJson>();
         if (assemblyDatas == null) return allTables;
+        var selectablesByAssembly = new Dictionary<AssemblyJson, IList<Selectable>>();
         int assId = 1;
         const int batchSize = 10;
         for (int batchStart = 0; batchStart < assemblyDatas.Count; batchStart += batchSize)
@@ -1101,9 +1062,20 @@ public class PdfExporterLocal
                 if (assemblyData == null) continue;
                 var assembly = ProcessSingleAssemblyData(assemblyData, assId++);
                 allTables.Add(assembly);
+                selectablesByAssembly[assembly] = assemblyData.OrderedSelectables;
             }
         }
         ProcessAdditionalData(allTables, additionalData ?? new List<AdditionalPdfData>());
+
+        // After additional UI rows merge in, fill any still-missing engineering fields.
+        foreach (var assembly in allTables)
+        {
+            if (assembly == null)
+                continue;
+            selectablesByAssembly.TryGetValue(assembly, out var selectables);
+            ElevationEngineeringResolver.Enrich(assembly, selectables);
+        }
+
         return allTables;
     }
 
@@ -1162,13 +1134,16 @@ public class PdfExporterLocal
             bool lengthAlreadyAdded = assembly.Fields.Any(f => f.Item == itemName + " length");
             if (!lengthAlreadyAdded)
             {
-                float size = item.CurrentScaleLevel?.Size ?? 0f;
+                float size = item.CurrentScaleLevel?.Size
+                             ?? item.CurrentPreviewScaleLevel?.Size
+                             ?? 0f;
                 if (size > 0f)
                 {
                     assembly.Fields.Add(new PdfField { Item = itemName + " length", Value = (size * 1000f).ToString("F0") + "mm" });
                 }
             }
         }
+
         return assembly;
     }
 

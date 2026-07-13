@@ -1,0 +1,18 @@
+catalog_name,size_mm,category,weight_kg,torque_nm,vertical_force_n,payload_capacity_kg,source,confidence,notes
+U|ONE,,light_head,18,,,,SIMEON HighLine brochure,high,Sim.LED 7000 light head
+U | ONE,,light_head,18,,,,SIMEON HighLine brochure,high,
+Lights - U | ONE,,light_head,18,,,,SIMEON HighLine brochure,high,
+U|ONE (Low Ceiling),,light_head,18,,,,SIMEON HighLine brochure,high,
+U|002,,light_head,15,,,,SIMEON HighLine brochure,high,Sim.LED 5000 light head
+U | 002,,light_head,15,,,,SIMEON HighLine brochure,high,
+U|002 LC,,light_head,15,,,,SIMEON HighLine brochure,high,
+U|002LC,,light_head,15,,,,SIMEON HighLine brochure,high,
+U | 002 (Low Ceiling),,light_head,15,,,,SIMEON HighLine brochure,high,
+FP/LED,,light_assembly,93.9,902.01,,,Carlyn Elevations Example,high,Config 2 Single Mount FP/LED
+Tandem FP/LED,,light_assembly,96,904,,,Carlyn Elevations Example,high,Config 1 left
+Spring XL Boom (Top 1200 / Bottom 1000 / SH 400),,boom_assembly,284,,2904,12,Carlyn Elevations markups,high,Remaining net payload 12 kg
+Spring XL Boom (Top 800 / Bottom 1000 / SH 400),,boom_assembly,208,,2136,9,Carlyn Elevations Example,high,Remaining net payload 9 kg
+Ondal OPM Sample Tandem Boom Config,,boom_assembly,310,,3973,95,Ondal OPM sample,high,Remaining net 95 kg
+MediBoom dual (Top 800 / Bottom 800 / SH 600),,boom_assembly,169,,3408,179,Brandon BMGP0005P1,high,Remaining net 179 kg
+MediBoom tandem (Top 1000 / Bottom 600 / SH 400),,boom_assembly,276,,4161,149,Brandon BMGP0003P1,high,Remaining net 149 kg
+MediBoom dual (Top 1000 / Bottom 800 / SH 400),,boom_assembly,176,,3161,146,Brandon Atlas ALE10,high,Remaining net 146 kg
