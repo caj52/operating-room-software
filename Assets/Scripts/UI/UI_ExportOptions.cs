@@ -5,7 +5,7 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Exports hub: Room exports… (per deliverable) or Object exports… (3D model + folder).
+/// Exports hub: Room exports… (per deliverable) or Object exports… (3D model).
 /// </summary>
 [RequireComponent(typeof(FullScreenMenu))]
 public class UI_ExportOptions : MonoBehaviour
@@ -27,7 +27,6 @@ public class UI_ExportOptions : MonoBehaviour
     private Button _buttonExportTemplate;
     private Button _buttonCancel;
     private Button _buttonCustomizeObj;
-    private Button _buttonChooseFolder;
 
     private ExportScope _scope = ExportScope.Room;
     private ObjExportOptions _objOptions = ObjExportOptions.CreateDefaults();
@@ -35,7 +34,6 @@ public class UI_ExportOptions : MonoBehaviour
     private bool _wired;
     private bool _preserveChoicesOnNextOpen;
     private ExportScope? _forcedScopeOnOpen;
-    private bool _showFolderChangedBanner;
 
     public static void Open()
     {
@@ -79,10 +77,7 @@ public class UI_ExportOptions : MonoBehaviour
     public static void Close()
     {
         if (Instance != null)
-        {
-            Instance._showFolderChangedBanner = false;
             Instance.gameObject.SetActive(false);
-        }
     }
 
     private static void EnsureInstance()
@@ -218,29 +213,6 @@ public class UI_ExportOptions : MonoBehaviour
             var ignore = _buttonCustomizeObj.GetComponent<LayoutElement>()
                          ?? _buttonCustomizeObj.gameObject.AddComponent<LayoutElement>();
             ignore.ignoreLayout = true;
-        }
-
-        if (_buttonChooseFolder == null)
-        {
-            var template = _buttonCancel ?? _buttonExportTemplate;
-            if (template != null)
-            {
-                _buttonChooseFolder = CloneActionButton(template, "Button_ChooseExportFolder", "Change folder…");
-                _buttonChooseFolder.onClick = new Button.ButtonClickedEvent();
-                _buttonChooseFolder.onClick.AddListener(() =>
-                {
-                    FullRoomSave.OpenChooseExportFolderPrompt(changed =>
-                    {
-                        if (!changed)
-                            return;
-
-                        _showFolderChangedBanner = true;
-                        RefreshChrome();
-                        RebuildLayout();
-                    });
-                });
-                StyleQuietButton(_buttonChooseFolder, 30f, -1f);
-            }
         }
     }
 
@@ -536,7 +508,6 @@ public class UI_ExportOptions : MonoBehaviour
 
         _scope = _forcedScopeOnOpen ?? ExportRequest.CurrentScope();
         _forcedScopeOnOpen = null;
-        _showFolderChangedBanner = false;
 
         if (_scope == ExportScope.SelectedObject)
         {
@@ -572,7 +543,6 @@ public class UI_ExportOptions : MonoBehaviour
 
         UpdateInfoText(objectMode);
 
-        // Object mode mirrors room: one 3D Export row + change folder (no room deliverables).
         SetActive(_rowObj, true);
         SetActive(_rowElevations, !objectMode);
         SetActive(_rowSnapshots, !objectMode);
@@ -580,9 +550,6 @@ public class UI_ExportOptions : MonoBehaviour
 
         if (_buttonCustomizeObj != null)
             _buttonCustomizeObj.gameObject.SetActive(!objectMode);
-
-        if (_buttonChooseFolder != null)
-            _buttonChooseFolder.gameObject.SetActive(true);
 
         if (_buttonCancel != null)
         {
@@ -596,19 +563,22 @@ public class UI_ExportOptions : MonoBehaviour
         if (_infoLabel == null)
             return;
 
-        string path = ShortenPath(ExportPaths.GetExportBasePath());
-        string body = !objectMode && _objOptionsCustomized
-            ? path + "  ·  3D options customized"
-            : path;
-
-        _infoLabel.text = _showFolderChangedBanner
-            ? "New export folder set…  " + body
-            : body;
+        // Destination is chosen via the OS picker at export time — no folder UI here.
+        _infoLabel.text = !objectMode && _objOptionsCustomized
+            ? "3D model options customized"
+            : "";
 
         _infoLabel.ForceMeshUpdate();
         var le = _infoLabel.GetComponent<LayoutElement>();
         if (le != null)
-            le.preferredHeight = Mathf.Clamp(_infoLabel.preferredHeight + 2f, 18f, 48f);
+        {
+            bool show = !string.IsNullOrEmpty(_infoLabel.text);
+            _infoLabel.gameObject.SetActive(show);
+            le.preferredHeight = show
+                ? Mathf.Clamp(_infoLabel.preferredHeight + 2f, 18f, 48f)
+                : 0f;
+            le.ignoreLayout = !show;
+        }
     }
 
     private void RebuildLayout()
@@ -630,11 +600,11 @@ public class UI_ExportOptions : MonoBehaviour
 
         Add(_titleLabel);
         Add(_infoLabel);
-        Add(_buttonChooseFolder);
+        // Room order: Snapshots → 3D model → Elevations (per-boom under elevations)
+        AddGo(_rowSnapshots);
         AddGo(_rowObj);
         AddGo(_rowElevations);
         AddGo(_perAssemblyRow);
-        AddGo(_rowSnapshots);
         Add(_buttonCancel);
 
         for (int i = 0; i < order.Count; i++)
@@ -712,24 +682,6 @@ public class UI_ExportOptions : MonoBehaviour
         le.minHeight = height;
         le.preferredHeight = height;
         le.flexibleWidth = 1f;
-    }
-
-    private static string ShortenPath(string path)
-    {
-        if (string.IsNullOrEmpty(path))
-            return path;
-
-        string documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-        if (!string.IsNullOrEmpty(documents) &&
-            path.StartsWith(documents, StringComparison.OrdinalIgnoreCase))
-        {
-            return "Documents" + path.Substring(documents.Length);
-        }
-
-        if (path.Length > 64)
-            return "…" + path.Substring(path.Length - 60);
-
-        return path;
     }
 
     private static void SetToggleLabel(Toggle toggle, string text)

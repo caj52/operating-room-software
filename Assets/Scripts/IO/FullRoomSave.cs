@@ -7,8 +7,8 @@ using UnityEngine.UI;
 
 /// <summary>
 /// Legacy room-export panel retained for scene references.
-/// "Choose export folder…" now opens the OS folder picker and stores the
-/// parent path in PlayerPrefs via ExportPaths.
+/// Folder picking for exports is done via ExportPaths.PromptForExportFolderThen
+/// (OS picker at export time); there is no separate “change folder” settings UI.
 /// </summary>
 public class FullRoomSave : MonoBehaviour
 {
@@ -65,7 +65,7 @@ public class FullRoomSave : MonoBehaviour
         try
         {
             StandaloneFileBrowser.OpenFolderPanelAsync(
-                "Choose export folder",
+                "Export to folder",
                 startDir,
                 false,
                 items => OnFolderPicked(items, onComplete));
