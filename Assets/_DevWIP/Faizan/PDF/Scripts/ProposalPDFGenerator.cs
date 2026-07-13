@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 using System.IO;
 using iTextSharp.text;
 using iTextSharp.text.pdf;
@@ -941,75 +941,46 @@ public class ProposalPDFGenerator : MonoBehaviour
             document.Add(Chunk.NEWLINE);
             AddTableTitle(document, configName);
 
-            // Handle lights section if lights exist
-            if (lights.Count > 0)
+            // Page 1 model rows must match page 3 / ProposalPricingResolver (not raw light counts).
+            var lightLines = ProposalPricingResolver.ResolveLightLines(lights);
+            if (lightLines.Count > 0)
             {
-                PdfPTable lightTable = CreateModelTable("MODEL DESCRIPTION", "QTY", "LIGHT", lights.Count.ToString());
-                document.Add(lightTable);
-                AddHorizontalLine(document);
+                foreach (var line in lightLines)
+                {
+                    string desc = string.IsNullOrWhiteSpace(line.Description) ? "LIGHT" : line.Description;
+                    document.Add(CreateModelTable(
+                        "MODEL DESCRIPTION", "QTY", desc, Math.Max(1, line.Qty).ToString()));
+                    AddHorizontalLine(document);
+                }
 
                 AddSectionHeader(document, "OPTION/ACCESSORY DESCRIPTION");
-                // Old-style text-only options for LIGHT
                 string lightOptionsText = BuildOptionsDescriptionString(lights, false);
-                PdfPTable lightOptions = CreateOptionTable(lightOptionsText);
-                document.Add(lightOptions);
+                document.Add(CreateOptionTable(lightOptionsText));
                 document.Add(Chunk.NEWLINE);
             }
 
-            // Handle booms section if booms exist
-            if (booms.Count > 0)
+            var boomLine = ProposalPricingResolver.ResolveBoomLine(
+                group.Key != null ? group.Key.gameObject : null, booms);
+            if (boomLine != null)
             {
-                // Special quantity logic for Boom - Tandem Ceiling Cover (same as pricing page)
-                int boomQty = 1; // default quantity
-                
-                // Check if this is a Boom - Tandem Ceiling Cover configuration
-                var firstSp = group.FirstOrDefault();
-                if (firstSp != null)
-                {
-                    var rootSelectables = firstSp.transform.root.GetComponentsInChildren<Selectable>(true);
-                    bool isTandemCeilingCover = rootSelectables.Any(s => 
-                        !string.IsNullOrEmpty(s.UIButtonName) && 
-                        s.UIButtonName.Contains("Boom - Tandem Ceiling Cover"));
-
-                    if (isTandemCeilingCover)
-                    {
-                        // Count boom service heads attached to this configuration
-                        int serviceHeadCount = 0;
-                        foreach (var selectable in rootSelectables)
-                        {
-                            var scaleHandler = selectable.GetComponent<BoomHeadScaleHandler>();
-                            if (scaleHandler != null)
-                            {
-                                serviceHeadCount++;
-                            }
-                        }
-                        
-                        // If 2 service heads are found, set quantity to 2
-                        if (serviceHeadCount >= 2)
-                        {
-                            boomQty = 2;
-                        }
-                    }
-                }
-
-                PdfPTable boomTable = CreateModelTable("MODEL DESCRIPTION", "QTY", "ARTICULATING BOOM", boomQty.ToString());
-                document.Add(boomTable);
+                string boomDesc = string.IsNullOrWhiteSpace(boomLine.Description)
+                    ? "ARTICULATING BOOM"
+                    : boomLine.Description;
+                document.Add(CreateModelTable(
+                    "MODEL DESCRIPTION", "QTY", boomDesc, Math.Max(1, boomLine.Qty).ToString()));
                 AddHorizontalLine(document);
 
                 AddSectionHeader(document, "OPTION/ACCESSORY DESCRIPTION");
-                // Old-style text-only options for BOOM
                 string boomOptionsText = BuildOptionsDescriptionString(booms, true);
-                PdfPTable boomOptions = CreateOptionTable(boomOptionsText);
-                document.Add(boomOptions);
+                document.Add(CreateOptionTable(boomOptionsText));
                 AddHorizontalLine(document);
             }
 
-            // Calculate and display total if we have any items (lights or booms)
-            if (lights.Count > 0 || booms.Count > 0)
+            // Equipment-only total (options + install/ship appear with $ on page 3).
+            if (lightLines.Count > 0 || boomLine != null)
             {
                 double configTotal = ProposalPricingResolver.SumEquipment(group);
-                PdfPTable totalTable = CreateTotalTable("EQUIPMENT TOTAL LIST PRICE", configTotal.ToString("C"));
-                document.Add(totalTable);
+                document.Add(CreateTotalTable("EQUIPMENT TOTAL LIST PRICE", configTotal.ToString("C")));
                 document.Add(Chunk.NEWLINE);
             }
         }

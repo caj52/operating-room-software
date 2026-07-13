@@ -1592,12 +1592,14 @@ public class UI_ProposalWorkspace : MonoBehaviour
         catch (Exception e)
         {
             Debug.LogWarning($"Could not ensure proposals folder: {e.Message}");
-            defaultDir = ExportPaths.GetExportBasePath();
+            defaultDir = ExportPaths.GetSuggestedExportParentFolder();
         }
 
         string safeConfig = string.IsNullOrWhiteSpace(_model.ConfigName)
-            ? "Configuration"
+            ? ExportPaths.GetSuggestedExportFolderName()
             : string.Join("_", _model.ConfigName.Split(Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries));
+        if (string.IsNullOrWhiteSpace(safeConfig))
+            safeConfig = ExportPaths.GetSuggestedExportFolderName();
         string defaultName = $"SalesProposal_{safeConfig}";
 
         try

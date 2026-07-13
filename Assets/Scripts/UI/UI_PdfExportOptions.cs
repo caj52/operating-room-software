@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using TMPro;
@@ -131,6 +131,7 @@ public class UI_PdfExportOptions : MonoBehaviour
         ExportPaths.PromptForExportFolderThen(() =>
         {
             selectable.ExportElevationPdf(title, subtitle, assemblies);
+            ExportPaths.ClearExportBaseOverride();
             gameObject.SetActive(false);
         });
     }

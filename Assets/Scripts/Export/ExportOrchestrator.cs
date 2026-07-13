@@ -82,6 +82,7 @@ public class ExportOrchestrator : MonoBehaviour
             UI_DialogPrompt.Open(
                 "Export UI is missing from the scene.\nCannot show progress.",
                 new ButtonAction("OK"));
+            ExportPaths.ClearExportBaseOverride();
             yield break;
         }
 
@@ -148,6 +149,7 @@ public class ExportOrchestrator : MonoBehaviour
             SuppressIndividualDialogs = false;
             _activeProposal = null;
             _running = false;
+            ExportPaths.ClearExportBaseOverride();
         }
     }
 

@@ -64,11 +64,14 @@ public sealed class ProposalPreviewModel
         public string Title;
         public bool HasLights;
         public int LightQty;
+        public string LightDescription;
         public string LightOptionsText;
         public bool HasBooms;
         public int BoomQty;
+        public string BoomDescription;
         public string BoomOptionsText;
         public double Subtotal;
+        public List<ProposalPricingResolver.Line> LightLines = new();
     }
 
     public sealed class LineItem
@@ -252,7 +255,10 @@ public sealed class ProposalPreviewModel
             if (lights.Count == 0 && booms.Count == 0)
                 continue;
 
-            int boomQty = ResolveBoomQty(group);
+            // Keep page-1 preview blocks aligned with ProposalPricingResolver / PDF page 1.
+            var lightLines = ProposalPricingResolver.ResolveLightLines(lights);
+            var boomLine = ProposalPricingResolver.ResolveBoomLine(
+                group.Key != null ? group.Key.gameObject : null, booms);
             double subtotal = ProposalPricingResolver.SumEquipment(group);
 
             string lightText = BuildOptionsText(lights, false);
@@ -261,11 +267,16 @@ public sealed class ProposalPreviewModel
             ConfigBlocks.Add(new ConfigBlock
             {
                 Title = ConfigName,
-                HasLights = lights.Count > 0,
-                LightQty = lights.Count,
+                HasLights = lightLines.Count > 0,
+                LightQty = lightLines.Sum(l => Math.Max(1, l.Qty)),
+                LightDescription = lightLines.Count > 0
+                    ? string.Join(" + ", lightLines.Select(l => l.Description).Where(d => !string.IsNullOrWhiteSpace(d)))
+                    : "",
                 LightOptionsText = lightText,
-                HasBooms = booms.Count > 0,
-                BoomQty = boomQty,
+                LightLines = lightLines,
+                HasBooms = boomLine != null,
+                BoomQty = boomLine != null ? Math.Max(1, boomLine.Qty) : 0,
+                BoomDescription = boomLine?.Description ?? "",
                 BoomOptionsText = boomText,
                 Subtotal = subtotal
             });
@@ -522,26 +533,6 @@ public sealed class ProposalPreviewModel
         Page1EquipmentTotal = selectables;
         EquipmentTotal = selectables + dropdownTotal + InstallCharge + ShippingCharge;
         GrandTotal = EquipmentTotal - (EquipmentTotal * DiscountPercentage / 100.0);
-    }
-
-    static int ResolveBoomQty(IGrouping<Transform, SelectablePrice> group)
-    {
-        int boomQty = 1;
-        var firstSp = group.FirstOrDefault();
-        if (firstSp == null)
-            return boomQty;
-
-        var rootSelectables = firstSp.transform.root.GetComponentsInChildren<Selectable>(true);
-        bool isTandem = rootSelectables.Any(s =>
-            !string.IsNullOrEmpty(s.UIButtonName) &&
-            s.UIButtonName.Contains("Boom - Tandem Ceiling Cover"));
-        if (!isTandem)
-            return boomQty;
-
-        int serviceHeadCount = rootSelectables.Count(s => s.GetComponent<BoomHeadScaleHandler>() != null);
-        if (serviceHeadCount >= 2)
-            boomQty = 2;
-        return boomQty;
     }
 
     static string BuildOptionsText(List<SelectablePrice> group, bool isBoom)

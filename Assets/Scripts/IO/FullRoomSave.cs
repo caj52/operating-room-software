@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using TMPro;
 using TriLibCore.SFB;
 using UnityEngine;
@@ -7,8 +6,8 @@ using UnityEngine.UI;
 
 /// <summary>
 /// Legacy room-export panel retained for scene references.
-/// Folder picking for exports is done via ExportPaths.PromptForExportFolderThen
-/// (OS picker at export time); there is no separate “change folder” settings UI.
+/// Export destination is chosen via a save dialog prefilled with the suggested
+/// path + room folder name (ExportPaths.PromptForExportFolderThen).
 /// </summary>
 public class FullRoomSave : MonoBehaviour
 {
@@ -45,36 +44,32 @@ public class FullRoomSave : MonoBehaviour
             savePanel.SetActive(false);
     }
 
-    /// <summary>Opens the native OS folder browser and saves the chosen parent folder.</summary>
-    /// <param name="onComplete">Invoked when the picker closes. True if a folder was chosen.</param>
+    /// <summary>
+    /// Opens a native save dialog prefilled with
+    /// Documents/Operating Room Exports / {RoomName} so the user sees the suggested
+    /// output path and folder name (standard Save As behavior).
+    /// </summary>
+    /// <param name="onComplete">Invoked when the dialog closes. True if a location was chosen.</param>
     public static void OpenChooseExportFolderPrompt(Action<bool> onComplete = null)
     {
-        string startDir = ExportPaths.GetParentFolder();
-        try
-        {
-            if (!System.IO.Directory.Exists(startDir))
-                System.IO.Directory.CreateDirectory(ExportPaths.GetDefaultParentFolder());
-            if (!System.IO.Directory.Exists(startDir))
-                startDir = ExportPaths.GetDefaultParentFolder();
-        }
-        catch (Exception)
-        {
-            startDir = ExportPaths.GetDefaultParentFolder();
-        }
+        string startDir = ExportPaths.GetSuggestedExportParentFolder();
+        string defaultName = ExportPaths.GetSuggestedExportFolderName();
 
         try
         {
-            StandaloneFileBrowser.OpenFolderPanelAsync(
-                "Export to folder",
+            // Empty extension → name field is prefilled without forcing a file type.
+            StandaloneFileBrowser.SaveFilePanelAsync(
+                "Choose export location",
                 startDir,
-                false,
-                items => OnFolderPicked(items, onComplete));
+                defaultName,
+                "",
+                item => OnExportLocationPicked(item, onComplete));
         }
         catch (Exception e)
         {
-            Debug.LogError($"Failed to open folder picker: {e}");
+            Debug.LogError($"Failed to open export location dialog: {e}");
             UI_DialogPrompt.Open(
-                "Could not open the folder picker.\nExports will keep using the current folder.",
+                "Could not open the export location dialog.\nExports will keep using the current folder.",
                 new ButtonAction("OK", () =>
                 {
                     UI_DialogPrompt.Close();
@@ -83,17 +78,15 @@ public class FullRoomSave : MonoBehaviour
         }
     }
 
-    private static void OnFolderPicked(IList<ItemWithStream> items, Action<bool> onComplete)
+    private static void OnExportLocationPicked(ItemWithStream item, Action<bool> onComplete)
     {
-        if (items == null || items.Count == 0 || string.IsNullOrWhiteSpace(items[0]?.Name))
+        if (item == null || string.IsNullOrWhiteSpace(item.Name))
         {
             onComplete?.Invoke(false);
             return;
         }
 
-        // SetParentFolder normalizes if the user picked a room export subfolder,
-        // so the next write does not nest RoomName/RoomName.
-        ExportPaths.SetParentFolder(items[0].Name);
+        ExportPaths.ApplyPickedExportLocation(item.Name);
         onComplete?.Invoke(true);
     }
 

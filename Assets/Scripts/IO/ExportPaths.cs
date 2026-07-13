@@ -13,8 +13,15 @@ public static class ExportPaths
     private const string ParentFolderPrefsKey = "ExportParentFolder";
 
     /// <summary>
-    /// Opens the OS folder picker, stores the chosen parent export folder, then runs
-    /// <paramref name="onReady"/>. Cancelling the picker does nothing.
+    /// One-shot base path from the export location save dialog (parent + suggested name).
+    /// Cleared when the export finishes or is cancelled.
+    /// </summary>
+    private static string _sessionExportBaseOverride;
+
+    /// <summary>
+    /// Opens a save dialog prefilled with the suggested export folder
+    /// (Documents/Operating Room Exports / {RoomName}), stores the choice, then runs
+    /// <paramref name="onReady"/>. Cancelling the dialog does nothing.
     /// </summary>
     public static void PromptForExportFolderThen(Action onReady)
     {
@@ -41,6 +48,93 @@ public static class ExportPaths
             onReady();
         });
     }
+
+    public static string GetSuggestedExportParentFolder()
+    {
+        string parent = GetParentFolder();
+        try
+        {
+            if (!Directory.Exists(parent))
+                Directory.CreateDirectory(parent);
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"Could not create export parent folder '{parent}': {e.Message}");
+            parent = GetDefaultParentFolder();
+            try
+            {
+                Directory.CreateDirectory(parent);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        return parent;
+    }
+
+    public static string GetSuggestedExportFolderName()
+        => SanitizeFolderName(GetRoomExportName());
+
+    /// <summary>
+    /// Applies a path chosen in the export save dialog (directory + folder name, no file required).
+    /// </summary>
+    public static void ApplyPickedExportLocation(string pickedPath)
+    {
+        if (string.IsNullOrWhiteSpace(pickedPath))
+            return;
+
+        string full;
+        try
+        {
+            full = Path.GetFullPath(pickedPath.Trim());
+        }
+        catch (Exception)
+        {
+            full = pickedPath.Trim();
+        }
+
+        full = full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        // Save dialogs may append an extension to the suggested folder name — strip only then.
+        string dir = Path.GetDirectoryName(full);
+        string leaf = Path.GetFileName(full);
+        string suggested = GetSuggestedExportFolderName();
+        string withoutExt = Path.GetFileNameWithoutExtension(leaf);
+        if (!string.IsNullOrEmpty(Path.GetExtension(leaf))
+            && withoutExt.Equals(suggested, StringComparison.OrdinalIgnoreCase))
+            leaf = withoutExt;
+
+        if (string.IsNullOrEmpty(dir) || string.IsNullOrEmpty(leaf))
+            return;
+
+        SetParentFolder(dir);
+        SetExportBaseOverride(Path.Combine(dir, leaf));
+    }
+
+    public static void SetExportBaseOverride(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            _sessionExportBaseOverride = null;
+            return;
+        }
+
+        try
+        {
+            _sessionExportBaseOverride = Path.GetFullPath(path.Trim());
+        }
+        catch (Exception)
+        {
+            _sessionExportBaseOverride = path.Trim();
+        }
+    }
+
+    public static void ClearExportBaseOverride()
+        => _sessionExportBaseOverride = null;
+
+    public static bool HasExportBaseOverride()
+        => !string.IsNullOrWhiteSpace(_sessionExportBaseOverride);
 
     public static string GetRoomExportName()
     {
@@ -256,6 +350,9 @@ public static class ExportPaths
     /// <summary>Parent folder + room-name subfolder. All deliverables live under here.</summary>
     public static string GetExportBasePath()
     {
+        if (!string.IsNullOrWhiteSpace(_sessionExportBaseOverride))
+            return _sessionExportBaseOverride;
+
         string parent = GetParentFolder();
         string room = SanitizeFolderName(GetRoomExportName());
 

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -295,6 +295,7 @@ public class UI_ObjExportOptions : MonoBehaviour
         ExportPaths.PromptForExportFolderThen(() =>
         {
             DoExport(true, selectables, options);
+            ExportPaths.ClearExportBaseOverride();
             gameObject.SetActive(false);
         });
     }
@@ -318,6 +319,7 @@ public class UI_ObjExportOptions : MonoBehaviour
         ExportPaths.PromptForExportFolderThen(() =>
         {
             DoExport(true, target, options);
+            ExportPaths.ClearExportBaseOverride();
             gameObject.SetActive(false);
         });
     }
