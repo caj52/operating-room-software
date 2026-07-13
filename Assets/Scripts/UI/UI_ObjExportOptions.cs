@@ -122,10 +122,9 @@ public class UI_ObjExportOptions : MonoBehaviour
             return;
 
         UI_DialogPrompt.Open(
-            $"3D model (GLB) saved to:\n{path}",
-            new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = path),
-            new ButtonAction("Show File", () => ExportFolderUtility.RevealInFileManager(path)),
+            $"3D model (GLB) saved.",
             new ButtonAction("Done"));
+        ExportFolderUtility.RevealInFileManager(path);
     }
 
     private void OnMeshCombiningUpdate(float progress)
@@ -291,12 +290,13 @@ public class UI_ObjExportOptions : MonoBehaviour
             return;
         }
 
-        DoExport(
-            true, 
-            Selectable.ActiveSelectables,
-            GetOptions());
-
-        gameObject.SetActive(false);
+        var selectables = Selectable.ActiveSelectables;
+        var options = GetOptions();
+        ExportPaths.PromptForExportFolderThen(() =>
+        {
+            DoExport(true, selectables, options);
+            gameObject.SetActive(false);
+        });
     }
 
     public void ExportSelectedObject()
@@ -310,17 +310,16 @@ public class UI_ObjExportOptions : MonoBehaviour
         if (Selectable.SelectedSelectables.Count == 0)
             return;
 
-        if (Selectable.SelectedSelectables[0].TryGetArmAssemblyRoot(out GameObject obj))
-        {
-            DoExport(true, obj, GetOptions());
-        }
-        else
-        {
+        GameObject target = Selectable.SelectedSelectables[0].TryGetArmAssemblyRoot(out GameObject obj)
+            ? obj
+            : Selectable.SelectedSelectables[0].gameObject;
+        var options = GetOptions();
 
-            DoExport(true, Selectable.SelectedSelectables[0].gameObject, GetOptions());
-        }
-
-        gameObject.SetActive(false);
+        ExportPaths.PromptForExportFolderThen(() =>
+        {
+            DoExport(true, target, options);
+            gameObject.SetActive(false);
+        });
     }
 
     public static void DoExport(

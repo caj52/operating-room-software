@@ -123,12 +123,16 @@ public class UI_PdfExportOptions : MonoBehaviour
                 .GetComponentInChildren<TMP_InputField>().text;
         }
 
-        _selectable.ExportElevationPdf(
-            InputfieldTitle.text, 
-            InputfieldSubTitle.text, 
-            _assemblyDatas);
+        string title = InputfieldTitle.text;
+        string subtitle = InputfieldSubTitle.text;
+        var assemblies = _assemblyDatas;
+        var selectable = _selectable;
 
-        gameObject.SetActive(false);
+        ExportPaths.PromptForExportFolderThen(() =>
+        {
+            selectable.ExportElevationPdf(title, subtitle, assemblies);
+            gameObject.SetActive(false);
+        });
     }
 
     public static void Open(Selectable selectable)

@@ -35,6 +35,31 @@ public class ExportRequest
         return Selectable.SelectedSelectables[0].IsArmAssembly;
     }
 
+    /// <summary>
+    /// True when the selection can be saved as an object configuration
+    /// (boom / arm assembly, scalable segment, etc.).
+    /// </summary>
+    public static bool SelectionIsConfigurable()
+    {
+        if (!HasSelection())
+            return false;
+
+        var s = Selectable.SelectedSelectables[0];
+        if (s == null)
+            return false;
+        if (s.GetComponent<RoomBoundary>() != null || s.GetComponentInParent<RoomBoundary>() != null)
+            return false;
+        if (s.IsArmAssembly)
+            return true;
+        if (s.GetComponentInChildren<BoomConfigurationManager>(true) != null)
+            return true;
+        if (s.GetComponentInChildren<BoomHeadScaleHandler>(true) != null)
+            return true;
+        if (s.ScaleLevels != null && s.ScaleLevels.Count > 0)
+            return true;
+        return false;
+    }
+
     public static ExportScope CurrentScope()
         => HasSelection() ? ExportScope.SelectedObject : ExportScope.Room;
 

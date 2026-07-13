@@ -2,9 +2,12 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using TMPro;
+using TriLibCore.SFB;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.Events;
 using UnityEngine.UI;
 
@@ -378,39 +381,49 @@ public class UI_ProposalWorkspace : MonoBehaviour
         chromeLayout.childForceExpandHeight = false;
         chromeLayout.childForceExpandWidth = true;
 
-        // Header
+        // Header: title + status on the left, Close on the right (no overlapping lines)
         var header = CreatePanel("Header", chrome.transform, Color.clear);
         var headerLe = header.AddComponent<LayoutElement>();
-        headerLe.preferredHeight = 48f;
+        headerLe.preferredHeight = 56f;
         headerLe.flexibleHeight = 0f;
-        headerLe.minHeight = 48f;
+        headerLe.minHeight = 56f;
         header.GetComponent<Image>().raycastTarget = false;
         var headerLayout = header.AddComponent<HorizontalLayoutGroup>();
-        headerLayout.padding = new RectOffset(4, 4, 4, 4);
+        headerLayout.padding = new RectOffset(4, 4, 2, 2);
         headerLayout.spacing = 12f;
         headerLayout.childAlignment = TextAnchor.MiddleLeft;
         headerLayout.childForceExpandWidth = false;
-        headerLayout.childControlWidth = false;
+        headerLayout.childControlWidth = true;
+        headerLayout.childControlHeight = true;
+        headerLayout.childForceExpandHeight = false;
 
         var titleBlock = new GameObject("TitleBlock", typeof(RectTransform), typeof(VerticalLayoutGroup), typeof(LayoutElement));
         titleBlock.transform.SetParent(header.transform, false);
-        titleBlock.GetComponent<LayoutElement>().preferredWidth = 360f;
-        titleBlock.GetComponent<LayoutElement>().flexibleWidth = 1f;
+        var titleBlockLe = titleBlock.GetComponent<LayoutElement>();
+        titleBlockLe.flexibleWidth = 1f;
+        titleBlockLe.minWidth = 200f;
+        titleBlockLe.preferredHeight = 52f;
         var tb = titleBlock.GetComponent<VerticalLayoutGroup>();
-        tb.spacing = 0f;
+        tb.spacing = 2f;
+        tb.childAlignment = TextAnchor.MiddleLeft;
         tb.childControlHeight = true;
+        tb.childControlWidth = true;
         tb.childForceExpandHeight = false;
-        CreateLabel(titleBlock.transform, "Sales proposal", 20f, FontStyles.Bold, TextAlignmentOptions.MidlineLeft, -1f, 26f)
-            .color = Theme.Ink;
-        CreateLabel(titleBlock.transform, "Click highlighted areas on the page to edit", 12f, FontStyles.Normal, TextAlignmentOptions.MidlineLeft, -1f, 16f)
-            .color = Theme.InkMuted;
+        tb.childForceExpandWidth = true;
+
+        var titleLabel = CreateLabel(titleBlock.transform, "Sales proposal", 20f, FontStyles.Bold,
+            TextAlignmentOptions.MidlineLeft, -1f, 26f);
+        titleLabel.color = Theme.Ink;
+        titleLabel.enableWordWrapping = false;
+        titleLabel.overflowMode = TextOverflowModes.Ellipsis;
+
+        _statusLabel = CreateLabel(titleBlock.transform, "Click highlighted areas on the page to edit", 12f,
+            FontStyles.Normal, TextAlignmentOptions.MidlineLeft, -1f, 18f);
+        _statusLabel.color = Theme.InkMuted;
+        _statusLabel.enableWordWrapping = false;
+        _statusLabel.overflowMode = TextOverflowModes.Ellipsis;
 
         CreateGhostButton(header.transform, "Close", Close, 88f, 36f);
-
-        _statusLabel = CreateLabel(chrome.transform, "Rendering preview…", 12f, FontStyles.Italic,
-            TextAlignmentOptions.MidlineLeft, -1f, 20f);
-        _statusLabel.color = Theme.InkFaint;
-        _statusLabel.GetComponent<LayoutElement>().flexibleHeight = 0f;
 
         // Desk: PDF page + slim side rail (only for actions that don't map cleanly onto the page)
         var stage = CreatePanel("Stage", chrome.transform, Theme.Desk);
@@ -784,8 +797,17 @@ public class UI_ProposalWorkspace : MonoBehaviour
 
     void SetStatus(string text)
     {
-        if (_statusLabel != null)
-            _statusLabel.text = text ?? "";
+        if (_statusLabel == null)
+            return;
+
+        // Idle hint when preview is ready; otherwise show the live status.
+        string msg = text ?? "";
+        if (msg.StartsWith("Preview up to date", StringComparison.OrdinalIgnoreCase))
+            msg = "Click highlighted areas on the page to edit";
+
+        _statusLabel.text = msg;
+        _statusLabel.fontStyle = FontStyles.Normal;
+        _statusLabel.color = Theme.InkMuted;
     }
 
     void BuildLoadingOverlay(Transform pageScroll)
@@ -1491,6 +1513,18 @@ public class UI_ProposalWorkspace : MonoBehaviour
             onSave(inputs.Select(i => i.text).ToArray());
             ClosePopover();
         }, -1f, 34f);
+
+        // Focus the first field so the caret is visible immediately.
+        if (inputs.Count > 0 && EventSystem.current != null)
+        {
+            var first = inputs[0];
+            EventSystem.current.SetSelectedGameObject(first.gameObject);
+            first.ActivateInputField();
+            first.caretPosition = first.text != null ? first.text.Length : 0;
+            first.selectionAnchorPosition = first.caretPosition;
+            first.selectionFocusPosition = first.caretPosition;
+            first.ForceLabelUpdate();
+        }
     }
 
     void OpenTextPopover(string title, (string label, string value)[] fields, Action<string[]> onSave, string footerHint = null)
@@ -1516,6 +1550,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
             _model = ProposalPreviewModel.Capture();
 
         _model.PersistEditableFields();
+        DropdownPopulator.PersistAllCurrentSelections();
 
         if (!ExportPaths.EnsureRoomSavedForExport())
             return;
@@ -1530,7 +1565,50 @@ public class UI_ProposalWorkspace : MonoBehaviour
         }
 
         _model.ApplyTo(generator);
-        generator.GeneratePDF();
+
+        string defaultDir = ExportPaths.ProposalsDir;
+        try
+        {
+            if (!Directory.Exists(defaultDir))
+                Directory.CreateDirectory(defaultDir);
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"Could not ensure proposals folder: {e.Message}");
+            defaultDir = ExportPaths.GetExportBasePath();
+        }
+
+        string safeConfig = string.IsNullOrWhiteSpace(_model.ConfigName)
+            ? "Configuration"
+            : string.Join("_", _model.ConfigName.Split(Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries));
+        string defaultName = $"SalesProposal_{safeConfig}";
+
+        try
+        {
+            StandaloneFileBrowser.SaveFilePanelAsync(
+                "Export sales proposal PDF",
+                defaultDir,
+                defaultName,
+                new[] { new ExtensionFilter("PDF", "pdf") },
+                item =>
+                {
+                    if (item == null || string.IsNullOrWhiteSpace(item.Name))
+                        return;
+
+                    string path = item.Name;
+                    if (!path.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+                        path += ".pdf";
+
+                    generator.GeneratePDF(path);
+                });
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Failed to open save dialog: {e}");
+            UI_DialogPrompt.Open(
+                "Could not open the system save dialog.",
+                new ButtonAction("OK"));
+        }
     }
 
     #region UI helpers
@@ -1671,7 +1749,9 @@ public class UI_ProposalWorkspace : MonoBehaviour
         float height = multiline ? 72f : 32f;
         var go = new GameObject("Input", typeof(RectTransform), typeof(Image), typeof(TMP_InputField), typeof(LayoutElement));
         go.transform.SetParent(parent, false);
-        go.GetComponent<Image>().color = Theme.InputFill;
+        var bg = go.GetComponent<Image>();
+        bg.color = Theme.InputFill;
+        bg.raycastTarget = true;
         var le = go.GetComponent<LayoutElement>();
         le.preferredHeight = height;
         le.minHeight = height;
@@ -1689,6 +1769,8 @@ public class UI_ProposalWorkspace : MonoBehaviour
         tmp.enableWordWrapping = multiline;
         tmp.overflowMode = multiline ? TextOverflowModes.Overflow : TextOverflowModes.Ellipsis;
         tmp.alignment = multiline ? TextAlignmentOptions.TopLeft : TextAlignmentOptions.MidlineLeft;
+        tmp.raycastTarget = false;
+        tmp.richText = false;
         TMP_RuntimeFontRepair.Repair(tmp);
 
         var placeholderGo = new GameObject("Placeholder", typeof(RectTransform), typeof(TextMeshProUGUI));
@@ -1700,9 +1782,11 @@ public class UI_ProposalWorkspace : MonoBehaviour
         ph.fontStyle = FontStyles.Italic;
         ph.color = Theme.InkFaint;
         ph.alignment = tmp.alignment;
+        ph.raycastTarget = false;
         TMP_RuntimeFontRepair.Repair(ph);
 
         var input = go.GetComponent<TMP_InputField>();
+        input.targetGraphic = bg;
         input.textViewport = textArea.GetComponent<RectTransform>();
         input.textComponent = tmp;
         input.placeholder = ph;
@@ -1711,6 +1795,28 @@ public class UI_ProposalWorkspace : MonoBehaviour
         input.lineType = multiline
             ? TMP_InputField.LineType.MultiLineNewline
             : TMP_InputField.LineType.SingleLine;
+        input.contentType = TMP_InputField.ContentType.Standard;
+        input.characterValidation = TMP_InputField.CharacterValidation.None;
+        input.richText = false;
+        input.shouldHideMobileInput = true;
+
+        // Visible caret + selection (runtime TMP fields default to an invisible caret).
+        input.customCaretColor = true;
+        input.caretColor = Theme.Ink;
+        input.caretWidth = 2;
+        input.caretBlinkRate = 0.85f;
+        input.selectionColor = new Color(0.35f, 0.55f, 0.95f, 0.35f);
+
+        // Keep ColorBlock white so it doesn't multiply-darken Theme.InputFill.
+        var colors = input.colors;
+        colors.normalColor = Color.white;
+        colors.highlightedColor = Color.white;
+        colors.selectedColor = Color.white;
+        colors.pressedColor = Color.white;
+        colors.colorMultiplier = 1f;
+        input.colors = colors;
+        input.transition = UnityEngine.UI.Selectable.Transition.ColorTint;
+
         return input;
     }
 

@@ -12,6 +12,36 @@ public static class ExportPaths
     private const string DocumentsFolderName = "Operating Room Exports";
     private const string ParentFolderPrefsKey = "ExportParentFolder";
 
+    /// <summary>
+    /// Opens the OS folder picker, stores the chosen parent export folder, then runs
+    /// <paramref name="onReady"/>. Cancelling the picker does nothing.
+    /// </summary>
+    public static void PromptForExportFolderThen(Action onReady)
+    {
+        if (onReady == null)
+            return;
+
+        if (!EnsureRoomSavedForExport())
+            return;
+
+        FullRoomSave.OpenChooseExportFolderPrompt(picked =>
+        {
+            if (!picked)
+                return;
+
+            try
+            {
+                EnsureDirectories();
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"Could not create export folders: {e.Message}");
+            }
+
+            onReady();
+        });
+    }
+
     public static string GetRoomExportName()
     {
         string savedName = ConfigurationManager.GetCurrentRoomSaveName();

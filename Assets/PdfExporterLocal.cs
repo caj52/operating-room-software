@@ -23,10 +23,10 @@ public class PdfExporterLocal
         public string OutputDirectory { get; set; }
         /// <summary>Custom file name (without extension). If null a timestamp based name is used.</summary>
         public string FileNameBase { get; set; }
-        /// <summary>Open the PDF automatically after export (default true).</summary>
+        /// <summary>Open the containing folder after export (default true).</summary>
         public bool OpenAfterExport { get; set; } = true;
-        /// <summary>Instead of opening the PDF, show the containing folder (Finder/Explorer) when OpenAfterExport is true.</summary>
-        public bool ShowInFolderInsteadOfOpen { get; set; } = false;
+        /// <summary>Deprecated — folder is always revealed when OpenAfterExport is true.</summary>
+        public bool ShowInFolderInsteadOfOpen { get; set; } = true;
         /// <summary>Show in‑app success dialog (default true).</summary>
         public bool ShowSuccessDialog { get; set; } = true;
         /// <summary>Show loading screen (default true).</summary>
@@ -370,39 +370,17 @@ public class PdfExporterLocal
 
         if (options.ShowSuccessDialog)
         {
+            ExportFolderUtility.RevealInFileManager(fullPath);
             UI_DialogPrompt.Open(
-                $"Success! PDF saved to {fullPath}",
-                new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = fullPath),
+                "Elevation PDF exported.",
                 new ButtonAction("Done"));
+        }
+        else if (options.OpenAfterExport)
+        {
+            ExportFolderUtility.RevealInFileManager(fullPath);
         }
 
         options.OnSuccess?.Invoke(fullPath);
-
-        if (options.OpenAfterExport)
-        {
-#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
-            if (options.ShowInFolderInsteadOfOpen)
-            {
-                try { Process.Start("open", $"-R \"{fullPath}\""); } catch (Exception ex) { UnityEngine.Debug.LogWarning($"Reveal failed: {ex.Message}"); }
-            }
-            else { Application.OpenURL("file:///" + fullPath); }
-#else
-            if (options.ShowInFolderInsteadOfOpen)
-            {
-                try
-                {
-                    Process.Start(new ProcessStartInfo
-                    {
-                        FileName = "explorer.exe",
-                        Arguments = "/select,\"" + fullPath + "\"",
-                        UseShellExecute = true
-                    });
-                }
-                catch (Exception ex) { UnityEngine.Debug.LogWarning($"Show in Explorer failed: {ex.Message}"); }
-            }
-            else { Application.OpenURL("file:///" + fullPath); }
-#endif
-        }
     }
     #endregion
 
@@ -474,39 +452,17 @@ public class PdfExporterLocal
 
         if (options.ShowSuccessDialog)
         {
+            ExportFolderUtility.RevealInFileManager(filePath);
             UI_DialogPrompt.Open(
-                $"Success! PDF saved to {filePath}",
-                new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = filePath),
+                "Elevation PDF exported.",
                 new ButtonAction("Done"));
+        }
+        else if (options.OpenAfterExport)
+        {
+            ExportFolderUtility.RevealInFileManager(filePath);
         }
 
         options.OnSuccess?.Invoke(filePath);
-
-        if (options.OpenAfterExport)
-        {
-#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
-            if (options.ShowInFolderInsteadOfOpen)
-            {
-                try { Process.Start("open", $"-R \"{filePath}\""); } catch (Exception ex) { UnityEngine.Debug.LogWarning($"Failed to reveal in Finder: {ex.Message}"); }
-            }
-            else { Application.OpenURL("file:///" + filePath); }
-#else
-            if (options.ShowInFolderInsteadOfOpen)
-            {
-                try
-                {
-                    Process.Start(new ProcessStartInfo
-                    {
-                        FileName = "explorer.exe",
-                        Arguments = "/select,\"" + filePath + "\"",
-                        UseShellExecute = true
-                    });
-                }
-                catch (Exception ex) { UnityEngine.Debug.LogWarning($"Failed to show in Explorer: {ex.Message}"); }
-            }
-            else { Application.OpenURL("file:///" + filePath); }
-#endif
-        }
     }
     #endregion
 

@@ -7,8 +7,9 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Save button: whole room when nothing is selected, selected boom/assembly
-/// configuration when something is selected. Both use the OS save dialog.
+/// Toolbar save: the main Save button always saves the room.
+/// A separate Save Configuration button appears under it when a configurable
+/// object (boom / scalable assembly) is selected.
 /// </summary>
 public class Save : MonoBehaviour
 {
@@ -26,6 +27,8 @@ public class Save : MonoBehaviour
     private bool _picking;
     private bool _savingConfig;
     private UI_HoverTooltip _saveTooltip;
+    private Button _configSaveButton;
+    private UI_HoverTooltip _configTooltip;
 
     private void Awake()
     {
@@ -73,10 +76,13 @@ public class Save : MonoBehaviour
         if (b_Save != null)
         {
             b_Save.onClick.RemoveAllListeners();
-            b_Save.onClick.AddListener(OnToolbarSaveClicked);
+            b_Save.onClick.AddListener(BeginSaveRoom);
             _saveTooltip = b_Save.GetComponent<UI_HoverTooltip>()
                            ?? b_Save.gameObject.AddComponent<UI_HoverTooltip>();
+            _saveTooltip.SetText("Save room");
         }
+
+        EnsureConfigSaveButton();
 
         if (b_Confirm != null)
             b_Confirm.onClick.RemoveAllListeners();
@@ -93,28 +99,90 @@ public class Save : MonoBehaviour
         UpdateSaveButtonChrome();
     }
 
-    private void UpdateSaveButtonChrome()
+    private void EnsureConfigSaveButton()
     {
-        bool hasSelection = ExportRequest.HasSelection();
-        string tip = hasSelection ? "Save configuration" : "Save room";
-
-        if (_saveTooltip != null)
-            _saveTooltip.SetText(tip);
-
-        if (b_Save == null)
+        if (_configSaveButton != null || b_Save == null)
             return;
 
-        var label = b_Save.GetComponentInChildren<TMP_Text>(true);
-        if (label != null && !string.IsNullOrWhiteSpace(label.text))
-            label.text = hasSelection ? "Save configuration…" : "Save room…";
+        var go = Instantiate(b_Save.gameObject, b_Save.transform.parent);
+        go.name = "Button_SaveConfiguration";
+        go.SetActive(false);
+
+        var saveRt = b_Save.transform as RectTransform;
+        var rt = go.transform as RectTransform;
+        if (saveRt != null && rt != null)
+        {
+            rt.anchorMin = saveRt.anchorMin;
+            rt.anchorMax = saveRt.anchorMax;
+            rt.pivot = saveRt.pivot;
+            rt.sizeDelta = saveRt.sizeDelta;
+            // Directly under the room Save button.
+            rt.anchoredPosition = saveRt.anchoredPosition + new Vector2(0f, -(saveRt.sizeDelta.y + 6f));
+            rt.SetSiblingIndex(saveRt.GetSiblingIndex() + 1);
+        }
+
+        _configSaveButton = go.GetComponent<Button>();
+        _configSaveButton.onClick.RemoveAllListeners();
+        _configSaveButton.onClick.AddListener(BeginSaveConfiguration);
+
+        ApplyConfigButtonIcon(go);
+
+        // Hide any text label so it stays icon-only like Save.
+        foreach (var tmp in go.GetComponentsInChildren<TMP_Text>(true))
+            tmp.gameObject.SetActive(false);
+
+        _configTooltip = go.GetComponent<UI_HoverTooltip>()
+                         ?? go.AddComponent<UI_HoverTooltip>();
+        _configTooltip.SetText("Save object configuration");
     }
 
-    private void OnToolbarSaveClicked()
+    private static void ApplyConfigButtonIcon(GameObject buttonGo)
     {
-        if (ExportRequest.HasSelection())
-            BeginSaveConfiguration();
-        else
-            BeginSaveRoom();
+        var img = buttonGo.GetComponent<Image>();
+        if (img == null)
+            return;
+
+        var tex = Resources.Load<Texture2D>("UI/save_config_icon");
+        if (tex == null)
+        {
+            // Fallback: keep the save icon and stamp a small object badge.
+            var badge = new GameObject("ObjectBadge", typeof(RectTransform), typeof(Image));
+            badge.transform.SetParent(buttonGo.transform, false);
+            var brt = badge.GetComponent<RectTransform>();
+            brt.anchorMin = new Vector2(1f, 0f);
+            brt.anchorMax = new Vector2(1f, 0f);
+            brt.pivot = new Vector2(1f, 0f);
+            brt.sizeDelta = new Vector2(18f, 18f);
+            brt.anchoredPosition = new Vector2(-2f, 2f);
+            badge.GetComponent<Image>().color = new Color(0.91f, 0.47f, 0.13f, 1f);
+            return;
+        }
+
+        var sprite = Sprite.Create(
+            tex,
+            new Rect(0, 0, tex.width, tex.height),
+            new Vector2(0.5f, 0.5f),
+            100f);
+        sprite.name = "SaveConfigIcon";
+        img.sprite = sprite;
+        img.preserveAspect = true;
+    }
+
+    private void UpdateSaveButtonChrome()
+    {
+        if (_saveTooltip != null)
+            _saveTooltip.SetText("Save room");
+
+        if (b_Save != null)
+        {
+            var label = b_Save.GetComponentInChildren<TMP_Text>(true);
+            if (label != null && label.gameObject.activeSelf && !string.IsNullOrWhiteSpace(label.text))
+                label.text = "Save room…";
+        }
+
+        bool showConfig = ExportRequest.SelectionIsConfigurable();
+        if (_configSaveButton != null)
+            _configSaveButton.gameObject.SetActive(showConfig);
     }
 
     private void BeginSaveRoom()
@@ -128,9 +196,11 @@ public class Save : MonoBehaviour
 
     private void BeginSaveConfiguration()
     {
-        if (!ExportRequest.HasSelection())
+        if (!ExportRequest.SelectionIsConfigurable())
         {
-            BeginSaveRoom();
+            UI_DialogPrompt.Open(
+                "Select a boom or configurable object first to save a configuration.",
+                new ButtonAction("OK"));
             return;
         }
 
@@ -252,10 +322,10 @@ public class Save : MonoBehaviour
             return;
         }
 
-        if (!ExportRequest.HasSelection())
+        if (!ExportRequest.SelectionIsConfigurable())
         {
             UI_DialogPrompt.Open(
-                "Select a boom or object first to save a configuration.",
+                "Select a boom or configurable object first to save a configuration.",
                 new ButtonAction("OK"));
             return;
         }

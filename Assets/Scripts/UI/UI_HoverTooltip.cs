@@ -207,7 +207,8 @@ public class UI_IconButtonTooltipBinder : MonoBehaviour
     {
         { "Button_Settings", "Settings" },
         { "Button_OpenObjectMenu", "Object menu" },
-        { "Button_Save", "Save room" }, // Updated live by Save.cs when selection changes
+        { "Button_Save", "Save room" },
+        { "Button_SaveConfiguration", "Save object configuration" },
         { "Button_OpenSceneSelectablesMenu", "Objects in scene" },
         { "Button_DeleteObject", "Delete" },
         { "Button_DeleteObject (1)", "Delete" },

@@ -129,9 +129,9 @@ public class PdfBatchExporter : MonoBehaviour
         {
             UI_GeneralLoadingScreen.instance.HideLoadingScreen();
             UI_DialogPrompt.Open(
-                $"Elevation sheets saved to:\n{filePath}",
-                new ButtonAction("Show File", () => ExportFolderUtility.RevealInFileManager(filePath)),
+                "Elevation sheets saved.",
                 new ButtonAction("Done"));
+            ExportFolderUtility.RevealInFileManager(filePath);
         }
     }
 
@@ -240,9 +240,9 @@ public class PdfBatchExporter : MonoBehaviour
         if (!suppressDialog)
         {
             UI_DialogPrompt.Open(
-                $"Elevation sheet saved to:\n{filePath}",
-                new ButtonAction("Show File", () => ExportFolderUtility.RevealInFileManager(filePath)),
+                "Elevation sheet saved.",
                 new ButtonAction("Done"));
+            ExportFolderUtility.RevealInFileManager(filePath);
         }
     }
 

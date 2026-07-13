@@ -80,6 +80,8 @@ public class ProposalPDFGenerator : MonoBehaviour
     /// <summary>Reuse last ceiling capture so text/pricing edits stay fast.</summary>
     bool _reuseCachedVisuals;
     string _previewCeilingCachePath;
+    /// <summary>When set, export writes to this path instead of the default proposals folder.</summary>
+    string _exportPathOverride;
 
     // Image cleanup tracking
     private List<string> tempImagePaths = new List<string>();
@@ -103,6 +105,12 @@ public class ProposalPDFGenerator : MonoBehaviour
 
     public void GeneratePDF()
     {
+        GeneratePDF(null);
+    }
+
+    /// <summary>Export the sales proposal PDF, optionally to an explicit file path from a save dialog.</summary>
+    public void GeneratePDF(string outputPathOverride)
+    {
         // Always pull Client Metadata + room + saved sales rep before writing.
         ApplyExportDefaults();
 
@@ -115,6 +123,7 @@ public class ProposalPDFGenerator : MonoBehaviour
         isCancelled = false;
         _previewMode = false;
         _reuseCachedVisuals = false;
+        _exportPathOverride = string.IsNullOrWhiteSpace(outputPathOverride) ? null : outputPathOverride.Trim();
         pdfGenerationCoroutine = StartCoroutine(GeneratePDFCoroutine());
     }
 
@@ -441,6 +450,14 @@ public class ProposalPDFGenerator : MonoBehaviour
             }
             catch { /* overwrite below */ }
         }
+        else if (!string.IsNullOrWhiteSpace(_exportPathOverride))
+        {
+            filePath = _exportPathOverride;
+            _exportPathOverride = null;
+            string dir = Path.GetDirectoryName(filePath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+        }
         else
         {
             // Sanitize config name for safe filename
@@ -603,18 +620,11 @@ public class ProposalPDFGenerator : MonoBehaviour
         }
         else
         {
+            // Open the containing folder automatically — no Copy Path needed.
+            ExportFolderUtility.RevealInFileManager(filePath);
             UI_DialogPrompt.Open(
-                $"Sales proposal saved to:\n{filePath}",
-                new ButtonAction("Open PDF", () => OpenPDF(filePath)),
-                new ButtonAction("Copy Path", () => {
-                    GUIUtility.systemCopyBuffer = filePath;
-                    UI_DialogPrompt.Open("Path copied to clipboard!", new ButtonAction("OK"));
-                }),
-                new ButtonAction("Done")
-            );
-
-            // Try to open the PDF automatically
-            OpenPDF(filePath);
+                "Sales proposal exported.",
+                new ButtonAction("Done"));
         }
     }
     
@@ -702,11 +712,10 @@ public class ProposalPDFGenerator : MonoBehaviour
         catch (Exception e)
         {
             Debug.LogError($"Failed to open PDF: {e.Message}");
+            ExportFolderUtility.RevealInFileManager(filePath);
             UI_DialogPrompt.Open(
-                "Unable to open PDF automatically. You can find it at:\n" + filePath,
-                new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = filePath),
-                new ButtonAction("OK")
-            );
+                "Could not open the PDF. The export folder was opened instead.",
+                new ButtonAction("OK"));
         }
     }
 

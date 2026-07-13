@@ -40,7 +40,7 @@ public class SelectableData
         Progress<AssetRetrievalProgress> progress = null,
         Loading.LoadingToken loadingToken = null
     ){
-        loadingToken ??= Loading.GetLoadingToken();
+        loadingToken ??= Loading.GetLoadingToken(Loading.Kind.Item);
 
         AssetPipelineDiagnostics.LogSelectableData("GetPrefab", this, "requesting prefab");
 

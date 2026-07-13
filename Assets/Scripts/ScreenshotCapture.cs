@@ -259,9 +259,9 @@ public class ScreenshotCapture : MonoBehaviour
         if (!ExportOrchestrator.SuppressIndividualDialogs)
         {
             UI_DialogPrompt.Open(
-                  $"Success! Enhanced screenshots saved to {folderPath}",
-             new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = folderPath),
+                  "Enhanced screenshots saved.",
             new ButtonAction("Done"));
+            ExportFolderUtility.RevealInFileManager(folderPath);
         }
         if (OperatingRoomCamera.LiveCamera != null
             && OperatingRoomCamera.LiveCamera.CameraType == OperatingRoomCameraType.FreeLook

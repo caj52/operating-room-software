@@ -43,9 +43,6 @@ public class ExportOrchestrator : MonoBehaviour
         if (request == null)
             return;
 
-        if (!ExportPaths.EnsureRoomSavedForExport())
-            return;
-
         EnsureInstance();
         if (Instance._running)
         {
@@ -55,7 +52,9 @@ public class ExportOrchestrator : MonoBehaviour
             return;
         }
 
-        Instance.StartCoroutine(Instance.RunExportCoroutine(request));
+        // Every room/object export asks where files should go first.
+        ExportPaths.PromptForExportFolderThen(() =>
+            Instance.StartCoroutine(Instance.RunExportCoroutine(request)));
     }
 
     private static void EnsureInstance()
@@ -431,21 +430,12 @@ public class ExportOrchestrator : MonoBehaviour
 
         if (_failedSteps.Count > 0 && _completedSteps.Count == 0)
         {
+            ExportFolderUtility.RevealInFileManager(revealPath);
             UI_DialogPrompt.Open(
-                "Export failed:\n" + string.Join("\n", _failedSteps)
-                + $"\n\nFolder:\n{exportBase}",
-                new ButtonAction("Open Folder", () =>
-                {
-                    UI_DialogPrompt.Close();
-                    ExportFolderUtility.RevealInFileManager(revealPath);
-                }),
+                "Export failed:\n" + string.Join("\n", _failedSteps),
                 new ButtonAction("OK"));
             return;
         }
-
-        string savedLine = File.Exists(revealPath) || Directory.Exists(revealPath)
-            ? revealPath
-            : exportBase;
 
         string summary = _failedSteps.Count > 0
             ? "Export finished with some issues.\n\nCompleted:\n"
@@ -455,17 +445,11 @@ public class ExportOrchestrator : MonoBehaviour
             : "Export finished.\n\n"
               + (_completedSteps.Count > 0
                   ? string.Join("\n", _completedSteps)
-                  : "(No files were exported)")
-              + $"\n\nSaved to:\n{savedLine}";
+                  : "(No files were exported)");
 
-        string openLabel = File.Exists(revealPath) ? "Show File" : "Open Folder";
+        ExportFolderUtility.RevealInFileManager(revealPath);
         UI_DialogPrompt.Open(
             summary,
-            new ButtonAction(openLabel, () =>
-            {
-                UI_DialogPrompt.Close();
-                ExportFolderUtility.RevealInFileManager(revealPath);
-            }),
             new ButtonAction("Done"));
     }
 

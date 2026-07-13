@@ -549,13 +549,14 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         {
             foreach (var selectable in SelectedSelectables)
             {
-                if (selectable.GetComponent
-                <GizmoHandler>().GizmoUsedLastFrame)
+                if (selectable == null)
+                    continue;
+                var gizmo = selectable.GetComponent<GizmoHandler>();
+                if (gizmo != null && gizmo.GizmoUsedLastFrame)
                     return;
             }
 
             SelectedSelectables[0].Deselect();
-            //SelectionChanged?.Invoke(null, null);
         }
     }
 
@@ -682,6 +683,13 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     {
         if (SceneManager.GetActiveScene().name == "ObjectEditor")
             return;
+
+        // Floors / walls are never a selection target — clicking them clears selection.
+        if (GetComponent<RoomBoundary>() != null || GetComponentInParent<RoomBoundary>() != null)
+        {
+            DeselectAll();
+            return;
+        }
 
         // Clicking the already-selected object deselects it.
         if (IsSelected)
