@@ -317,6 +317,9 @@ public class UI_ProposalWorkspace : MonoBehaviour
 
     void OnClientDataClosed()
     {
+        var cg = GetComponent<CanvasGroup>();
+        if (cg != null)
+            cg.interactable = true;
         RefreshLiveData(syncSalesRep: true);
         SchedulePreviewRefresh(forceVisuals: false);
     }
@@ -1077,6 +1080,11 @@ public class UI_ProposalWorkspace : MonoBehaviour
     void EditClientData()
     {
         ClosePopover();
+        // Client Metadata sorts above us (299 vs 280), but keep the proposal
+        // from eating hover/scroll while that dialog is open.
+        var cg = GetComponent<CanvasGroup>();
+        if (cg != null)
+            cg.interactable = false;
         UI_ClientMetaData.Open();
     }
 
@@ -1162,10 +1170,9 @@ public class UI_ProposalWorkspace : MonoBehaviour
         rt.anchorMax = new Vector2(0.5f, 0.5f);
         rt.pivot = new Vector2(0.5f, 0.5f);
         rt.sizeDelta = new Vector2(480f, 520f);
-        var stop = panel.AddComponent<Button>();
-        stop.transition = UnityEngine.UI.Selectable.Transition.None;
-        stop.targetGraphic = panel.GetComponent<Image>();
-        stop.onClick.AddListener(() => { });
+        // Raycast-blocking image only — never a Button/Selectable, or child
+        // inputs and pickers lose focus / clicks to the parent.
+        panel.GetComponent<Image>().raycastTarget = true;
 
         var layout = panel.AddComponent<VerticalLayoutGroup>();
         layout.padding = new RectOffset(20, 20, 18, 16);
@@ -1182,6 +1189,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
         var scrollGo = new GameObject("OptScroll", typeof(RectTransform), typeof(Image), typeof(ScrollRect), typeof(LayoutElement));
         scrollGo.transform.SetParent(panel.transform, false);
         scrollGo.GetComponent<Image>().color = Theme.InputFill;
+        scrollGo.GetComponent<Image>().raycastTarget = true;
         var scrollLe = scrollGo.GetComponent<LayoutElement>();
         scrollLe.flexibleHeight = 1f;
         scrollLe.minHeight = 280f;
@@ -1466,11 +1474,8 @@ public class UI_ProposalWorkspace : MonoBehaviour
         rt.anchorMax = new Vector2(0.5f, 0.5f);
         rt.pivot = new Vector2(0.5f, 0.5f);
         rt.sizeDelta = new Vector2(420f, 0f);
-
-        panel.AddComponent<Button>().transition = UnityEngine.UI.Selectable.Transition.None;
-        var panelBtn = panel.GetComponent<Button>();
-        panelBtn.targetGraphic = panel.GetComponent<Image>();
-        panelBtn.onClick.AddListener(() => { });
+        // Block backdrop dismiss without stealing InputField selection (no Button).
+        panel.GetComponent<Image>().raycastTarget = true;
 
         var layout = panel.AddComponent<VerticalLayoutGroup>();
         layout.padding = new RectOffset(18, 18, 16, 14);
@@ -1514,17 +1519,29 @@ public class UI_ProposalWorkspace : MonoBehaviour
             ClosePopover();
         }, -1f, 34f);
 
-        // Focus the first field so the caret is visible immediately.
-        if (inputs.Count > 0 && EventSystem.current != null)
-        {
-            var first = inputs[0];
-            EventSystem.current.SetSelectedGameObject(first.gameObject);
-            first.ActivateInputField();
-            first.caretPosition = first.text != null ? first.text.Length : 0;
-            first.selectionAnchorPosition = first.caretPosition;
-            first.selectionFocusPosition = first.caretPosition;
-            first.ForceLabelUpdate();
-        }
+        if (inputs.Count > 0)
+            StartCoroutine(FocusInputNextFrame(inputs[0]));
+    }
+
+    IEnumerator FocusInputNextFrame(TMP_InputField input)
+    {
+        // Wait until layout has sized the field; ActivateInputField before that
+        // often leaves the caret invisible / field unfocused.
+        yield return null;
+        Canvas.ForceUpdateCanvases();
+        if (input == null || !input.isActiveAndEnabled)
+            yield break;
+
+        if (EventSystem.current != null)
+            EventSystem.current.SetSelectedGameObject(input.gameObject);
+
+        input.Select();
+        input.ActivateInputField();
+        int end = input.text != null ? input.text.Length : 0;
+        input.caretPosition = end;
+        input.selectionAnchorPosition = end;
+        input.selectionFocusPosition = end;
+        input.ForceLabelUpdate();
     }
 
     void OpenTextPopover(string title, (string label, string value)[] fields, Action<string[]> onSave, string footerHint = null)
@@ -1643,6 +1660,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
         tmp.color = Theme.Ink;
         tmp.enableWordWrapping = true;
         tmp.overflowMode = TextOverflowModes.Overflow;
+        tmp.raycastTarget = false;
         TMP_RuntimeFontRepair.Repair(tmp);
         var le = go.GetComponent<LayoutElement>();
         le.preferredHeight = height;
@@ -1699,6 +1717,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
         tmp.fontStyle = FontStyles.Bold;
         tmp.alignment = TextAlignmentOptions.Center;
         tmp.color = Theme.Ink;
+        tmp.raycastTarget = false;
         TMP_RuntimeFontRepair.Repair(tmp);
 
         var btn = go.GetComponent<Button>();
@@ -1732,6 +1751,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
         tmp.fontStyle = FontStyles.Bold;
         tmp.alignment = TextAlignmentOptions.Center;
         tmp.color = Color.white;
+        tmp.raycastTarget = false;
         TMP_RuntimeFontRepair.Repair(tmp);
 
         var btn = go.GetComponent<Button>();
@@ -1799,6 +1819,8 @@ public class UI_ProposalWorkspace : MonoBehaviour
         input.characterValidation = TMP_InputField.CharacterValidation.None;
         input.richText = false;
         input.shouldHideMobileInput = true;
+        input.interactable = true;
+        input.navigation = new Navigation { mode = Navigation.Mode.None };
 
         // Visible caret + selection (runtime TMP fields default to an invisible caret).
         input.customCaretColor = true;

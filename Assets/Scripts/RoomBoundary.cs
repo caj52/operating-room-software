@@ -189,14 +189,6 @@ public class RoomBoundary : MonoBehaviour
         HandleAdditionalObjectVisibility(toggle);
     }
 
-    private void OnMouseUpAsButton()
-    {
-        if (InputHandler.IsPointerOverUIElement()) 
-            return;
-
-        Selectable.DeselectAll();
-    }
-
     private void ToggleMeshRendererAndCollider(bool toggle)
     {
         bool oldStatus = MeshRenderer.enabled;

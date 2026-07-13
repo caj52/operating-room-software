@@ -684,13 +684,6 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         if (SceneManager.GetActiveScene().name == "ObjectEditor")
             return;
 
-        // Floors / walls are never a selection target — clicking them clears selection.
-        if (GetComponent<RoomBoundary>() != null || GetComponentInParent<RoomBoundary>() != null)
-        {
-            DeselectAll();
-            return;
-        }
-
         // Clicking the already-selected object deselects it.
         if (IsSelected)
         {
