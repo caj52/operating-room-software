@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections; // Added for coroutine support
 using System.Collections.Generic;
 using System.Diagnostics;
