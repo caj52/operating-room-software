@@ -444,6 +444,9 @@ public class ConfigurationManager : MonoBehaviour
 
         Selectable.DestroyAll();
 
+        // Sticky proposal title from a prior room must not leak into this load.
+        ProposalPreviewModel.ConfigNameOverride = null;
+
         Debug.Log($"Loading Room at {file}");
 
         if (File.Exists(file))

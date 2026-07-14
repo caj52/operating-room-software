@@ -140,6 +140,8 @@ public class UI_ProposalWorkspace : MonoBehaviour
             EnsurePricingOptionsInitialized();
             HideLegacyPricingPanel();
             DropdownPopulator.RestoreAllPersistedSelections();
+            // Don't carry a config title from a previous room/session into this open.
+            ProposalPreviewModel.ConfigNameOverride = null;
             Instance._model = ProposalPreviewModel.Capture();
             Instance.gameObject.SetActive(true);
             Instance.EnsureBlocksRaycasts();
@@ -683,6 +685,9 @@ public class UI_ProposalWorkspace : MonoBehaviour
         _previewGenerationId++;
         _pendingForceVisuals = false;
         SetPreviewLoading(false);
+
+        var generator = FindAnyObjectByType<ProposalPDFGenerator>(FindObjectsInactive.Include);
+        generator?.CancelPreview();
     }
 
     void BeginPreviewGeneration(bool forceVisuals)
@@ -722,7 +727,8 @@ public class UI_ProposalWorkspace : MonoBehaviour
             if (!ok || string.IsNullOrEmpty(path))
             {
                 SetPreviewLoading(false);
-                SetStatus(string.IsNullOrWhiteSpace(err) ? "Preview failed." : err);
+                if (!string.Equals(err, "cancelled", StringComparison.OrdinalIgnoreCase))
+                    SetStatus(string.IsNullOrWhiteSpace(err) ? "Preview failed." : err);
                 return;
             }
 
@@ -2269,6 +2275,8 @@ public class UI_ProposalWorkspace : MonoBehaviour
                     if (!path.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
                         path += ".pdf";
 
+                    // Drop any in-flight preview first so export owns the generator cleanly.
+                    CancelPreviewRefresh();
                     generator.GeneratePDF(path);
                 });
         }

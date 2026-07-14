@@ -105,14 +105,7 @@ public class ProposalPDFGenerator : MonoBehaviour
     private void OnDestroy()
     {
         Selectable.ActiveSelectablesInSceneChanged.RemoveListener(MarkPreviewVisualsStale);
-
-        // Cancel any ongoing PDF generation
-        if (pdfGenerationCoroutine != null)
-        {
-            StopCoroutine(pdfGenerationCoroutine);
-            pdfGenerationCoroutine = null;
-        }
-
+        StopActiveGeneration();
         FastPreviewCapture = false;
     }
 
@@ -126,18 +119,15 @@ public class ProposalPDFGenerator : MonoBehaviour
     /// <summary>Export the sales proposal PDF, optionally to an explicit file path from a save dialog.</summary>
     public void GeneratePDF(string outputPathOverride)
     {
-        // Always pull Client Metadata + room + saved sales rep before writing.
+        StopActiveGeneration(notifyCallback: true);
         ApplyExportDefaults();
-
-        // Cancel any existing generation
-        if (pdfGenerationCoroutine != null)
-        {
-            StopCoroutine(pdfGenerationCoroutine);
-        }
 
         isCancelled = false;
         _previewMode = false;
         _reuseCachedVisuals = false;
+        SuppressCompletionDialog = false;
+        FastPreviewCapture = false;
+        _completionCallback = null;
         _exportPathOverride = string.IsNullOrWhiteSpace(outputPathOverride) ? null : outputPathOverride.Trim();
         pdfGenerationCoroutine = StartCoroutine(GeneratePDFCoroutine());
     }
@@ -149,32 +139,49 @@ public class ProposalPDFGenerator : MonoBehaviour
     /// </summary>
     public void GeneratePreviewPdf(Action<bool, string, string> callback, bool reuseVisuals = true)
     {
-        if (pdfGenerationCoroutine != null)
-        {
-            StopCoroutine(pdfGenerationCoroutine);
-            pdfGenerationCoroutine = null;
-        }
+        StopActiveGeneration(notifyCallback: true);
 
-        SuppressCompletionDialog = true;
+        isCancelled = false;
         _previewMode = true;
         _reuseCachedVisuals = reuseVisuals;
-        isCancelled = false;
+        SuppressCompletionDialog = true;
+        FastPreviewCapture = false;
+        _completionCallback = callback;
 
         ApplyExportDefaults();
         var workspace = UI_ProposalWorkspace.Instance;
         if (workspace != null && workspace.PreviewModel != null)
             workspace.PreviewModel.ApplyTo(this);
 
-        _completionCallback = (ok, path, err) =>
-        {
-            FastPreviewCapture = false;
-            _previewMode = false;
-            _reuseCachedVisuals = false;
-            SuppressCompletionDialog = false;
-            callback?.Invoke(ok, path, err);
-        };
-
         pdfGenerationCoroutine = StartCoroutine(GeneratePDFCoroutine());
+    }
+
+    /// <summary>Stop an in-flight preview/export without marking visuals as fresh.</summary>
+    public void CancelPreview() => StopActiveGeneration(notifyCallback: false);
+
+    /// <summary>
+    /// Stops the running bake. Does not set PreviewVisualsStale=false — only a finished
+    /// preview bake may do that. Optionally notifies the preview callback as cancelled.
+    /// </summary>
+    void StopActiveGeneration(bool notifyCallback = false)
+    {
+        isCancelled = true;
+
+        if (pdfGenerationCoroutine != null)
+        {
+            StopCoroutine(pdfGenerationCoroutine);
+            pdfGenerationCoroutine = null;
+        }
+
+        FastPreviewCapture = false;
+        _previewMode = false;
+        _reuseCachedVisuals = false;
+        SuppressCompletionDialog = false;
+
+        var cb = _completionCallback;
+        _completionCallback = null;
+        if (notifyCallback && cb != null)
+            cb.Invoke(false, null, "cancelled");
     }
 
     public void ApplyExportDefaults()
@@ -301,8 +308,19 @@ public class ProposalPDFGenerator : MonoBehaviour
 
     public void GeneratePDFWithCallback(Action<bool, string, string> callback)
     {
+        // Do not call GeneratePDF() — it clears _completionCallback. Keep the same abort + start
+        // path, then attach the orchestrator/workspace completion handler.
+        StopActiveGeneration(notifyCallback: true);
+        ApplyExportDefaults();
+
+        isCancelled = false;
+        _previewMode = false;
+        _reuseCachedVisuals = false;
+        FastPreviewCapture = false;
+        SuppressCompletionDialog = true;
         _completionCallback = callback;
-        GeneratePDF();
+        _exportPathOverride = null;
+        pdfGenerationCoroutine = StartCoroutine(GeneratePDFCoroutine());
     }
 
     private IEnumerator GeneratePDFCoroutine()
@@ -548,8 +566,7 @@ public class ProposalPDFGenerator : MonoBehaviour
             {
                 clientName = clientName,
                 projectName = projectName,
-                configName = configName,
-                totalPageCount = 3
+                configName = configName
             };
 
             document.Open();
@@ -588,6 +605,7 @@ public class ProposalPDFGenerator : MonoBehaviour
             }
 
             document.Close();
+            // Finished preview bake → stills are current. Cancelled / stopped bakes never reach here.
             if (_previewMode && !isCancelled)
                 PreviewVisualsStale = false;
             return !isCancelled;
@@ -606,10 +624,8 @@ public class ProposalPDFGenerator : MonoBehaviour
 
     private void CleanupAndShowResult(bool cancelled, bool hasError, string errorMessage, string filePath)
     {
-        // Clean up temporary images
         CleanupTemporaryImages();
-        
-        // Clean up UI references
+
         if (UI_GeneralLoadingScreen.instance != null)
         {
             UI_GeneralLoadingScreen.instance.OnCancel -= HandleCancellation;
@@ -618,13 +634,18 @@ public class ProposalPDFGenerator : MonoBehaviour
         }
         pdfGenerationCoroutine = null;
 
-        // Capture suppress flag before the completion callback clears preview state.
         bool suppressDialog = SuppressCompletionDialog
                               || _previewMode
                               || ExportOrchestrator.SuppressIndividualDialogs;
 
         var callback = _completionCallback;
         _completionCallback = null;
+
+        // Reset preview flags before the callback so the next bake starts clean.
+        _previewMode = false;
+        _reuseCachedVisuals = false;
+        SuppressCompletionDialog = false;
+
         callback?.Invoke(!cancelled && !hasError, filePath, errorMessage);
 
         if (suppressDialog)
@@ -2092,91 +2113,70 @@ public class ProposalPDFGenerator : MonoBehaviour
 
     public class PageEventHelper : PdfPageEventHelper
     {
-        // Document metadata
         public string clientName;
         public string projectName;
         public string configName;
-        /// <summary>Known total pages for this export (proposal is always 3).</summary>
-        public int totalPageCount = 3;
 
-        // Constants
-        private const string EffectiveDateText = "Effective Date: 90 Days from Delivery";
-        private const int FooterMarginBottom = 10;
-        private const int ProjectInfoStartY = 25;
-        private const int LineSpacing = 10;
+        const string EffectiveDateText = "Effective Date: 90 Days from Delivery";
+        const int FooterMarginBottom = 10;
+        const int ProjectInfoStartY = 25;
+        const int LineSpacing = 10;
+        const float FooterFontSize = 8f;
 
-        public override void OnStartPage(PdfWriter writer, Document document)
+        PdfTemplate _totalPageTemplate;
+        BaseFont _footerBaseFont;
+
+        public override void OnOpenDocument(PdfWriter writer, Document document)
         {
+            _footerBaseFont = BaseFont.CreateFont(BaseFont.HELVETICA, BaseFont.CP1252, BaseFont.EMBEDDED);
+            _totalPageTemplate = writer.DirectContent.CreateTemplate(28f, FooterFontSize + 2f);
         }
 
         public override void OnEndPage(PdfWriter writer, Document document)
         {
-            PdfContentByte contentByte = writer.DirectContent;
-            Font footerFont = CreateFooterFont();
+            PdfContentByte cb = writer.DirectContent;
+            var font = new Font(_footerBaseFont, FooterFontSize);
 
-            // Add page footer with page numbers
-            AddPageFooter(contentByte, footerFont, document, writer);
+            // "Page X of " now; total is filled into the template on close.
+            string prefix =
+                $"{EffectiveDateText}          {clientName} Proposal | Page {writer.PageNumber} of ";
+            float y = document.Bottom - FooterMarginBottom;
+            float x = document.LeftMargin;
+            float prefixWidth = _footerBaseFont.GetWidthPoint(prefix, FooterFontSize);
 
-            // Add project information footer (skip first page)
+            ColumnText.ShowTextAligned(cb, Element.ALIGN_LEFT, new Phrase(prefix, font), x, y, 0);
+            // 6-float form avoids System.Drawing.Matrix overloads that Unity can't resolve.
+            if (_totalPageTemplate != null)
+                cb.AddTemplate(_totalPageTemplate, 1f, 0f, 0f, 1f, x + prefixWidth, y);
+
             if (writer.PageNumber > 1)
-            {
-                AddProjectInfoFooter(contentByte, footerFont, document);
-            }
+                AddProjectInfoFooter(cb, font, document);
         }
 
-        private Font CreateFooterFont()
+        public override void OnCloseDocument(PdfWriter writer, Document document)
         {
-            return new Font(
-                BaseFont.CreateFont(BaseFont.HELVETICA, BaseFont.CP1252, BaseFont.EMBEDDED),
-                8
-            );
-        }
+            if (_totalPageTemplate == null || _footerBaseFont == null)
+                return;
 
-        private void AddPageFooter(PdfContentByte contentByte, Font font, Document document, PdfWriter writer)
-        {
-            string footerText = $"{EffectiveDateText}          {clientName} Proposal | Page {writer.PageNumber} of {totalPageCount}";
-
+            // iTextSharp reports PageNumber+1 in OnCloseDocument; subtract one for the real total.
+            int total = Mathf.Max(1, writer.PageNumber - 1);
             ColumnText.ShowTextAligned(
-                contentByte,
-                Element.ALIGN_CENTER,
-                new Phrase(footerText, font),
-                document.Right / 2 + document.LeftMargin,
-                document.Bottom - FooterMarginBottom,
-                0
-            );
+                _totalPageTemplate,
+                Element.ALIGN_LEFT,
+                new Phrase(total.ToString(), new Font(_footerBaseFont, FooterFontSize)),
+                0f,
+                1f,
+                0f);
         }
 
-        private void AddProjectInfoFooter(PdfContentByte contentByte, Font font, Document document)
+        void AddProjectInfoFooter(PdfContentByte contentByte, Font font, Document document)
         {
-            // Project name
-            AddFooterLine(
-                contentByte,
-                font,
-                document,
-                $"Project: {projectName}",
-                ProjectInfoStartY
-            );
-
-            // Configuration name
-            AddFooterLine(
-                contentByte,
-                font,
-                document,
-                $"Configuration 1: {configName}",
-                ProjectInfoStartY + LineSpacing
-            );
-
-            // Client name
-            AddFooterLine(
-                contentByte,
-                font,
-                document,
-                $"Submitted To: {clientName}",
-                ProjectInfoStartY + (LineSpacing * 2)
-            );
+            AddFooterLine(contentByte, font, document, $"Project: {projectName}", ProjectInfoStartY);
+            AddFooterLine(contentByte, font, document, $"Configuration 1: {configName}", ProjectInfoStartY + LineSpacing);
+            AddFooterLine(contentByte, font, document, $"Submitted To: {clientName}", ProjectInfoStartY + (LineSpacing * 2));
         }
 
-        private void AddFooterLine(PdfContentByte contentByte, Font font, Document document, string text, int yOffset)
+        static void AddFooterLine(PdfContentByte contentByte, Font font, Document document, string text, int yOffset)
         {
             ColumnText.ShowTextAligned(
                 contentByte,
@@ -2184,15 +2184,7 @@ public class ProposalPDFGenerator : MonoBehaviour
                 new Phrase(text, font),
                 document.LeftMargin,
                 document.Bottom - yOffset,
-                0
-            );
-        }
-
-        private string GetTotalPageCount(PdfWriter writer)
-        {
-            // This is a placeholder - in a real implementation you'd need to track
-            // or calculate the total number of pages
-            return "3"; // Currently hardcoded as in the original
+                0);
         }
     }
 

@@ -1056,14 +1056,22 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             .ForEach(x => x.gameObject.SetActive(false));
 
         List<PdfExporterLocal.PdfImageData> imageData = new();
-        string frontPath = null;
-        string backPath = null;
-        frontPath = GetAssemblyPDFImageData(camera)[0].Path;
-        backPath = GetAssemblyPDFImageData(camera)[1].Path;
-
-
-        imageData.Add(new PdfExporterLocal.PdfImageData { Path = frontPath, Width = 1000, Height = 1000 });
-        imageData.Add(new PdfExporterLocal.PdfImageData { Path = backPath, Width = 1000, Height = 1000 });
+        // Single capture pass — front and back share one union-bounds frame.
+        var captured = GetAssemblyPDFImageData(camera);
+        if (captured != null)
+        {
+            foreach (var img in captured)
+            {
+                if (img == null || string.IsNullOrEmpty(img.Path))
+                    continue;
+                imageData.Add(new PdfExporterLocal.PdfImageData
+                {
+                    Path = img.Path,
+                    Width = img.Width > 0 ? img.Width : 1000,
+                    Height = img.Height > 0 ? img.Height : 1000
+                });
+            }
+        }
 
         for (int i = 0; i < ActiveSelectables.Count; i++)
             ActiveSelectables[i].gameObject.SetActive(visibilities[i]);
