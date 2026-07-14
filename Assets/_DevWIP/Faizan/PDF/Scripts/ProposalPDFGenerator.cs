@@ -77,9 +77,17 @@ public class ProposalPDFGenerator : MonoBehaviour
 
     /// <summary>Quiet generation into a temp PDF for the workspace page viewer.</summary>
     bool _previewMode;
-    /// <summary>Reuse last ceiling capture so text/pricing edits stay fast.</summary>
+    /// <summary>Reuse last ceiling / elevation stills so text/pricing edits stay fast.</summary>
     bool _reuseCachedVisuals;
     string _previewCeilingCachePath;
+    readonly List<string> _previewElevationCachePaths = new();
+    /// <summary>
+    /// When true, elevation capture for the proposal preview uses a single view + JPEG.
+    /// Export path stays at full quality (front+back PNG).
+    /// </summary>
+    public static bool FastPreviewCapture { get; private set; }
+    /// <summary>True after scene layout/selectables change — next open needs fresh stills.</summary>
+    public static bool PreviewVisualsStale { get; set; } = true;
     /// <summary>When set, export writes to this path instead of the default proposals folder.</summary>
     string _exportPathOverride;
 
@@ -91,17 +99,24 @@ public class ProposalPDFGenerator : MonoBehaviour
     private void Start()
     {
         screenshot = FindObjectOfType<ScreenshotCapture>();
+        Selectable.ActiveSelectablesInSceneChanged.AddListener(MarkPreviewVisualsStale);
     }
 
     private void OnDestroy()
     {
+        Selectable.ActiveSelectablesInSceneChanged.RemoveListener(MarkPreviewVisualsStale);
+
         // Cancel any ongoing PDF generation
         if (pdfGenerationCoroutine != null)
         {
             StopCoroutine(pdfGenerationCoroutine);
             pdfGenerationCoroutine = null;
         }
+
+        FastPreviewCapture = false;
     }
+
+    static void MarkPreviewVisualsStale() => PreviewVisualsStale = true;
 
     public void GeneratePDF()
     {
@@ -129,7 +144,8 @@ public class ProposalPDFGenerator : MonoBehaviour
 
     /// <summary>
     /// Build the same proposal PDF used for export, into a temp file for on-screen preview.
-    /// When <paramref name="reuseVisuals"/> is true, skips ceiling re-capture if a cache exists.
+    /// When <paramref name="reuseVisuals"/> is true, skips ceiling/elevation re-capture
+    /// if preview caches exist.
     /// </summary>
     public void GeneratePreviewPdf(Action<bool, string, string> callback, bool reuseVisuals = true)
     {
@@ -146,11 +162,12 @@ public class ProposalPDFGenerator : MonoBehaviour
 
         ApplyExportDefaults();
         var workspace = UI_ProposalWorkspace.Instance;
-        if (workspace != null && workspace.ActiveModel != null)
-            workspace.ActiveModel.ApplyTo(this);
+        if (workspace != null && workspace.PreviewModel != null)
+            workspace.PreviewModel.ApplyTo(this);
 
         _completionCallback = (ok, path, err) =>
         {
+            FastPreviewCapture = false;
             _previewMode = false;
             _reuseCachedVisuals = false;
             SuppressCompletionDialog = false;
@@ -228,9 +245,9 @@ public class ProposalPDFGenerator : MonoBehaviour
         note2 = PlayerPrefs.GetString(ProposalPreviewModel.PrefsNote2, note2);
         note3 = PlayerPrefs.GetString(ProposalPreviewModel.PrefsNote3, note3);
 
-        // If the document workspace is open, keep mock and PDF identical.
+        // Keep mock and PDF identical to the preview model (open workspace or warm cache).
         var workspaceModel = UI_ProposalWorkspace.Instance != null
-            ? UI_ProposalWorkspace.Instance.ActiveModel
+            ? UI_ProposalWorkspace.Instance.PreviewModel
             : null;
         if (workspaceModel != null)
             workspaceModel.ApplyTo(this);
@@ -521,6 +538,10 @@ public class ProposalPDFGenerator : MonoBehaviour
 
         try
         {
+            FastPreviewCapture = _previewMode;
+            if (_previewMode && !_reuseCachedVisuals)
+                ClearPreviewElevationCache();
+
             document = new Document(PageSize.A4, 18, 18, 18, 18);
             writer = PdfWriter.GetInstance(document, new FileStream(filePath, FileMode.Create));
             writer.PageEvent = new PageEventHelper
@@ -567,6 +588,8 @@ public class ProposalPDFGenerator : MonoBehaviour
             }
 
             document.Close();
+            if (_previewMode && !isCancelled)
+                PreviewVisualsStale = false;
             return !isCancelled;
         }
         catch (Exception e)
@@ -574,6 +597,10 @@ public class ProposalPDFGenerator : MonoBehaviour
             document?.Close();
             writer?.Close();
             throw;
+        }
+        finally
+        {
+            FastPreviewCapture = false;
         }
     }
 
@@ -648,20 +675,20 @@ public class ProposalPDFGenerator : MonoBehaviour
             }
         }
 
-        // Delete all elevation images
+        // Delete all elevation images — keep stable preview-cache copies.
         foreach (string imagePath in tempImagePaths)
         {
-            if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
+            if (string.IsNullOrEmpty(imagePath) || !File.Exists(imagePath))
+                continue;
+            if (_previewElevationCachePaths.Contains(imagePath))
+                continue;
+            try
             {
-                try
-                {
-                    File.Delete(imagePath);
-                    Debug.Log($"Deleted elevation image: {imagePath}");
-                }
-                catch (Exception e)
-                {
-                    Debug.LogWarning($"Failed to delete elevation image {imagePath}: {e.Message}");
-                }
+                File.Delete(imagePath);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"Failed to delete elevation image {imagePath}: {e.Message}");
             }
         }
         
@@ -1004,6 +1031,12 @@ public class ProposalPDFGenerator : MonoBehaviour
             return;
         }
 
+        bool reuseElevations = _previewMode && _reuseCachedVisuals
+                               && _previewElevationCachePaths.Count > 0
+                               && _previewElevationCachePaths.TrueForAll(p => !string.IsNullOrEmpty(p) && File.Exists(p));
+        int elevationCacheIndex = 0;
+        var freshElevationCache = new List<string>();
+
         for (int i = 0; i < list.Length; i++)
         {
             if (list[i] == null) continue;
@@ -1011,7 +1044,25 @@ public class ProposalPDFGenerator : MonoBehaviour
             Selectable root = GetRootParent(list[i]);
             if (root == null || !processedRoots.Add(root)) continue;
 
-            List<PdfExporter.PdfImageData> imageData = list[i].ExportElevationPdf();
+            string elevationPath = null;
+            if (reuseElevations && elevationCacheIndex < _previewElevationCachePaths.Count)
+            {
+                elevationPath = _previewElevationCachePaths[elevationCacheIndex++];
+            }
+            else
+            {
+                List<PdfExporter.PdfImageData> imageData = list[i].ExportElevationPdf();
+                if (imageData != null && imageData.Count > 0 && !string.IsNullOrEmpty(imageData[0].Path))
+                {
+                    elevationPath = StabilizePreviewElevation(imageData[0].Path, freshElevationCache.Count);
+                    foreach (var imgData in imageData)
+                    {
+                        if (!string.IsNullOrEmpty(imgData.Path))
+                            tempImagePaths.Add(imgData.Path);
+                    }
+                }
+            }
+
             if (processedRoots.Count > 1)
             {
                 document.NewPage();
@@ -1020,21 +1071,57 @@ public class ProposalPDFGenerator : MonoBehaviour
 
             // Add ceiling image
             AddImageToPDF(document, path, pdfWriter, imageHeight);
-            
-            // Add elevation images and track paths for cleanup
-            if (imageData != null && imageData.Count > 0)
+
+            if (!string.IsNullOrEmpty(elevationPath))
             {
-                AddImageToPDF(document, imageData[0].Path, pdfWriter, imageHeight);
-                // Track image paths for cleanup
-                foreach (var imgData in imageData)
-                {
-                    if (!string.IsNullOrEmpty(imgData.Path))
-                    {
-                        tempImagePaths.Add(imgData.Path);
-                    }
-                }
+                AddImageToPDF(document, elevationPath, pdfWriter, imageHeight);
+                if (_previewMode)
+                    freshElevationCache.Add(elevationPath);
             }
         }
+
+        if (_previewMode && !reuseElevations && freshElevationCache.Count > 0)
+        {
+            // Cache was cleared at bake start when visuals were forced; just remember paths.
+            _previewElevationCachePaths.Clear();
+            _previewElevationCachePaths.AddRange(freshElevationCache);
+        }
+    }
+
+    string StabilizePreviewElevation(string sourcePath, int index)
+    {
+        if (!_previewMode || string.IsNullOrEmpty(sourcePath) || !File.Exists(sourcePath))
+            return sourcePath;
+
+        try
+        {
+            string ext = Path.GetExtension(sourcePath);
+            if (string.IsNullOrEmpty(ext))
+                ext = ".jpg";
+            string dest = Path.Combine(
+                Application.temporaryCachePath,
+                $"proposal_preview_elev_{index}{ext}");
+            File.Copy(sourcePath, dest, overwrite: true);
+            return dest;
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"Could not cache preview elevation: {e.Message}");
+            return sourcePath;
+        }
+    }
+
+    void ClearPreviewElevationCache()
+    {
+        for (int i = 0; i < _previewElevationCachePaths.Count; i++)
+        {
+            string p = _previewElevationCachePaths[i];
+            if (string.IsNullOrEmpty(p) || !File.Exists(p))
+                continue;
+            try { File.Delete(p); }
+            catch { /* ignore */ }
+        }
+        _previewElevationCachePaths.Clear();
     }
 
     private void GeneratePricingPage(Document document, PdfWriter writer)

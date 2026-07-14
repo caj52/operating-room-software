@@ -1128,8 +1128,10 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         }
 
         // First pass: compute unified bounds that fit both orientations including measurement overlays
+        // Proposal preview only embeds the front elevation — skip the back pass entirely.
+        int viewCount = ProposalPDFGenerator.FastPreviewCapture ? 1 : 2;
         Bounds? unionBoundsNullable = null;
-        for (int i = 0; i < 2; i++)
+        for (int i = 0; i < viewCount; i++)
         {
             ApplyOrientationForIndex(i);
             var baseBounds = GetAssemblyBounds();
@@ -1147,8 +1149,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         }
         var unionBounds = unionBoundsNullable ?? GetAssemblyBounds();
 
-        // Second pass: capture both images using the same bounds
-        for (int i = 0; i < 2; i++)
+        // Second pass: capture (front only in fast preview, front+back for real exports)
+        for (int i = 0; i < viewCount; i++)
         {
             ApplyOrientationForIndex(i);
 
@@ -1566,16 +1568,20 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         tex.ReadPixels(new Rect(minX, minY, imageWidth, imageHeight), 0, 0);
         RenderTexture.active = null;
 
-        // save PNG
-        byte[] pngData = tex.EncodeToPNG();
+        // save — JPEG for proposal preview (much faster), PNG for real exports
+        bool fastPreview = ProposalPDFGenerator.FastPreviewCapture;
+        byte[] encoded = fastPreview ? tex.EncodeToJPG(72) : tex.EncodeToPNG();
+        string ext = fastPreview ? ".jpg" : ".png";
         string filenameImage = Path.Combine(
             Application.persistentDataPath,
-            $"ExportedArmAssemblyElevationShot{fileIndex}{(invertDirection ? "_back" : "_front")}.png");
-    File.WriteAllBytes(filenameImage, pngData);
+            $"ExportedArmAssemblyElevationShot{fileIndex}{(invertDirection ? "_back" : "_front")}{ext}");
+        File.WriteAllBytes(filenameImage, encoded);
 
-    camera.transform.position = cameraOriginalPos;
-    return filenameImage;
-}
+        UnityEngine.Object.Destroy(tex);
+
+        camera.transform.position = cameraOriginalPos;
+        return filenameImage;
+    }
 
     public void RestoreArmAssemblyRotations()
     {

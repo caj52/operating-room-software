@@ -2,31 +2,14 @@ using TMPro;
 using UnityEngine;
 
 /// <summary>
-/// Boom-only toolbar button: one-click elevation PDF for the selected boom assembly.
+/// Legacy toolbar entry for boom elevation PDF. Hidden — use Object Exports →
+/// Elevation PDF when a boom is selected.
 /// </summary>
 public class UI_ButtonExportPdf : MonoBehaviour
 {
-    private TMP_Text _label;
-
     private void Awake()
     {
-        _label = GetComponentInChildren<TMP_Text>(true);
-        Selectable.SelectionChanged += OnSelectionChanged;
-        OnSelectionChanged();
-    }
-
-    private void OnDestroy()
-    {
-        Selectable.SelectionChanged -= OnSelectionChanged;
-    }
-
-    private void OnSelectionChanged()
-    {
-        bool show = Selectable.SelectedSelectables.Count > 0 &&
-            Selectable.SelectedSelectables[0].IsArmAssembly;
-        gameObject.SetActive(show);
-        if (show && _label != null)
-            _label.text = "Export boom elevation PDF";
+        gameObject.SetActive(false);
     }
 
     public void ExportPdf()
@@ -34,15 +17,6 @@ public class UI_ButtonExportPdf : MonoBehaviour
         if (!ExportRequest.SelectionIsArmAssembly())
             return;
 
-        ExportOrchestrator.Run(new ExportRequest
-        {
-            Scope = ExportScope.SelectedObject,
-            IncludeObj = false,
-            IncludeElevations = true,
-            IncludeProposal = false,
-            IncludeSnapshots = false,
-            ElevationMode = ElevationExportMode.PerAssembly,
-            ObjOptions = ObjExportOptions.CreateDefaults()
-        });
+        UI_ExportOptions.Open();
     }
 }

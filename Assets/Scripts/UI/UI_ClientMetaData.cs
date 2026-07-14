@@ -1,6 +1,9 @@
+using System;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
 
 public class UI_ClientMetaData : MonoBehaviour
 {
@@ -10,6 +13,11 @@ public class UI_ClientMetaData : MonoBehaviour
     private static UI_ClientMetaData Instance { get; set; }
 
     public static UnityEvent OnClosed { get; set; } = new();
+
+    /// <summary>True when the last close persisted different values than when Open ran.</summary>
+    public static bool LastCloseHadChanges { get; private set; }
+
+    private string _fingerprintOnOpen = "";
 
     public static string AccountName => ReadField(Instance?.InputFieldAccountName);
     [field: SerializeField]
@@ -106,6 +114,8 @@ public class UI_ClientMetaData : MonoBehaviour
     private void OnDisable()
     {
         PersistSalesRepFromFields();
+        string after = BuildFingerprint();
+        LastCloseHadChanges = !string.Equals(after, _fingerprintOnOpen, StringComparison.Ordinal);
         OnClosed?.Invoke();
     }
 
@@ -121,6 +131,9 @@ public class UI_ClientMetaData : MonoBehaviour
 
         Instance.EnsureSalesRepFields();
         Instance.LoadSalesRepIntoFields();
+        Instance.EnsureVisibleCaretsOnAllFields();
+        Instance._fingerprintOnOpen = Instance.BuildFingerprint();
+        LastCloseHadChanges = false;
         Instance.gameObject.SetActive(true);
     }
 
@@ -147,6 +160,57 @@ public class UI_ClientMetaData : MonoBehaviour
         if (InputFieldSalesRepEmail != null)
             PlayerPrefs.SetString(PrefsSalesRepEmail, InputFieldSalesRepEmail.text?.Trim() ?? "");
         PlayerPrefs.Save();
+    }
+
+    string BuildFingerprint()
+    {
+        return string.Join("\u001f",
+            ReadField(InputFieldAccountName),
+            ReadField(InputFieldAccountAddressLine1),
+            ReadField(InputFieldAccountAddressLine2),
+            ReadField(InputFieldProjectName),
+            ReadField(InputFieldProjectNumber),
+            ReadField(InputFieldOrderReferenceNumber),
+            ReadField(InputFieldSalesRepName),
+            ReadField(InputFieldSalesRepEmail));
+    }
+
+    void EnsureVisibleCaretsOnAllFields()
+    {
+        foreach (var field in GetComponentsInChildren<TMP_InputField>(true))
+            EnsureVisibleCaret(field);
+    }
+
+    static void EnsureVisibleCaret(TMP_InputField field)
+    {
+        if (field == null)
+            return;
+
+        field.customCaretColor = true;
+        field.caretColor = new Color(0.12f, 0.13f, 0.15f, 1f);
+        field.caretWidth = Mathf.Max(2, field.caretWidth);
+        field.caretBlinkRate = 0.85f;
+        field.selectionColor = new Color(0.35f, 0.55f, 0.95f, 0.35f);
+
+        // Avoid stacking listeners across Open() calls.
+        field.onSelect.RemoveListener(OnFieldSelected);
+        field.onSelect.AddListener(OnFieldSelected);
+    }
+
+    static void OnFieldSelected(string _)
+    {
+        // Listener signature matches TMP onSelect; find the focused field and nudge caret.
+        var es = EventSystem.current;
+        if (es == null || es.currentSelectedGameObject == null)
+            return;
+        var field = es.currentSelectedGameObject.GetComponent<TMP_InputField>();
+        if (field == null)
+            return;
+
+        EnsureVisibleCaret(field);
+        if (!field.isFocused)
+            field.ActivateInputField();
+        field.ForceLabelUpdate();
     }
 
     /// <summary>
@@ -206,6 +270,7 @@ public class UI_ClientMetaData : MonoBehaviour
             field.text = "";
             if (field.placeholder is TMP_Text ph)
                 ph.text = placeholder;
+            EnsureVisibleCaret(field);
         }
 
         // Keep cloned rows the same compact height as the template, even if

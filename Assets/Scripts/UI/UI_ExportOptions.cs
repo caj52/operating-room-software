@@ -5,7 +5,8 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Exports hub: Room exports… (per deliverable) or Object exports… (3D model).
+/// Exports hub: Room exports (snapshots / 3D model) or Object exports (3D model,
+/// plus Elevation PDF when a boom is selected). Each row has its own Export button.
 /// </summary>
 [RequireComponent(typeof(FullScreenMenu))]
 public class UI_ExportOptions : MonoBehaviour
@@ -17,12 +18,9 @@ public class UI_ExportOptions : MonoBehaviour
     private TMP_Text _titleLabel;
     private TMP_Text _infoLabel;
 
-    private Toggle _togglePerAssembly;
-    private GameObject _perAssemblyRow;
-
     private GameObject _rowObj;
-    private GameObject _rowElevations;
     private GameObject _rowSnapshots;
+    private GameObject _rowElevation;
 
     private Button _buttonExportTemplate;
     private Button _buttonCancel;
@@ -144,7 +142,7 @@ public class UI_ExportOptions : MonoBehaviour
             ? _titleLabel.transform.parent as RectTransform
             : null;
 
-        // Legacy include toggles become unused — hide them. Keep per-boom as a preference under elevations.
+        // Legacy include toggles unused — deliverables are per-row Export buttons.
         HideToggle("Toggle_IncludeFloor");
         HideToggle("Toggle_IncludeFloorObjects");
         HideToggle("Toggle_IncludeCeiling");
@@ -152,16 +150,7 @@ public class UI_ExportOptions : MonoBehaviour
         HideToggle("Toggle_IncludeWalls");
         HideToggle("Toggle_IncludeArmAssemblies");
         HideToggle("Toggle_IncludeArmBoomHeads");
-
-        _togglePerAssembly = FindToggle("Toggle_IncludeWallObjects");
-        if (_togglePerAssembly == null)
-            throw new Exception("Export options template is missing the per-boom toggle.");
-
-        _perAssemblyRow = _togglePerAssembly.gameObject;
-        HideNestedSeparators(_togglePerAssembly.transform);
-        SetToggleLabel(_togglePerAssembly, "One PDF per boom");
-        _togglePerAssembly.isOn = false;
-        EnsurePreferredHeight(_perAssemblyRow, 22f);
+        HideToggle("Toggle_IncludeWallObjects");
 
         if (_titleLabel != null)
         {
@@ -226,9 +215,9 @@ public class UI_ExportOptions : MonoBehaviour
             RunObjExport,
             includeCustomize: true);
 
-        _rowElevations = CreateDeliverableRow(
-            "Elevations",
-            () => RunRoomExport(includeElevations: true),
+        _rowElevation = CreateDeliverableRow(
+            "Elevation PDF",
+            RunElevationExport,
             includeCustomize: false);
 
         _rowSnapshots = CreateDeliverableRow(
@@ -329,6 +318,8 @@ public class UI_ExportOptions : MonoBehaviour
             Close();
             var req = ExportRequest.CreateDefaultsForSelection();
             req.ObjOptions = _objOptions ?? ObjExportOptions.CreateDefaults();
+            req.IncludeObj = true;
+            req.IncludeElevations = false;
             ExportOrchestrator.Run(req);
             return;
         }
@@ -336,9 +327,21 @@ public class UI_ExportOptions : MonoBehaviour
         RunRoomExport(includeObj: true);
     }
 
+    private void RunElevationExport()
+    {
+        if (!ExportRequest.SelectionIsArmAssembly())
+            return;
+
+        Close();
+        var req = ExportRequest.CreateDefaultsForSelection();
+        req.IncludeObj = false;
+        req.IncludeElevations = true;
+        req.ElevationMode = ElevationExportMode.PerAssembly;
+        ExportOrchestrator.Run(req);
+    }
+
     private void RunRoomExport(
         bool includeObj = false,
-        bool includeElevations = false,
         bool includeSnapshots = false)
     {
         Close();
@@ -346,12 +349,10 @@ public class UI_ExportOptions : MonoBehaviour
         {
             Scope = ExportScope.Room,
             IncludeObj = includeObj,
-            IncludeElevations = includeElevations,
+            IncludeElevations = false,
             IncludeProposal = false,
             IncludeSnapshots = includeSnapshots,
-            ElevationMode = _togglePerAssembly != null && _togglePerAssembly.isOn
-                ? ElevationExportMode.PerAssembly
-                : ElevationExportMode.CombinedRoom,
+            ElevationMode = ElevationExportMode.CombinedRoom,
             ObjOptions = _objOptions ?? ObjExportOptions.CreateDefaults()
         });
     }
@@ -537,6 +538,7 @@ public class UI_ExportOptions : MonoBehaviour
         }
 
         bool objectMode = _scope == ExportScope.SelectedObject;
+        bool showElevation = objectMode && ExportRequest.SelectionIsArmAssembly();
 
         if (_titleLabel != null)
             _titleLabel.text = objectMode ? "Object Exports" : "Room Exports";
@@ -544,9 +546,8 @@ public class UI_ExportOptions : MonoBehaviour
         UpdateInfoText(objectMode);
 
         SetActive(_rowObj, true);
-        SetActive(_rowElevations, !objectMode);
         SetActive(_rowSnapshots, !objectMode);
-        SetActive(_perAssemblyRow, !objectMode);
+        SetActive(_rowElevation, showElevation);
 
         if (_buttonCustomizeObj != null)
             _buttonCustomizeObj.gameObject.SetActive(!objectMode);
@@ -600,11 +601,10 @@ public class UI_ExportOptions : MonoBehaviour
 
         Add(_titleLabel);
         Add(_infoLabel);
-        // Room order: Snapshots → 3D model → Elevations (per-boom under elevations)
+        // Room: Snapshots → 3D model. Object: 3D model → Elevation PDF (booms only).
         AddGo(_rowSnapshots);
         AddGo(_rowObj);
-        AddGo(_rowElevations);
-        AddGo(_perAssemblyRow);
+        AddGo(_rowElevation);
         Add(_buttonCancel);
 
         for (int i = 0; i < order.Count; i++)
@@ -661,15 +661,6 @@ public class UI_ExportOptions : MonoBehaviour
         }
     }
 
-    private static void HideNestedSeparators(Transform root)
-    {
-        foreach (Transform child in root)
-        {
-            if (child.name.StartsWith("separator", StringComparison.OrdinalIgnoreCase))
-                child.gameObject.SetActive(false);
-        }
-    }
-
     private static void SetActive(GameObject go, bool active)
     {
         if (go != null)
@@ -682,22 +673,6 @@ public class UI_ExportOptions : MonoBehaviour
         le.minHeight = height;
         le.preferredHeight = height;
         le.flexibleWidth = 1f;
-    }
-
-    private static void SetToggleLabel(Toggle toggle, string text)
-    {
-        if (toggle == null)
-            return;
-        var label = toggle.GetComponentInChildren<TextMeshProUGUI>(true);
-        if (label == null)
-            return;
-
-        label.text = text;
-        label.fontSize = 12;
-        label.color = new Color(0.4f, 0.4f, 0.4f, 1f);
-        label.enableAutoSizing = false;
-        label.enableWordWrapping = false;
-        label.overflowMode = TextOverflowModes.Ellipsis;
     }
 
     private static void SetButtonLabel(Button button, string text)

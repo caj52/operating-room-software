@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.InteropServices;
 using PDFtoImage;
 using SkiaSharp;
 using UnityEngine;
@@ -10,8 +11,10 @@ using UnityEngine;
 /// </summary>
 public static class ProposalPdfPreviewRasterizer
 {
-    /// <summary>~110 DPI keeps A4 pages sharp enough on screen without multi‑MB textures.</summary>
-    public const int DefaultDpi = 110;
+    /// <summary>
+    /// ~200 DPI keeps body text sharp at fit and ~1.7× click-zoom (A4 ≈ 1654×2339).
+    /// </summary>
+    public const int DefaultDpi = 200;
 
     public static List<Texture2D> RasterizePages(string pdfPath, int dpi = DefaultDpi)
     {
@@ -42,9 +45,51 @@ public static class ProposalPdfPreviewRasterizer
 
     static Texture2D ToTexture(SKBitmap bitmap)
     {
-        // Encode via PNG so we inherit correct color order without manual BGRA swizzle.
+        if (bitmap == null)
+            throw new ArgumentNullException(nameof(bitmap));
+
+        int w = bitmap.Width;
+        int h = bitmap.Height;
+        if (w < 1 || h < 1)
+            throw new InvalidOperationException("Rasterized page has zero size.");
+
+        // Prefer a raw pixel upload — Encode(PNG/JPEG)+LoadImage is far slower.
+        using (var copy = bitmap.Copy(SKColorType.Rgba8888))
+        {
+            if (copy == null)
+                return ToTextureViaEncode(bitmap);
+
+            IntPtr ptr = copy.GetPixels();
+            if (ptr == IntPtr.Zero)
+                return ToTextureViaEncode(bitmap);
+
+            int rowBytes = copy.RowBytes;
+            int rgbaStride = w * 4;
+            var pixels = new byte[w * h * 4];
+
+            // Skia is top-down; Unity textures are bottom-up — flip while copying.
+            for (int y = 0; y < h; y++)
+            {
+                IntPtr srcRow = IntPtr.Add(ptr, y * rowBytes);
+                int dstRow = (h - 1 - y) * rgbaStride;
+                Marshal.Copy(srcRow, pixels, dstRow, rgbaStride);
+            }
+
+            var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
+            tex.name = "ProposalPdfPage";
+            tex.LoadRawTextureData(pixels);
+            tex.Apply(updateMipmaps: false, makeNoLongerReadable: true);
+            tex.wrapMode = TextureWrapMode.Clamp;
+            tex.filterMode = FilterMode.Bilinear;
+            tex.anisoLevel = 4;
+            return tex;
+        }
+    }
+
+    static Texture2D ToTextureViaEncode(SKBitmap bitmap)
+    {
         using SKImage image = SKImage.FromBitmap(bitmap);
-        using SKData data = image.Encode(SKEncodedImageFormat.Png, 90);
+        using SKData data = image.Encode(SKEncodedImageFormat.Jpeg, 85);
         var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
         tex.name = "ProposalPdfPage";
         if (!tex.LoadImage(data.ToArray(), markNonReadable: true))

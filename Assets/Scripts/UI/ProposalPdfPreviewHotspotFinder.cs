@@ -102,30 +102,75 @@ public static class ProposalPdfPreviewHotspotFinder
                 hits.AddRange(line.Glyphs);
         }
 
-        // Fallback: lines under the "Proposal" title in the left header column.
-        if (hits.Count == 0 && pageIndex == 0)
+        // Locate the "Proposal" header so we can cover the whole left column block
+        // (name + email), not just tight glyph boxes that miss padding / letterspacing.
+        TextLine proposalLine = default;
+        bool hasProposal = false;
+        foreach (var line in lines)
         {
-            var proposalLine = lines.FirstOrDefault(l =>
-                string.Equals(l.Text.Trim(), "Proposal", StringComparison.OrdinalIgnoreCase));
-            if (proposalLine.Glyphs != null)
-            {
-                hits.AddRange(lines
-                    .Where(l =>
-                        l.MidY < proposalLine.Y0 - 2f
-                        && l.MidY > proposalLine.Y0 - 56f
-                        && l.X0 < pageW * 0.62f
-                        && !StartsWithIgnoreCase(l.Text, "Imagine")
-                        && !StartsWithIgnoreCase(l.Text, "Submitted")
-                        && !StartsWithIgnoreCase(l.Text, "Project"))
-                    .SelectMany(l => l.Glyphs));
-            }
+            if (!string.Equals(line.Text.Trim(), "Proposal", StringComparison.OrdinalIgnoreCase))
+                continue;
+            proposalLine = line;
+            hasProposal = true;
+            break;
         }
 
-        if (hits.Count == 0)
+        if (hits.Count == 0 && pageIndex == 0 && hasProposal)
+        {
+            hits.AddRange(lines
+                .Where(l =>
+                    l.MidY < proposalLine.Y0 - 2f
+                    && l.MidY > proposalLine.Y0 - 72f
+                    && l.X0 < pageW * 0.70f
+                    && !StartsWithIgnoreCase(l.Text, "Imagine")
+                    && !StartsWithIgnoreCase(l.Text, "Submitted")
+                    && !StartsWithIgnoreCase(l.Text, "Project")
+                    && !StartsWithIgnoreCase(l.Text, "9155")
+                    && !StartsWithIgnoreCase(l.Text, "Irving")
+                    && !StartsWithIgnoreCase(l.Text, "Tel:"))
+                .SelectMany(l => l.Glyphs));
+        }
+
+        if (hits.Count == 0 && !hasProposal)
             return;
 
-        EmitUnion(results, hits, pageIndex, pageW, pageH, ProposalPreviewEditKind.SalesRep, "Sales rep",
-            fullContentWidth: false, minHeightPts: 22f);
+        // Left header cell is 70% of the page — give a generous click target there.
+        float colX0 = 12f;
+        float colX1 = pageW * 0.68f;
+        float y0;
+        float y1;
+
+        if (hits.Count > 0)
+        {
+            y0 = hits.Min(h => h.Y0) - 10f;
+            y1 = hits.Max(h => h.Y1) + 10f;
+            if (hasProposal)
+                y1 = Mathf.Max(y1, proposalLine.Y0 - 2f);
+        }
+        else
+        {
+            // Empty name/email: still offer a clickable strip under "Proposal".
+            y1 = proposalLine.Y0 - 2f;
+            y0 = proposalLine.Y0 - 64f;
+        }
+
+        y0 = Mathf.Clamp(y0, FooterExclusionPoints, pageH);
+        y1 = Mathf.Clamp(y1, FooterExclusionPoints, pageH);
+        if (y1 - y0 < 28f)
+        {
+            float mid = (y0 + y1) * 0.5f;
+            y0 = mid - 14f;
+            y1 = mid + 14f;
+        }
+
+        results.Add(new ProposalPreviewHotspot(
+            ProposalPreviewEditKind.SalesRep,
+            pageIndex,
+            colX0 / pageW,
+            y0 / pageH,
+            colX1 / pageW,
+            y1 / pageH,
+            "Sales rep"));
     }
 
     static void AddProject(

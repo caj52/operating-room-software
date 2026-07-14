@@ -21,9 +21,6 @@ public class UI_HoverTooltip : MonoBehaviour, IPointerEnterHandler, IPointerExit
     {
         if (string.IsNullOrWhiteSpace(_text))
             return;
-        // Never tip over a button that already shows a label.
-        if (HasOwnVisibleLabel())
-            return;
         UI_HoverTooltipPopup.Show(_text, transform as RectTransform);
     }
 
@@ -35,27 +32,6 @@ public class UI_HoverTooltip : MonoBehaviour, IPointerEnterHandler, IPointerExit
     private void OnDisable()
     {
         UI_HoverTooltipPopup.Hide();
-    }
-
-    private bool HasOwnVisibleLabel()
-    {
-        foreach (var tmp in GetComponentsInChildren<TextMeshProUGUI>(true))
-        {
-            if (tmp == null || !tmp.gameObject.activeSelf)
-                continue;
-            if (!string.IsNullOrWhiteSpace(tmp.text))
-                return true;
-        }
-
-        foreach (var uiText in GetComponentsInChildren<Text>(true))
-        {
-            if (uiText == null || !uiText.gameObject.activeSelf)
-                continue;
-            if (!string.IsNullOrWhiteSpace(uiText.text))
-                return true;
-        }
-
-        return false;
     }
 }
 
@@ -166,7 +142,6 @@ public static class UI_HoverTooltipPopup
         Vector3[] corners = new Vector3[4];
         anchor.GetWorldCorners(corners);
 
-        // Screen midpoint of the button's bottom edge.
         Vector2 screenBottom = RectTransformUtility.WorldToScreenPoint(null, (corners[0] + corners[3]) * 0.5f);
         Vector2 screenTop = RectTransformUtility.WorldToScreenPoint(null, (corners[1] + corners[2]) * 0.5f);
 
@@ -198,25 +173,29 @@ public static class UI_HoverTooltipPopup
 }
 
 /// <summary>
-/// Finds icon-only buttons and attaches hover tooltips.
-/// Re-runs after CDN UI loads (same timing as TMP font repair).
+/// Attaches hover tips only to the room-editor corner toolbar icons.
+/// Everything else is left alone (and any stray tip is removed).
 /// </summary>
 public class UI_IconButtonTooltipBinder : MonoBehaviour
 {
-    private static readonly Dictionary<string, string> KnownLabels = new()
+    // Exact GameObject names for the in-room corner icon strip.
+    private static readonly Dictionary<string, string> CornerToolbarTips = new()
     {
-        { "Button_Settings", "Settings" },
-        { "Button_OpenObjectMenu", "Object menu" },
         { "Button_Save", "Save room" },
         { "Button_SaveConfiguration", "Save object configuration" },
+        { "Button_Settings", "Settings" },
+        { "Button_OpenArticulation", "Rotation" },
+        { "Button_Quotation", "Sales proposal" },
+        { "Button_OpenObjectMenu", "Object menu" },
         { "Button_OpenSceneSelectablesMenu", "Objects in scene" },
-        { "Button_DeleteObject", "Delete" },
-        { "Button_DeleteObject (1)", "Delete" },
         { "Button_CycleCam", "Change view" },
+        { "Button_ChangeCamera", "Change camera" },
+        { "Button_Screenshot", "Screenshot" },
         { "Button_MaterialPallete", "Material palette" },
         { "Button_SetRoomSize", "Room size" },
-        { "Button_Quotation", "Sales proposal" },
-        // Text-labeled buttons (Export / Room exports / PDF) intentionally omitted.
+        { "Button_OpenRoomPanel", "Room panel" },
+        { "Button_DeleteObject", "Delete" },
+        { "Button_DeleteObject (1)", "Delete" },
     };
 
     private static UI_IconButtonTooltipBinder _runner;
@@ -234,23 +213,17 @@ public class UI_IconButtonTooltipBinder : MonoBehaviour
 
             var hover = button.GetComponent<UI_HoverTooltip>();
 
-            // Text buttons already show their label — no hover tip.
-            if (!IsIconOnly(button))
+            if (!CornerToolbarTips.TryGetValue(button.gameObject.name, out string tip)
+                || string.IsNullOrWhiteSpace(tip))
             {
-                if (hover != null)
+                // Strip leftover tips only from room Button_* clutter (Export, Load, …).
+                // Leave other tipped controls alone (e.g. proposal PDF hotspots).
+                if (hover != null && button.gameObject.name.StartsWith("Button_"))
                     Object.Destroy(hover);
                 continue;
             }
 
-            // Only the known in-room toolbar icons — never invent tips for
-            // leftover/dev buttons (e.g. Button_LoadModel) from their GameObject name.
-            if (!KnownLabels.TryGetValue(button.gameObject.name, out string tip)
-                || string.IsNullOrWhiteSpace(tip))
-            {
-                if (hover != null)
-                    Object.Destroy(hover);
-                continue;
-            }
+            EnsureRaycastTarget(button);
 
             if (hover == null)
                 hover = button.gameObject.AddComponent<UI_HoverTooltip>();
@@ -258,28 +231,30 @@ public class UI_IconButtonTooltipBinder : MonoBehaviour
         }
     }
 
-    private static bool IsIconOnly(Button button)
+    /// <summary>
+    /// Some icon buttons only raycast on a child Image — fine — but if neither
+    /// the button nor any child can be hit, hover never fires.
+    /// </summary>
+    private static void EnsureRaycastTarget(Button button)
     {
-        // Use activeSelf (not activeInHierarchy) so a temporarily hidden
-        // parent button with a real label (e.g. Object exports…)
-        // is still treated as a text button.
-        foreach (var tmp in button.GetComponentsInChildren<TextMeshProUGUI>(true))
+        if (button.targetGraphic != null)
         {
-            if (tmp == null || !tmp.gameObject.activeSelf)
-                continue;
-            if (!string.IsNullOrWhiteSpace(tmp.text))
-                return false;
+            button.targetGraphic.raycastTarget = true;
+            return;
         }
 
-        foreach (var uiText in button.GetComponentsInChildren<Text>(true))
+        var img = button.GetComponent<Image>();
+        if (img != null)
         {
-            if (uiText == null || !uiText.gameObject.activeSelf)
-                continue;
-            if (!string.IsNullOrWhiteSpace(uiText.text))
-                return false;
+            img.raycastTarget = true;
+            if (button.targetGraphic == null)
+                button.targetGraphic = img;
+            return;
         }
 
-        return button.targetGraphic != null || button.GetComponentInChildren<Image>(true) != null;
+        var childImg = button.GetComponentInChildren<Image>(true);
+        if (childImg != null)
+            childImg.raycastTarget = true;
     }
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]

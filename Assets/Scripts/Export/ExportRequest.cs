@@ -74,7 +74,7 @@ public class ExportRequest
         {
             Scope = ExportScope.Room,
             IncludeObj = true,
-            IncludeElevations = true,
+            IncludeElevations = false,
             IncludeProposal = false,
             IncludeSnapshots = true,
             ElevationMode = ElevationExportMode.CombinedRoom,

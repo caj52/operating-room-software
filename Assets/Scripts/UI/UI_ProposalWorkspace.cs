@@ -65,20 +65,30 @@ public class UI_ProposalWorkspace : MonoBehaviour
     int _pageIndex;
     bool _built;
 
+    /// <summary>Bump to force-rebuild the DontDestroyOnLoad workspace after UI hierarchy fixes.</summary>
+    const int UiBuildVersion = 4;
+    static int _loadedUiBuildVersion;
+
     UnityAction _onPricingChanged;
     UnityAction<SelectablePrice> _onPriceEvent;
 
-    /// <summary>Active workspace model, if any (used by PDF defaults).</summary>
+    /// <summary>Active workspace model while the UI is open (live discount / edit surface).</summary>
     public ProposalPreviewModel ActiveModel => isActiveAndEnabled ? _model : null;
+
+    /// <summary>Preview model for PDF generation while the workspace has state.</summary>
+    public ProposalPreviewModel PreviewModel => _model;
 
     RectTransform _root;
     RectTransform _popoverHost;
     RectTransform _dotsHost;
     ScrollRect _pageScroll;
+    RectTransform _pageScrollRt;
     Image _pageImage;
     RectTransform _pageFrameRt;
+    RectTransform _pageViewportRt;
+    RectTransform _pageHostRt;
     RectTransform _hotspotLayer;
-    AspectRatioFitter _pageAspect;
+    float _pageAspectRatio = A4Aspect;
     TMP_Text _pageLabel;
     TMP_Text _statusLabel;
     GameObject _loadingOverlay;
@@ -96,6 +106,25 @@ public class UI_ProposalWorkspace : MonoBehaviour
     int _previewGenerationId;
     Coroutine _previewDebounce;
     bool _pendingForceVisuals;
+
+    /// <summary>1 = fit page in viewport; higher values zoom in.</summary>
+    float _pageZoom = 1f;
+    TMP_Text _zoomPercentLabel;
+    bool _pointerOverPageViewport;
+
+    const float PageZoomMin = 1f;
+    const float PageZoomMax = 3f;
+    const float PageZoomStep = 0.1f;
+    const float PageViewPadding = 24f;
+    const float ScrollbarThickness = 14f;
+    float _lastScrollOuterW = -1f;
+    float _lastScrollOuterH = -1f;
+
+    Scrollbar _pageScrollbarV;
+    Scrollbar _pageScrollbarH;
+    GameObject _openOptionDropdown;
+    GameObject _optionDropdownDismiss;
+    bool _suppressOptionDropdownClose;
 
     public static void Open()
     {
@@ -115,11 +144,18 @@ public class UI_ProposalWorkspace : MonoBehaviour
             Instance.gameObject.SetActive(true);
             Instance.EnsureBlocksRaycasts();
             Instance._pageIndex = 0;
+            Instance._pageZoom = 1f;
             Instance.ClosePopover();
-            Instance.SetPreviewLoading(true, "Generating proposal preview…");
+
+            // Reuse ceiling/elevation stills when the room layout hasn't changed.
+            // "Refresh visuals" still forces a full re-capture.
+            bool forceVisuals = ProposalPDFGenerator.PreviewVisualsStale;
+            Instance.SetPreviewLoading(true, forceVisuals
+                ? "Generating proposal preview…"
+                : "Updating proposal preview…");
             Instance.ShowPage(0);
-            // First open: start immediately (no debounce).
-            Instance.BeginPreviewGeneration(forceVisuals: true);
+            Instance.BeginPreviewGeneration(forceVisuals: forceVisuals);
+
             Canvas.ForceUpdateCanvases();
             if (Instance._root != null)
                 LayoutRebuilder.ForceRebuildLayoutImmediate(Instance._root);
@@ -159,6 +195,13 @@ public class UI_ProposalWorkspace : MonoBehaviour
 
     static void EnsureInstance()
     {
+        if (Instance != null && _loadedUiBuildVersion != UiBuildVersion)
+        {
+            var stale = Instance.gameObject;
+            Instance = null;
+            Destroy(stale);
+        }
+
         if (Instance != null)
             return;
 
@@ -183,6 +226,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
         go.SetActive(false);
         DontDestroyOnLoad(go);
         Instance = workspace;
+        _loadedUiBuildVersion = UiBuildVersion;
     }
 
     static void EnsurePricingOptionsInitialized()
@@ -284,13 +328,38 @@ public class UI_ProposalWorkspace : MonoBehaviour
         CancelPreviewRefresh();
     }
 
+    void LateUpdate()
+    {
+        if (!isActiveAndEnabled || _pageScrollRt == null || _previewLoading)
+            return;
+
+        // Watch the outer page frame only — never the viewport, which ScrollRect
+        // can resize when scrollbar chrome is applied.
+        float w = _pageScrollRt.rect.width;
+        float h = _pageScrollRt.rect.height;
+        if (Mathf.Abs(w - _lastScrollOuterW) < 0.5f && Mathf.Abs(h - _lastScrollOuterH) < 0.5f)
+            return;
+
+        _lastScrollOuterW = w;
+        _lastScrollOuterH = h;
+        ApplyPageZoom(preserveScroll: true);
+    }
+
     void Update()
     {
+        UpdatePageViewportHover();
+        HandlePageWheel();
+        HandlePageArrowPan();
+        HandleOpenOptionDropdownIdle();
+
         if (!Input.GetKeyDown(KeyCode.Escape))
             return;
 
         if (_popoverHost != null && _popoverHost.gameObject.activeSelf)
         {
+            // Esc closes an open options dropdown first, then the popover.
+            if (CloseOpenOptionDropdown())
+                return;
             ClosePopover();
             return;
         }
@@ -320,7 +389,16 @@ public class UI_ProposalWorkspace : MonoBehaviour
         var cg = GetComponent<CanvasGroup>();
         if (cg != null)
             cg.interactable = true;
+
         RefreshLiveData(syncSalesRep: true);
+
+        // Don't rebuild the PDF if they opened Client Data and closed without edits.
+        if (!UI_ClientMetaData.LastCloseHadChanges)
+        {
+            SetStatus("Preview up to date — click highlighted fields to edit");
+            return;
+        }
+
         SchedulePreviewRefresh(forceVisuals: false);
     }
 
@@ -452,48 +530,40 @@ public class UI_ProposalWorkspace : MonoBehaviour
         pageScrollLe.flexibleHeight = 1f;
         pageScrollLe.minWidth = 420f;
         pageScrollLe.minHeight = 360f;
+        _pageScrollRt = pageScroll.GetComponent<RectTransform>();
 
+        // Viewport starts full; Permanent scrollbars inset it once and keep it stable
+        // (never toggle AutoHide — that resizes the viewport and fights fit math).
         var viewport = new GameObject("Viewport", typeof(RectTransform), typeof(Image), typeof(RectMask2D));
         viewport.transform.SetParent(pageScroll.transform, false);
-        StretchFull(viewport.GetComponent<RectTransform>());
-        viewport.GetComponent<Image>().color = new Color(1f, 1f, 1f, 0.02f);
+        _pageViewportRt = viewport.GetComponent<RectTransform>();
+        StretchFull(_pageViewportRt);
+        viewport.GetComponent<Image>().color = Theme.Paper;
         viewport.GetComponent<Image>().raycastTarget = true;
 
-        var content = new GameObject("PageHost", typeof(RectTransform), typeof(VerticalLayoutGroup), typeof(ContentSizeFitter));
+        var content = new GameObject("PageHost", typeof(RectTransform), typeof(Image));
         content.transform.SetParent(viewport.transform, false);
-        var contentRt = content.GetComponent<RectTransform>();
-        contentRt.anchorMin = new Vector2(0, 1);
-        contentRt.anchorMax = new Vector2(1, 1);
-        contentRt.pivot = new Vector2(0.5f, 1f);
-        contentRt.anchoredPosition = Vector2.zero;
-        contentRt.sizeDelta = new Vector2(0, 0);
-        var contentV = content.GetComponent<VerticalLayoutGroup>();
-        contentV.padding = new RectOffset(20, 20, 20, 20);
-        contentV.spacing = 0f;
-        contentV.childAlignment = TextAnchor.UpperCenter;
-        contentV.childControlHeight = true;
-        contentV.childControlWidth = true;
-        contentV.childForceExpandWidth = true;
-        contentV.childForceExpandHeight = false;
-        var csf = content.GetComponent<ContentSizeFitter>();
-        csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-        csf.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+        _pageHostRt = content.GetComponent<RectTransform>();
+        _pageHostRt.anchorMin = new Vector2(0f, 1f);
+        _pageHostRt.anchorMax = new Vector2(0f, 1f);
+        _pageHostRt.pivot = new Vector2(0f, 1f);
+        _pageHostRt.anchoredPosition = Vector2.zero;
+        var hostImg = content.GetComponent<Image>();
+        hostImg.color = Theme.Paper;
+        hostImg.raycastTarget = true;
 
         var pageFrame = CreatePanel("PageFrame", content.transform, Theme.Placeholder);
         _pageFrameRt = pageFrame.GetComponent<RectTransform>();
-        var pageFrameLe = pageFrame.AddComponent<LayoutElement>();
-        pageFrameLe.flexibleWidth = 1f;
-        pageFrameLe.preferredHeight = 900f;
-        pageFrameLe.minHeight = 400f;
-        _pageAspect = pageFrame.AddComponent<AspectRatioFitter>();
-        _pageAspect.aspectMode = AspectRatioFitter.AspectMode.WidthControlsHeight;
-        _pageAspect.aspectRatio = A4Aspect;
+        _pageFrameRt.anchorMin = new Vector2(0f, 1f);
+        _pageFrameRt.anchorMax = new Vector2(0f, 1f);
+        _pageFrameRt.pivot = new Vector2(0f, 1f);
+        _pageFrameRt.anchoredPosition = new Vector2(PageViewPadding, -PageViewPadding);
 
         _pageImage = pageFrame.GetComponent<Image>();
         _pageImage.color = Theme.Placeholder;
-        _pageImage.preserveAspect = true;
+        _pageImage.preserveAspect = false;
         _pageImage.type = Image.Type.Simple;
-        _pageImage.raycastTarget = false;
+        _pageImage.raycastTarget = true;
 
         var hotspotGo = new GameObject("Hotspots", typeof(RectTransform));
         hotspotGo.transform.SetParent(pageFrame.transform, false);
@@ -501,17 +571,31 @@ public class UI_ProposalWorkspace : MonoBehaviour
         StretchFull(_hotspotLayer);
 
         _pageScroll = pageScroll.GetComponent<ScrollRect>();
-        _pageScroll.viewport = viewport.GetComponent<RectTransform>();
-        _pageScroll.content = contentRt;
-        _pageScroll.horizontal = false;
+        _pageScroll.viewport = _pageViewportRt;
+        _pageScroll.content = _pageHostRt;
+        _pageScroll.horizontal = true;
         _pageScroll.vertical = true;
         _pageScroll.movementType = ScrollRect.MovementType.Clamped;
+        // Plain wheel/trackpad scroll pans via ScrollRect; Ctrl/pinch zooms in HandlePageWheel.
         _pageScroll.scrollSensitivity = 40f;
+        _pageScroll.inertia = true;
+        _pageScroll.decelerationRate = 0.135f;
+
+        _pageScrollbarV = CreatePageScrollbar(pageScroll.transform, vertical: true);
+        _pageScrollbarH = CreatePageScrollbar(pageScroll.transform, vertical: false);
+        _pageScroll.verticalScrollbar = _pageScrollbarV;
+        _pageScroll.horizontalScrollbar = _pageScrollbarH;
+        // Permanent only — never AutoHide (that resizes the viewport and fights fit math).
+        _pageScroll.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.Permanent;
+        _pageScroll.horizontalScrollbarVisibility = ScrollRect.ScrollbarVisibility.Permanent;
+        _pageScroll.verticalScrollbarSpacing = 0f;
+        _pageScroll.horizontalScrollbarSpacing = 0f;
 
         BuildLoadingOverlay(pageScroll.transform);
         BuildSideRail(stage.transform);
+        ApplyPageZoom(preserveScroll: false);
 
-        // Bottom nav: Previous / dots / N / pages / Next + Export
+        // Bottom nav: Previous / dots / pages / Next · zoom · Export
         var nav = CreatePanel("Nav", chrome.transform, Color.clear);
         nav.GetComponent<Image>().raycastTarget = false;
         var navLe = nav.AddComponent<LayoutElement>();
@@ -520,7 +604,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
         navLe.minHeight = 52f;
         var navLayout = nav.AddComponent<HorizontalLayoutGroup>();
         navLayout.padding = new RectOffset(4, 4, 2, 2);
-        navLayout.spacing = 12f;
+        navLayout.spacing = 10f;
         navLayout.childAlignment = TextAnchor.MiddleCenter;
         navLayout.childForceExpandWidth = false;
         navLayout.childControlWidth = true;
@@ -542,19 +626,20 @@ public class UI_ProposalWorkspace : MonoBehaviour
 
         CreateGhostButton(nav.transform, "Next", () => ShowPage(_pageIndex + 1), 88f, 36f);
 
+        BuildZoomControls(nav.transform);
+
         var navSpacer = new GameObject("NavSpacer", typeof(RectTransform), typeof(LayoutElement));
         navSpacer.transform.SetParent(nav.transform, false);
         navSpacer.GetComponent<LayoutElement>().flexibleWidth = 1f;
 
         CreatePrimaryButton(nav.transform, "Export PDF", ExportPdf, 160f, 40f);
 
-        _popoverHost = CreatePanel("PopoverHost", _root, new Color(0.08f, 0.09f, 0.11f, 0.45f)).GetComponent<RectTransform>();
+        // Transparent container only — never put a Button here or nested inputs
+        // (Sales Rep, notes, etc.) lose focus / clicks to the parent Selectable.
+        _popoverHost = CreatePanel("PopoverHost", _root, Color.clear).GetComponent<RectTransform>();
         StretchFull(_popoverHost);
+        _popoverHost.GetComponent<Image>().raycastTarget = false;
         _popoverHost.gameObject.SetActive(false);
-        var popBtn = _popoverHost.gameObject.AddComponent<Button>();
-        popBtn.transition = UnityEngine.UI.Selectable.Transition.None;
-        popBtn.targetGraphic = _popoverHost.GetComponent<Image>();
-        popBtn.onClick.AddListener(ClosePopover);
 
         RebuildPageDots(0);
         RebuildHotspots();
@@ -774,13 +859,15 @@ public class UI_ProposalWorkspace : MonoBehaviour
         {
             _pageImage.sprite = sprite;
             _pageImage.color = Color.white;
-            _pageImage.preserveAspect = true;
+            _pageImage.preserveAspect = false;
         }
 
-        if (_pageAspect != null && sprite != null && sprite.rect.height > 0.01f)
-            _pageAspect.aspectRatio = sprite.rect.width / sprite.rect.height;
-        else if (_pageAspect != null)
-            _pageAspect.aspectRatio = A4Aspect;
+        if (sprite != null && sprite.rect.height > 0.01f)
+            _pageAspectRatio = sprite.rect.width / sprite.rect.height;
+        else
+            _pageAspectRatio = A4Aspect;
+
+        ApplyPageZoom(preserveScroll: false);
 
         if (_pageLabel != null)
             _pageLabel.text = $"{_pageIndex + 1} / {pageCount}";
@@ -791,11 +878,305 @@ public class UI_ProposalWorkspace : MonoBehaviour
                 _pageDots[i].color = i == _pageIndex ? Theme.Accent : Theme.NavIdle;
         }
 
-        if (_pageScroll != null)
-            _pageScroll.verticalNormalizedPosition = 1f;
-
         RebuildHotspots();
         ClosePopover();
+    }
+
+    void BuildZoomControls(Transform nav)
+    {
+        CreateGhostButton(nav, "−", () => AdjustPageZoom(-PageZoomStep), 40f, 36f);
+        _zoomPercentLabel = CreateLabel(nav, "100%", 12f, FontStyles.Bold, TextAlignmentOptions.Center, 52f, 20f);
+        _zoomPercentLabel.color = Theme.InkMuted;
+        CreateGhostButton(nav, "+", () => AdjustPageZoom(PageZoomStep), 40f, 36f);
+        CreateGhostButton(nav, "Fit", ResetPageZoom, 52f, 36f);
+        UpdateZoomPercentLabel();
+    }
+
+    void AdjustPageZoom(float delta)
+    {
+        if (_pageSprites.Count == 0 || _previewLoading)
+            return;
+
+        float next = Mathf.Clamp(_pageZoom + delta, PageZoomMin, PageZoomMax);
+        next = Mathf.Round(next * 10f) / 10f;
+        if (Mathf.Approximately(next, _pageZoom))
+            return;
+
+        _pageZoom = next;
+        ApplyPageZoom(preserveScroll: true);
+        UpdateZoomPercentLabel();
+    }
+
+    void ResetPageZoom()
+    {
+        if (Mathf.Approximately(_pageZoom, 1f))
+        {
+            ApplyPageZoom(preserveScroll: false);
+            UpdateZoomPercentLabel();
+            return;
+        }
+
+        _pageZoom = 1f;
+        ApplyPageZoom(preserveScroll: false);
+        UpdateZoomPercentLabel();
+    }
+
+    void UpdateZoomPercentLabel()
+    {
+        if (_zoomPercentLabel != null)
+            _zoomPercentLabel.text = Mathf.RoundToInt(_pageZoom * 100f) + "%";
+    }
+
+    void ApplyPageZoom(bool preserveScroll)
+    {
+        if (_pageFrameRt == null || _pageHostRt == null || _pageViewportRt == null || _pageScroll == null)
+            return;
+
+        float prevH = preserveScroll ? _pageScroll.horizontalNormalizedPosition : 0.5f;
+        float prevV = preserveScroll ? _pageScroll.verticalNormalizedPosition : 1f;
+
+        Canvas.ForceUpdateCanvases();
+
+        float vw = _pageViewportRt.rect.width;
+        float vh = _pageViewportRt.rect.height;
+        if (vw < 8f || vh < 8f)
+            return;
+
+        float aspect = _pageAspectRatio > 0.01f ? _pageAspectRatio : A4Aspect;
+        float availW = Mathf.Max(48f, vw - PageViewPadding * 2f);
+        float availH = Mathf.Max(48f, vh - PageViewPadding * 2f);
+
+        // Fit entire page in the (fixed-inset) viewport at 100%, then scale by zoom.
+        float fitW = availW;
+        float fitH = fitW / aspect;
+        if (fitH > availH)
+        {
+            fitH = availH;
+            fitW = fitH * aspect;
+        }
+
+        float scale = Mathf.Clamp(_pageZoom, PageZoomMin, PageZoomMax);
+        float pageW = fitW * scale;
+        float pageH = fitH * scale;
+
+        float hostW = Mathf.Max(vw, pageW + PageViewPadding * 2f);
+        float hostH = Mathf.Max(vh, pageH + PageViewPadding * 2f);
+
+        _pageHostRt.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, hostW);
+        _pageHostRt.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, hostH);
+
+        _pageFrameRt.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, pageW);
+        _pageFrameRt.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, pageH);
+
+        float pageX = (hostW - pageW) * 0.5f;
+        float pageY = hostH > vh + 0.5f
+            ? -PageViewPadding
+            : -(hostH - pageH) * 0.5f;
+        _pageFrameRt.anchoredPosition = new Vector2(pageX, pageY);
+
+        // Axes stay enabled; Clamped ScrollRect no-ops when content fits.
+        _pageScroll.horizontal = true;
+        _pageScroll.vertical = true;
+
+        Canvas.ForceUpdateCanvases();
+        bool canScrollH = hostW > vw + 1f;
+        _pageScroll.horizontalNormalizedPosition = preserveScroll ? prevH : (canScrollH ? 0.5f : 0f);
+        _pageScroll.verticalNormalizedPosition = preserveScroll ? prevV : 1f;
+
+        UpdateZoomPercentLabel();
+    }
+
+    void HandlePageWheel()
+    {
+        bool zoomGesture = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl)
+            || Input.GetKey(KeyCode.LeftCommand) || Input.GetKey(KeyCode.RightCommand);
+
+        // Suppress ScrollRect pan while pinching (Windows sends pinch as Ctrl+wheel).
+        if (_pageScroll != null)
+            _pageScroll.scrollSensitivity = zoomGesture ? 0f : 40f;
+
+        if (!_pointerOverPageViewport || _previewLoading)
+            return;
+        if (_popoverHost != null && _popoverHost.gameObject.activeSelf)
+            return;
+        if (UI_ClientMetaData.IsOpen)
+            return;
+
+        float wheel = Input.mouseScrollDelta.y;
+        if (Mathf.Abs(wheel) < 0.01f)
+            return;
+
+        if (zoomGesture)
+            AdjustPageZoom(wheel > 0f ? PageZoomStep : -PageZoomStep);
+        // Plain wheel / two-finger scroll: ScrollRect.OnScroll pans using scrollSensitivity.
+    }
+
+    void HandlePageArrowPan()
+    {
+        if (!_pointerOverPageViewport || _previewLoading || _pageScroll == null)
+            return;
+        if (_pageZoom <= 1.01f)
+            return;
+        if (_popoverHost != null && _popoverHost.gameObject.activeSelf)
+            return;
+        if (UI_ClientMetaData.IsOpen)
+            return;
+
+        float dx = 0f;
+        float dy = 0f;
+        if (Input.GetKey(KeyCode.LeftArrow))
+            dx -= 1f;
+        if (Input.GetKey(KeyCode.RightArrow))
+            dx += 1f;
+        if (Input.GetKey(KeyCode.UpArrow))
+            dy += 1f;
+        if (Input.GetKey(KeyCode.DownArrow))
+            dy -= 1f;
+        if (Mathf.Abs(dx) < 0.01f && Mathf.Abs(dy) < 0.01f)
+            return;
+
+        float vw = Mathf.Max(1f, _pageViewportRt.rect.width);
+        float vh = Mathf.Max(1f, _pageViewportRt.rect.height);
+        float speed = 480f * Time.unscaledDeltaTime;
+        float rangeH = Mathf.Max(1f, _pageHostRt.rect.width - vw);
+        float rangeV = Mathf.Max(1f, _pageHostRt.rect.height - vh);
+
+        if (Mathf.Abs(dx) > 0.01f)
+            _pageScroll.horizontalNormalizedPosition = Mathf.Clamp01(
+                _pageScroll.horizontalNormalizedPosition + dx * speed / rangeH);
+        if (Mathf.Abs(dy) > 0.01f)
+            _pageScroll.verticalNormalizedPosition = Mathf.Clamp01(
+                _pageScroll.verticalNormalizedPosition + dy * speed / rangeV);
+    }
+
+    void UpdatePageViewportHover()
+    {
+        if (!isActiveAndEnabled || _pageViewportRt == null)
+        {
+            _pointerOverPageViewport = false;
+            return;
+        }
+
+        var canvas = GetComponent<Canvas>();
+        Camera eventCam = null;
+        if (canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay)
+            eventCam = canvas.worldCamera;
+
+        _pointerOverPageViewport = RectTransformUtility.RectangleContainsScreenPoint(
+            _pageViewportRt, Input.mousePosition, eventCam);
+    }
+
+    Scrollbar CreatePageScrollbar(Transform parent, bool vertical)
+    {
+        string name = vertical ? "Scrollbar Vertical" : "Scrollbar Horizontal";
+        var root = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(Scrollbar));
+        root.transform.SetParent(parent, false);
+        root.layer = gameObject.layer;
+
+        var rt = root.GetComponent<RectTransform>();
+        if (vertical)
+        {
+            rt.anchorMin = new Vector2(1f, 0f);
+            rt.anchorMax = new Vector2(1f, 1f);
+            rt.pivot = new Vector2(1f, 1f);
+            rt.offsetMin = new Vector2(-ScrollbarThickness, ScrollbarThickness);
+            rt.offsetMax = new Vector2(0f, 0f);
+        }
+        else
+        {
+            rt.anchorMin = new Vector2(0f, 0f);
+            rt.anchorMax = new Vector2(1f, 0f);
+            rt.pivot = new Vector2(0f, 0f);
+            rt.offsetMin = new Vector2(0f, 0f);
+            rt.offsetMax = new Vector2(-ScrollbarThickness, ScrollbarThickness);
+        }
+
+        var track = root.GetComponent<Image>();
+        track.color = new Color(0.88f, 0.89f, 0.91f, 0.95f);
+        track.raycastTarget = true;
+
+        var sliding = new GameObject("Sliding Area", typeof(RectTransform));
+        sliding.transform.SetParent(root.transform, false);
+        var slidingRt = sliding.GetComponent<RectTransform>();
+        StretchFull(slidingRt, 2f);
+
+        var handleGo = new GameObject("Handle", typeof(RectTransform), typeof(Image));
+        handleGo.transform.SetParent(sliding.transform, false);
+        var handleRt = handleGo.GetComponent<RectTransform>();
+        StretchFull(handleRt);
+        var handleImg = handleGo.GetComponent<Image>();
+        handleImg.color = new Color(0.55f, 0.57f, 0.60f, 1f);
+        handleImg.raycastTarget = true;
+
+        var bar = root.GetComponent<Scrollbar>();
+        bar.handleRect = handleRt;
+        bar.targetGraphic = handleImg;
+        bar.direction = vertical
+            ? Scrollbar.Direction.BottomToTop
+            : Scrollbar.Direction.LeftToRight;
+        bar.size = 0.3f;
+        bar.numberOfSteps = 0;
+        var colors = bar.colors;
+        colors.normalColor = Color.white;
+        colors.highlightedColor = new Color(0.95f, 0.95f, 0.96f, 1f);
+        colors.pressedColor = new Color(0.9f, 0.9f, 0.92f, 1f);
+        bar.colors = colors;
+        root.SetActive(true);
+        return bar;
+    }
+
+    /// <summary>
+    /// Vertical scrollbar that appears when content overflows — cue that there's more to scroll.
+    /// </summary>
+    void AttachVerticalOverflowScrollbar(ScrollRect scrollRect, float thickness = 10f)
+    {
+        if (scrollRect == null)
+            return;
+
+        var root = new GameObject("Scrollbar Vertical", typeof(RectTransform), typeof(Image), typeof(Scrollbar));
+        root.transform.SetParent(scrollRect.transform, false);
+        root.layer = gameObject.layer;
+
+        var rt = root.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(1f, 0f);
+        rt.anchorMax = new Vector2(1f, 1f);
+        rt.pivot = new Vector2(1f, 1f);
+        rt.offsetMin = new Vector2(-thickness, 0f);
+        rt.offsetMax = Vector2.zero;
+
+        var track = root.GetComponent<Image>();
+        track.color = new Color(0.90f, 0.91f, 0.93f, 0.98f);
+        track.raycastTarget = true;
+
+        var sliding = new GameObject("Sliding Area", typeof(RectTransform));
+        sliding.transform.SetParent(root.transform, false);
+        StretchFull(sliding.GetComponent<RectTransform>(), 2f);
+
+        var handleGo = new GameObject("Handle", typeof(RectTransform), typeof(Image));
+        handleGo.transform.SetParent(sliding.transform, false);
+        var handleRt = handleGo.GetComponent<RectTransform>();
+        StretchFull(handleRt);
+        var handleImg = handleGo.GetComponent<Image>();
+        handleImg.color = new Color(0.55f, 0.57f, 0.60f, 1f);
+        handleImg.raycastTarget = true;
+
+        var bar = root.GetComponent<Scrollbar>();
+        bar.handleRect = handleRt;
+        bar.targetGraphic = handleImg;
+        bar.direction = Scrollbar.Direction.BottomToTop;
+        bar.size = 1f;
+        bar.numberOfSteps = 0;
+        var colors = bar.colors;
+        colors.normalColor = Color.white;
+        colors.highlightedColor = new Color(0.95f, 0.95f, 0.96f, 1f);
+        colors.pressedColor = new Color(0.9f, 0.9f, 0.92f, 1f);
+        bar.colors = colors;
+
+        scrollRect.vertical = true;
+        scrollRect.verticalScrollbar = bar;
+        scrollRect.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.AutoHideAndExpandViewport;
+        scrollRect.verticalScrollbarSpacing = -2f;
+        root.transform.SetAsLastSibling();
     }
 
     void SetStatus(string text)
@@ -896,10 +1277,15 @@ public class UI_ProposalWorkspace : MonoBehaviour
             if (_loadingAnimRoutine == null && isActiveAndEnabled)
                 _loadingAnimRoutine = StartCoroutine(LoadingAnimRoutine());
         }
-        else if (_loadingAnimRoutine != null)
+        else
         {
-            StopCoroutine(_loadingAnimRoutine);
-            _loadingAnimRoutine = null;
+            if (_loadingAnimRoutine != null)
+            {
+                StopCoroutine(_loadingAnimRoutine);
+                _loadingAnimRoutine = null;
+            }
+            ApplyPageZoom(preserveScroll: true);
+            UpdateZoomPercentLabel();
         }
     }
 
@@ -1062,18 +1448,25 @@ public class UI_ProposalWorkspace : MonoBehaviour
         if (_model == null)
             _model = ProposalPreviewModel.Capture();
 
+        string beforeName = _model.SalesRepName ?? "";
+        string beforeEmail = _model.SalesRepEmail ?? "";
+
         OpenTextPopover("Sales rep",
             new[]
             {
-                ("Name", _model.SalesRepName),
-                ("Email", _model.SalesRepEmail),
+                ("Name", beforeName),
+                ("Email", beforeEmail),
             },
             values =>
             {
-                _model.SalesRepName = values[0];
-                _model.SalesRepEmail = values[1];
+                string name = values[0] ?? "";
+                string email = values[1] ?? "";
+                _model.SalesRepName = name;
+                _model.SalesRepEmail = email;
                 _model.PersistEditableFields();
-                SchedulePreviewRefresh(forceVisuals: false);
+                if (!string.Equals(name, beforeName, StringComparison.Ordinal)
+                    || !string.Equals(email, beforeEmail, StringComparison.Ordinal))
+                    SchedulePreviewRefresh(forceVisuals: false);
             });
     }
 
@@ -1093,8 +1486,10 @@ public class UI_ProposalWorkspace : MonoBehaviour
         if (_model == null)
             _model = ProposalPreviewModel.Capture();
 
+        string before = _model.ConfigName ?? "";
+
         OpenTextPopover("Configuration title",
-            new[] { ("Title", _model.ConfigName) },
+            new[] { ("Title", before) },
             values =>
             {
                 if (string.IsNullOrWhiteSpace(values[0]))
@@ -1109,7 +1504,8 @@ public class UI_ProposalWorkspace : MonoBehaviour
                     _model.ConfigName = values[0].Trim();
                     ProposalPreviewModel.ConfigNameOverride = _model.ConfigName;
                 }
-                SchedulePreviewRefresh(forceVisuals: false);
+                if (!string.Equals(_model.ConfigName ?? "", before, StringComparison.Ordinal))
+                    SchedulePreviewRefresh(forceVisuals: false);
             },
             footerHint: "Export normally uses the saved room name. Clear the title to remove this override.");
     }
@@ -1119,14 +1515,16 @@ public class UI_ProposalWorkspace : MonoBehaviour
         if (_model == null)
             _model = ProposalPreviewModel.Capture();
 
+        float before = _model.DiscountPercentage;
         OpenTextPopover("Discount %",
-            new[] { ("Percent", _model.DiscountPercentage.ToString("0.##", CultureInfo.InvariantCulture)) },
+            new[] { ("Percent", before.ToString("0.##", CultureInfo.InvariantCulture)) },
             values =>
             {
                 if (float.TryParse(values[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float d))
                     _model.DiscountPercentage = Mathf.Max(0f, d);
                 _model.PersistEditableFields();
-                SchedulePreviewRefresh(forceVisuals: false);
+                if (!Mathf.Approximately(_model.DiscountPercentage, before))
+                    SchedulePreviewRefresh(forceVisuals: false);
             });
     }
 
@@ -1135,12 +1533,16 @@ public class UI_ProposalWorkspace : MonoBehaviour
         if (_model == null)
             _model = ProposalPreviewModel.Capture();
 
+        string n1 = _model.Note1 ?? "";
+        string n2 = _model.Note2 ?? "";
+        string n3 = _model.Note3 ?? "";
+
         OpenTextPopover("Notes",
             new[]
             {
-                ("Note 1", _model.Note1, true),
-                ("Note 2", _model.Note2, true),
-                ("Acceptance", _model.Note3, true),
+                ("Note 1", n1, true),
+                ("Note 2", n2, true),
+                ("Acceptance", n3, true),
             },
             values =>
             {
@@ -1148,7 +1550,10 @@ public class UI_ProposalWorkspace : MonoBehaviour
                 _model.Note2 = values[1];
                 _model.Note3 = values[2];
                 _model.PersistEditableFields();
-                SchedulePreviewRefresh(forceVisuals: false);
+                if (!string.Equals(_model.Note1 ?? "", n1, StringComparison.Ordinal)
+                    || !string.Equals(_model.Note2 ?? "", n2, StringComparison.Ordinal)
+                    || !string.Equals(_model.Note3 ?? "", n3, StringComparison.Ordinal))
+                    SchedulePreviewRefresh(forceVisuals: false);
             });
     }
 
@@ -1163,6 +1568,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
 
         ClosePopover();
         _popoverHost.gameObject.SetActive(true);
+        CreatePopoverBackdrop();
 
         var panel = CreatePanel("OptionsPopover", _popoverHost, Theme.Popover);
         var rt = panel.GetComponent<RectTransform>();
@@ -1195,9 +1601,11 @@ public class UI_ProposalWorkspace : MonoBehaviour
         scrollLe.minHeight = 280f;
         scrollLe.preferredHeight = 360f;
 
-        var viewport = new GameObject("Viewport", typeof(RectTransform), typeof(RectMask2D));
+        var viewport = new GameObject("Viewport", typeof(RectTransform), typeof(Image), typeof(RectMask2D));
         viewport.transform.SetParent(scrollGo.transform, false);
         StretchFull(viewport.GetComponent<RectTransform>());
+        viewport.GetComponent<Image>().color = new Color(1f, 1f, 1f, 0.01f);
+        viewport.GetComponent<Image>().raycastTarget = true;
 
         var content = new GameObject("Content", typeof(RectTransform), typeof(VerticalLayoutGroup), typeof(ContentSizeFitter));
         content.transform.SetParent(viewport.transform, false);
@@ -1219,6 +1627,47 @@ public class UI_ProposalWorkspace : MonoBehaviour
         sr.viewport = viewport.GetComponent<RectTransform>();
         sr.content = contentRt;
         sr.horizontal = false;
+        sr.vertical = true;
+        sr.movementType = ScrollRect.MovementType.Clamped;
+        sr.scrollSensitivity = 30f;
+        AttachVerticalOverflowScrollbar(sr);
+
+        // Float open pickers above OptScroll so the mask doesn't clip the list.
+        var dropdownLayerGo = new GameObject("DropdownLayer", typeof(RectTransform), typeof(LayoutElement));
+        dropdownLayerGo.transform.SetParent(panel.transform, false);
+        dropdownLayerGo.GetComponent<LayoutElement>().ignoreLayout = true;
+        StretchFull(dropdownLayerGo.GetComponent<RectTransform>());
+        var dropdownLayer = dropdownLayerGo.GetComponent<RectTransform>();
+
+        // Click-away catcher — sized to the options scroll area when a list opens
+        // (keeps Done clickable; closes the menu without closing Options).
+        var dismiss = CreatePanel("DropdownDismiss", dropdownLayer, new Color(0f, 0f, 0f, 0f));
+        var dismissRt = dismiss.GetComponent<RectTransform>();
+        dismissRt.anchorMin = new Vector2(0.5f, 0.5f);
+        dismissRt.anchorMax = new Vector2(0.5f, 0.5f);
+        dismissRt.pivot = new Vector2(0.5f, 0.5f);
+        dismiss.GetComponent<Image>().raycastTarget = true;
+        var dismissBtn = dismiss.AddComponent<Button>();
+        dismissBtn.transition = UnityEngine.UI.Selectable.Transition.None;
+        dismissBtn.targetGraphic = dismiss.GetComponent<Image>();
+        dismissBtn.onClick.AddListener(() => CloseOpenOptionDropdown());
+        dismiss.SetActive(false);
+        _optionDropdownDismiss = dismiss;
+
+        // Scrolling the options list dismisses any open picker.
+        sr.onValueChanged.AddListener(_ =>
+        {
+            if (!_suppressOptionDropdownClose)
+                CloseOpenOptionDropdown();
+        });
+
+        CreatePrimaryButton(panel.transform, "Done", () =>
+        {
+            DropdownPopulator.PersistAllCurrentSelections();
+            ClosePopover();
+        }, -1f, 40f);
+        // Layer stays above Done so lists draw over the scroll body; Done sits just below.
+        dropdownLayer.SetAsLastSibling();
 
         var populators = DropdownPopulator.Instances?
             .Where(p => p != null)
@@ -1256,17 +1705,9 @@ public class UI_ProposalWorkspace : MonoBehaviour
                 CreateLabel(content.transform, title, 12f, FontStyles.Bold, TextAlignmentOptions.Left, -1f, 18f)
                     .color = Theme.InkMuted;
 
-                CreateOptionPicker(content.transform, pop);
+                CreateOptionPicker(content.transform, pop, dropdownLayer, sr);
             }
         }
-
-        CreatePrimaryButton(panel.transform, "Done", () =>
-        {
-            DropdownPopulator.PersistAllCurrentSelections();
-            ClosePopover();
-            RefreshLiveData();
-            SchedulePreviewRefresh(forceVisuals: false);
-        }, -1f, 40f);
     }
 
     static string FriendlyOptionLabel(string objectName, bool isBoom)
@@ -1278,8 +1719,9 @@ public class UI_ProposalWorkspace : MonoBehaviour
     /// <summary>
     /// Custom option row — TMP_Dropdown captions are unreliable when built at runtime,
     /// so we draw the current selection ourselves and open a simple list on click.
+    /// The open list floats on <paramref name="floatLayer"/> so OptScroll's mask can't clip it.
     /// </summary>
-    GameObject CreateOptionPicker(Transform parent, DropdownPopulator populator)
+    GameObject CreateOptionPicker(Transform parent, DropdownPopulator populator, RectTransform floatLayer, ScrollRect hostScroll)
     {
         if (populator == null)
             return null;
@@ -1317,8 +1759,9 @@ public class UI_ProposalWorkspace : MonoBehaviour
         var rootLe = root.GetComponent<LayoutElement>();
         rootLe.flexibleWidth = 1f;
         rootLe.minHeight = 34f;
+        rootLe.preferredHeight = 34f;
         var rootLayout = root.GetComponent<VerticalLayoutGroup>();
-        rootLayout.spacing = 4f;
+        rootLayout.spacing = 0f;
         rootLayout.childAlignment = TextAnchor.UpperLeft;
         rootLayout.childControlWidth = true;
         rootLayout.childControlHeight = true;
@@ -1326,6 +1769,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
         rootLayout.childForceExpandHeight = false;
 
         var row = CreatePanel("Row", root.transform, Theme.Ghost);
+        var rowRt = row.GetComponent<RectTransform>();
         var rowLe = row.AddComponent<LayoutElement>();
         rowLe.preferredHeight = 34f;
         rowLe.minHeight = 34f;
@@ -1351,17 +1795,18 @@ public class UI_ProposalWorkspace : MonoBehaviour
         arrow.color = Theme.InkMuted;
         arrow.raycastTarget = false;
 
-        var list = CreatePanel("List", root.transform, Theme.Popover);
+        // Build list under float layer (inactive) so it's never masked by OptScroll.
+        var list = CreatePanel("List", floatLayer != null ? floatLayer : root.transform, Theme.Popover);
         list.SetActive(false);
-        var listLe = list.AddComponent<LayoutElement>();
-        listLe.flexibleWidth = 1f;
-        listLe.preferredHeight = Mathf.Min(180f, 28f * Mathf.Min(optionTexts.Count, 6) + 8f);
-        listLe.minHeight = 36f;
+        var listRt = list.GetComponent<RectTransform>();
+        listRt.anchorMin = new Vector2(0.5f, 0.5f);
+        listRt.anchorMax = new Vector2(0.5f, 0.5f);
+        listRt.pivot = new Vector2(0f, 1f);
         var listOutline = list.AddComponent<Outline>();
         listOutline.effectColor = Theme.GhostBorder;
         listOutline.effectDistance = new Vector2(1f, -1f);
 
-        var listScrollGo = new GameObject("ListScroll", typeof(RectTransform), typeof(ScrollRect), typeof(LayoutElement));
+        var listScrollGo = new GameObject("ListScroll", typeof(RectTransform), typeof(ScrollRect));
         listScrollGo.transform.SetParent(list.transform, false);
         StretchFull(listScrollGo.GetComponent<RectTransform>(), 4f);
         var listScroll = listScrollGo.GetComponent<ScrollRect>();
@@ -1393,6 +1838,8 @@ public class UI_ProposalWorkspace : MonoBehaviour
 
         listScroll.viewport = listViewport.GetComponent<RectTransform>();
         listScroll.content = listContentRt;
+        listScroll.scrollSensitivity = 30f;
+        AttachVerticalOverflowScrollbar(listScroll);
 
         void SetSelection(int index)
         {
@@ -1406,9 +1853,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
             if (string.IsNullOrWhiteSpace(label))
                 label = optionTexts[index];
             valueLabel.text = label;
-            list.SetActive(false);
-            rootLe.minHeight = 34f;
-            rootLe.preferredHeight = -1f;
+            CloseOpenOptionDropdown();
 
             RefreshLiveData();
             SchedulePreviewRefresh(forceVisuals: false);
@@ -1419,7 +1864,6 @@ public class UI_ProposalWorkspace : MonoBehaviour
             int index = i;
             string optionLabel = optionTexts[i];
             var itemBtn = CreateGhostButton(listContent.transform, optionLabel, () => SetSelection(index), -1f, 28f);
-            // Ghost buttons are bold/centered — soften for a list look.
             var itemTmp = itemBtn.GetComponentInChildren<TextMeshProUGUI>();
             if (itemTmp != null)
             {
@@ -1442,31 +1886,218 @@ public class UI_ProposalWorkspace : MonoBehaviour
         rowBtn.colors = colors;
         rowBtn.onClick.AddListener(() =>
         {
-            bool open = !list.activeSelf;
-            list.SetActive(open);
-            if (open)
+            if (list.activeSelf)
             {
-                float listH = Mathf.Min(180f, 28f * Mathf.Min(optionTexts.Count, 6) + 8f);
-                listLe.preferredHeight = listH;
-                rootLe.minHeight = 34f + 4f + listH;
+                CloseOpenOptionDropdown();
+                return;
             }
-            else
-            {
-                rootLe.minHeight = 34f;
-            }
-            Canvas.ForceUpdateCanvases();
-            var parentRt = parent as RectTransform;
-            if (parentRt != null)
-                LayoutRebuilder.ForceRebuildLayoutImmediate(parentRt);
+
+            OpenOptionDropdown(list, listRt, rowRt, floatLayer, hostScroll, optionTexts.Count);
         });
 
         return root;
+    }
+
+    void OpenOptionDropdown(
+        GameObject list,
+        RectTransform listRt,
+        RectTransform rowRt,
+        RectTransform floatLayer,
+        ScrollRect hostScroll,
+        int optionCount)
+    {
+        if (list == null || listRt == null || rowRt == null || floatLayer == null)
+            return;
+
+        // Close any other open picker without clearing this open request.
+        if (_openOptionDropdown != null && _openOptionDropdown != list)
+            _openOptionDropdown.SetActive(false);
+
+        _suppressOptionDropdownClose = true;
+        try
+        {
+            if (hostScroll != null)
+                EnsureScrollChildVisible(hostScroll, rowRt);
+
+            Canvas.ForceUpdateCanvases();
+            float desiredH = Mathf.Min(220f, 28f * Mathf.Min(optionCount, 8) + 8f);
+            PositionFloatingDropdown(listRt, rowRt, floatLayer, desiredH);
+
+            if (_optionDropdownDismiss != null)
+            {
+                AlignDropdownDismissToScroll(_optionDropdownDismiss.GetComponent<RectTransform>(), floatLayer, hostScroll);
+                _optionDropdownDismiss.SetActive(true);
+                _optionDropdownDismiss.transform.SetAsFirstSibling();
+            }
+
+            list.SetActive(true);
+            list.transform.SetAsLastSibling();
+            _openOptionDropdown = list;
+        }
+        finally
+        {
+            _suppressOptionDropdownClose = false;
+        }
+    }
+
+    void AlignDropdownDismissToScroll(RectTransform dismissRt, RectTransform layerRt, ScrollRect hostScroll)
+    {
+        if (dismissRt == null || layerRt == null || hostScroll == null)
+            return;
+
+        var scrollRt = hostScroll.transform as RectTransform;
+        if (scrollRt == null)
+            return;
+
+        var canvas = GetComponent<Canvas>();
+        Camera cam = null;
+        if (canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay)
+            cam = canvas.worldCamera;
+
+        Vector3[] corners = new Vector3[4];
+        scrollRt.GetWorldCorners(corners);
+        RectTransformUtility.ScreenPointToLocalPointInRectangle(
+            layerRt, RectTransformUtility.WorldToScreenPoint(cam, corners[0]), cam, out Vector2 bl);
+        RectTransformUtility.ScreenPointToLocalPointInRectangle(
+            layerRt, RectTransformUtility.WorldToScreenPoint(cam, corners[2]), cam, out Vector2 tr);
+
+        dismissRt.anchorMin = new Vector2(0.5f, 0.5f);
+        dismissRt.anchorMax = new Vector2(0.5f, 0.5f);
+        dismissRt.pivot = new Vector2(0.5f, 0.5f);
+        dismissRt.sizeDelta = new Vector2(Mathf.Abs(tr.x - bl.x), Mathf.Abs(tr.y - bl.y));
+        dismissRt.anchoredPosition = (bl + tr) * 0.5f;
+    }
+
+    /// <summary>Returns true if a floating options dropdown was open and is now closed.</summary>
+    bool CloseOpenOptionDropdown()
+    {
+        bool closed = false;
+        if (_openOptionDropdown != null)
+        {
+            _openOptionDropdown.SetActive(false);
+            _openOptionDropdown = null;
+            closed = true;
+        }
+
+        if (_optionDropdownDismiss != null && _optionDropdownDismiss.activeSelf)
+        {
+            _optionDropdownDismiss.SetActive(false);
+            closed = true;
+        }
+
+        return closed;
+    }
+
+    void HandleOpenOptionDropdownIdle()
+    {
+        if (_openOptionDropdown == null || _suppressOptionDropdownClose)
+            return;
+
+        // Wheel outside the open list dismisses it (scroll on OptScroll, empty panel, etc.).
+        if (Mathf.Abs(Input.mouseScrollDelta.y) > 0.01f && !IsPointerOverRect(_openOptionDropdown.transform as RectTransform))
+            CloseOpenOptionDropdown();
+    }
+
+    bool IsPointerOverRect(RectTransform rt)
+    {
+        if (rt == null)
+            return false;
+        var canvas = GetComponent<Canvas>();
+        Camera cam = null;
+        if (canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay)
+            cam = canvas.worldCamera;
+        return RectTransformUtility.RectangleContainsScreenPoint(rt, Input.mousePosition, cam);
+    }
+
+    void PositionFloatingDropdown(RectTransform listRt, RectTransform rowRt, RectTransform layerRt, float desiredHeight)
+    {
+        if (listRt == null || rowRt == null || layerRt == null)
+            return;
+
+        var canvas = GetComponent<Canvas>();
+        Camera cam = null;
+        if (canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay)
+            cam = canvas.worldCamera;
+
+        Vector3[] rowCorners = new Vector3[4];
+        rowRt.GetWorldCorners(rowCorners);
+        // 0=BL, 1=TL, 2=TR, 3=BR
+        RectTransformUtility.ScreenPointToLocalPointInRectangle(
+            layerRt, RectTransformUtility.WorldToScreenPoint(cam, rowCorners[0]), cam, out Vector2 localBL);
+        RectTransformUtility.ScreenPointToLocalPointInRectangle(
+            layerRt, RectTransformUtility.WorldToScreenPoint(cam, rowCorners[1]), cam, out Vector2 localTL);
+        RectTransformUtility.ScreenPointToLocalPointInRectangle(
+            layerRt, RectTransformUtility.WorldToScreenPoint(cam, rowCorners[3]), cam, out Vector2 localBR);
+
+        float width = Mathf.Max(120f, localBR.x - localBL.x);
+        Rect layerRect = layerRt.rect;
+        float pad = 8f;
+        float spaceBelow = localBL.y - (layerRect.yMin + pad);
+        float spaceAbove = (layerRect.yMax - pad) - localTL.y;
+        bool openDown = spaceBelow >= Mathf.Min(desiredHeight, 100f) || spaceBelow >= spaceAbove;
+        float maxH = Mathf.Max(72f, openDown ? spaceBelow : spaceAbove);
+        float listH = Mathf.Min(desiredHeight, maxH);
+
+        listRt.anchorMin = new Vector2(0.5f, 0.5f);
+        listRt.anchorMax = new Vector2(0.5f, 0.5f);
+        listRt.sizeDelta = new Vector2(width, listH);
+
+        if (openDown)
+        {
+            listRt.pivot = new Vector2(0f, 1f);
+            listRt.anchoredPosition = localBL;
+        }
+        else
+        {
+            listRt.pivot = new Vector2(0f, 0f);
+            listRt.anchoredPosition = localTL;
+        }
+    }
+
+    static void EnsureScrollChildVisible(ScrollRect scroll, RectTransform child)
+    {
+        if (scroll == null || child == null || scroll.viewport == null || scroll.content == null)
+            return;
+
+        Canvas.ForceUpdateCanvases();
+        var viewport = scroll.viewport;
+        var content = scroll.content;
+
+        Vector3[] childCorners = new Vector3[4];
+        Vector3[] viewCorners = new Vector3[4];
+        child.GetWorldCorners(childCorners);
+        viewport.GetWorldCorners(viewCorners);
+
+        float childBottom = childCorners[0].y;
+        float childTop = childCorners[1].y;
+        float viewBottom = viewCorners[0].y;
+        float viewTop = viewCorners[1].y;
+
+        float contentHeight = content.rect.height;
+        float viewportHeight = viewport.rect.height;
+        float scrollable = contentHeight - viewportHeight;
+        if (scrollable <= 1f)
+            return;
+
+        float delta = 0f;
+        if (childBottom < viewBottom)
+            delta = viewBottom - childBottom;
+        else if (childTop > viewTop)
+            delta = viewTop - childTop;
+        else
+            return;
+
+        // content moves with verticalNormalizedPosition; 1 = top.
+        float next = scroll.verticalNormalizedPosition + delta / scrollable;
+        scroll.verticalNormalizedPosition = Mathf.Clamp01(next);
+        Canvas.ForceUpdateCanvases();
     }
 
     void OpenTextPopover(string title, (string label, string value, bool multiline)[] fields, Action<string[]> onSave, string footerHint = null)
     {
         ClosePopover();
         _popoverHost.gameObject.SetActive(true);
+        CreatePopoverBackdrop();
 
         var panel = CreatePanel("TextPopover", _popoverHost, Theme.Popover);
         var rt = panel.GetComponent<RectTransform>();
@@ -1474,7 +2105,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
         rt.anchorMax = new Vector2(0.5f, 0.5f);
         rt.pivot = new Vector2(0.5f, 0.5f);
         rt.sizeDelta = new Vector2(420f, 0f);
-        // Block backdrop dismiss without stealing InputField selection (no Button).
+        // Block clicks from falling through without being a Selectable.
         panel.GetComponent<Image>().raycastTarget = true;
 
         var layout = panel.AddComponent<VerticalLayoutGroup>();
@@ -1523,18 +2154,36 @@ public class UI_ProposalWorkspace : MonoBehaviour
             StartCoroutine(FocusInputNextFrame(inputs[0]));
     }
 
+    void CreatePopoverBackdrop()
+    {
+        var backdrop = CreatePanel("Backdrop", _popoverHost, new Color(0.08f, 0.09f, 0.11f, 0.45f));
+        StretchFull(backdrop.GetComponent<RectTransform>());
+        backdrop.transform.SetAsFirstSibling();
+        var img = backdrop.GetComponent<Image>();
+        img.raycastTarget = true;
+        var btn = backdrop.AddComponent<Button>();
+        btn.transition = UnityEngine.UI.Selectable.Transition.None;
+        btn.targetGraphic = img;
+        btn.onClick.AddListener(ClosePopover);
+    }
+
     IEnumerator FocusInputNextFrame(TMP_InputField input)
     {
-        // Wait until layout has sized the field; ActivateInputField before that
-        // often leaves the caret invisible / field unfocused.
+        // Wait one layout pass so ContentSizeFitter has non-zero text rects.
         yield return null;
         Canvas.ForceUpdateCanvases();
         if (input == null || !input.isActiveAndEnabled)
             yield break;
 
-        if (EventSystem.current != null)
-            EventSystem.current.SetSelectedGameObject(input.gameObject);
+        var parentRt = input.transform.parent as RectTransform;
+        if (parentRt != null)
+            LayoutRebuilder.ForceRebuildLayoutImmediate(parentRt);
 
+        yield return null;
+        if (input == null || !input.isActiveAndEnabled)
+            yield break;
+
+        ApplyVisibleCaretStyle(input);
         input.Select();
         input.ActivateInputField();
         int end = input.text != null ? input.text.Length : 0;
@@ -1554,6 +2203,8 @@ public class UI_ProposalWorkspace : MonoBehaviour
     {
         if (_popoverHost == null)
             return;
+        CloseOpenOptionDropdown();
+        _optionDropdownDismiss = null;
         for (int i = _popoverHost.childCount - 1; i >= 0; i--)
             Destroy(_popoverHost.GetChild(i).gameObject);
         _popoverHost.gameObject.SetActive(false);
@@ -1824,12 +2475,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
         input.interactable = true;
         input.navigation = new Navigation { mode = Navigation.Mode.None };
 
-        // Visible caret + selection (runtime TMP fields default to an invisible caret).
-        input.customCaretColor = true;
-        input.caretColor = Theme.Ink;
-        input.caretWidth = 2;
-        input.caretBlinkRate = 0.85f;
-        input.selectionColor = new Color(0.35f, 0.55f, 0.95f, 0.35f);
+        ApplyVisibleCaretStyle(input);
 
         // Keep ColorBlock white so it doesn't multiply-darken Theme.InputFill.
         var colors = input.colors;
@@ -1841,7 +2487,29 @@ public class UI_ProposalWorkspace : MonoBehaviour
         input.colors = colors;
         input.transition = UnityEngine.UI.Selectable.Transition.ColorTint;
 
+        // Clicking an unfocused field should show the caret immediately.
+        input.onSelect.AddListener(_ =>
+        {
+            ApplyVisibleCaretStyle(input);
+            if (!input.isFocused)
+                input.ActivateInputField();
+            input.ForceLabelUpdate();
+        });
+
         return input;
+    }
+
+    static void ApplyVisibleCaretStyle(TMP_InputField input)
+    {
+        if (input == null)
+            return;
+
+        // Runtime TMP fields often default to an invisible / zero caret.
+        input.customCaretColor = true;
+        input.caretColor = Theme.Ink;
+        input.caretWidth = Mathf.Max(2, input.caretWidth);
+        input.caretBlinkRate = 0.85f;
+        input.selectionColor = new Color(0.35f, 0.55f, 0.95f, 0.35f);
     }
 
     #endregion
