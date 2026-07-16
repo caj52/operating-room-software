@@ -261,7 +261,13 @@ public partial class AttachmentPoint : MonoBehaviour
             _hasBeenInitialized = true;
         }
     }
-    //Anwar Edits
+    /// <summary>
+    /// Runtime entry point. During room load this waits until loading finishes so callers
+    /// that fire from Start/Awake don't MoveUp before saved transforms are applied.
+    /// Room load itself must call <see cref="ApplyProperParentImmediate"/> synchronously
+    /// after transforms are restored — otherwise settle runs in the pre-MoveUp tree and
+    /// the deferred MoveUp freezes wrong world poses.
+    /// </summary>
     public async void SetToProperParent()
     {
         while (ConfigurationManager.IsLoading)
@@ -270,12 +276,21 @@ public partial class AttachmentPoint : MonoBehaviour
             if (!Application.isPlaying) throw new AppQuitInTaskException();
         }
 
+        ApplyProperParentImmediate();
+    }
+
+    /// <summary>
+    /// Synchronously promote this AP when <see cref="MoveUpOnAttach"/> is set.
+    /// Safe to call during load after saved transforms have been applied.
+    /// </summary>
+    public void ApplyProperParentImmediate()
+    {
         if (!MoveUpOnAttach || _hasNormalizedParent) return;
 
         // Find parent attachment point
         Transform current = transform.parent;
         AttachmentPoint parentAP = null;
-        
+
         while (current != null && parentAP == null)
         {
             parentAP = current.GetComponent<AttachmentPoint>();
@@ -347,17 +362,29 @@ public partial class AttachmentPoint : MonoBehaviour
     {
         RemoveNullSelectables(); // Ensure no nulls before updating status
         int multiAllowed = MultiAttach ? MultiLimit : 0;
-        bool isMouseOverAnyParentSelectable = ParentSelectables.FirstOrDefault(item => item.IsMouseOver) != default;
+        bool isMouseOverAnyParentSelectable = ParentSelectables.Any(item => item != null && item.IsMouseOver);
         bool areAnyParentSelectablesSelected = AreAnyParentSelectablesSelected;
-        Renderer.enabled = (isMouseOverAnyParentSelectable || _attachmentPointHovered) && !areAnyParentSelectablesSelected && AttachedSelectable.Count <= multiAllowed;
-        HighlightHovered.highlighted = _attachmentPointHovered && !areAnyParentSelectablesSelected && AttachedSelectable.Count <= multiAllowed;
-        _collider.enabled = AttachedSelectable.Count <= multiAllowed && !areAnyParentSelectablesSelected;
+        bool showInteractable = AttachedSelectable.Count <= multiAllowed && !areAnyParentSelectablesSelected;
+
+        if (Renderer != null)
+            Renderer.enabled = (isMouseOverAnyParentSelectable || _attachmentPointHovered) && showInteractable;
+        if (HighlightHovered != null)
+            HighlightHovered.highlighted = _attachmentPointHovered && showInteractable;
+
+        // Collider may be missing on some AP meshes, or stripped/restored during load optimization.
+        if (_collider == null)
+            _collider = GetComponentInChildren<Collider>(true);
+        if (_collider != null)
+            _collider.enabled = showInteractable;
+
         StatusUpdated?.Invoke(AttachedSelectable.Count > 0);
     }
 
     public void RefreshStatusForLoad()
     {
         RemoveNullSelectables(); // Clean up after loading
+        if (_collider == null)
+            _collider = GetComponentInChildren<Collider>(true);
         UpdateComponentStatus();
     }
 

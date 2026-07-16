@@ -298,6 +298,10 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             return;
 
         _deferInitUntilLoadComplete = false;
+        // Awake ran before pass-2 parenting, so re-resolve attachment/selectable parents now.
+        CacheParentReferences();
+        if (ParentAttachmentPoint != null)
+            ParentAttachmentPoint.SetAttachedSelectable(this);
         InitializeComponents();
         InitializeAfterStart();
         _gizmoHandler?.RefreshGizmoCapabilities();
@@ -1837,21 +1841,42 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                         normal *= -1;
                     }
 
-                    if (SpecialTypes.Contains(SpecialSelectableType.Door))
+                    bool isDoor = SpecialTypes.Contains(SpecialSelectableType.Door);
+                    if (isDoor)
                     {
-                        // Seat the door flush in the wall plane at the click point
-                        // (embed half thickness along the wall normal), floor-aligned.
-                        Vector3 wallNormal = hit.normal.normalized;
-                        if (hit.collider.gameObject.TryGetComponent(out RoomBoundary roomBoundary))
+                        // Door mesh + WallCutter CutArea are authored for the interior
+                        // face of the wall, facing into the room. Colliders live on a
+                        // child of RoomBoundary, so look up the parent wall.
+                        RoomBoundary roomBoundary =
+                            hit.collider.GetComponentInParent<RoomBoundary>();
+                        Vector3 outward;
+                        float halfThickness = RoomBoundary.DefaultWallThickness / 2f;
+
+                        if (roomBoundary != null &&
+                            roomBoundary.RoomBoundaryType >= RoomBoundaryType.WallSouth &&
+                            roomBoundary.RoomBoundaryType <= RoomBoundaryType.WallWest)
                         {
-                            wallNormal = GetDoorWallOutwardNormal(roomBoundary.RoomBoundaryType);
+                            outward = GetDoorWallOutwardNormal(roomBoundary.RoomBoundaryType);
+                            // Same depth as the pre-flush formula: interior face of the wall.
+                            destination = roomBoundary.transform.position - outward * halfThickness;
+                            // Keep the click's lateral position on the wall plane.
+                            if (Mathf.Abs(outward.x) > 0.5f)
+                                destination.z = hit.point.z;
+                            else
+                                destination.x = hit.point.x;
+                        }
+                        else
+                        {
+                            // Interior-face hit.normal points into the room.
+                            Vector3 inward = hit.normal.normalized;
+                            if (Mathf.Abs(inward.y) > 0.5f)
+                                inward = Vector3.back; // floor/ceiling hit — don't lay flat
+                            outward = -inward;
+                            destination = hit.point;
                         }
 
-                        float halfThickness = RoomBoundary.DefaultWallThickness / 2f;
-                        destination = hit.point - wallNormal * halfThickness;
                         destination.y = 0f;
-                        // Face into the room (opposite wall outward).
-                        normal = -wallNormal;
+                        normal = -outward; // face into the room
                     }
 
                     if (UI_ToggleSnapping.SnappingEnabled)
@@ -1867,12 +1892,15 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                         }
                         else if (xMag > yMag && xMag > zMag)
                         {
-                            destination.y = RoundToNearestHalfInch(destination.y);
+                            // Doors stay floor-aligned and wall-depth locked.
+                            if (!isDoor)
+                                destination.y = RoundToNearestHalfInch(destination.y);
                             destination.z = RoundToNearestHalfInch(destination.z);
                         }
                         else if (zMag > xMag && zMag > yMag)
                         {
-                            destination.y = RoundToNearestHalfInch(destination.y);
+                            if (!isDoor)
+                                destination.y = RoundToNearestHalfInch(destination.y);
                             destination.x = RoundToNearestHalfInch(destination.x);
                         }
                     }

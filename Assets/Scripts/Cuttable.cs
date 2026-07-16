@@ -177,11 +177,25 @@ public class Cuttable : MonoBehaviour
                 out _,
                 out _);
 
-            if (!collides) continue;
+            // Triggers / thin walls sometimes fail ComputePenetration even when the
+            // cut box clearly overlaps — fall back to world bounds.
+            if (!collides)
+            {
+                Bounds wallBounds = _collider.bounds;
+                Bounds cutBounds = wallCutter.Collider.bounds;
+                // Slight pad so a door seated on the interior face still registers.
+                cutBounds.Expand(0.02f);
+                if (!wallBounds.Intersects(cutBounds))
+                    continue;
+            }
 
             var result = CSG.Subtract(_filter.gameObject, wallCutter.CutArea);
+            if (result == null)
+                continue;
 
-            var mesh = ((Mesh)result);
+            var mesh = result.mesh;
+            if (mesh == null || mesh.vertexCount == 0)
+                continue;
             Vector3[] verts = mesh.vertices;
 
             for (int i = 0; i < verts.Length; i++)

@@ -56,6 +56,10 @@ public class TrackedObject : MonoBehaviour
     }
 
     [NonSerialized] public Data data;
+    // Data is a struct — default(Data) has Quaternion(0,0,0,0) and Vector3.zero, which would
+    // zero out scale/rotation if RestoreTransform ran before StoreValues was ever called
+    // (e.g. dynamically-created child rows/panels that have no row in the save file).
+    [NonSerialized] public bool HasStoredValues;
     private Vector3 _originalLocalPosition;
     private Quaternion _originalLocalRotation;
     private bool _hasStoredOriginalTransform;
@@ -149,6 +153,7 @@ public class TrackedObject : MonoBehaviour
     public void StoreValues(TrackedObject.Data d)
     {
         data = d;
+        HasStoredValues = true;
         if (data.isAttachmentPoint && !_hasStoredOriginalTransform)
         {
             _originalLocalPosition = data.originalLocalPosition;
@@ -174,13 +179,17 @@ public class TrackedObject : MonoBehaviour
 
             if (d.scaleLevel != null && selectable.ScaleLevels != null)
             {
-                var scale = selectable.ScaleLevels.FirstOrDefault(x => x.Size == d.scaleLevel.Size);
+                var scale = selectable.ScaleLevels.FirstOrDefault(x => x.Size == d.scaleLevel.Size)
+                            ?? d.scaleLevel;
                 if (scale != null)
                 {
                     if (ConfigurationManager.IsLoading)
                         selectable.RestoreScaleLevelFromSave(scale);
                     else
                         selectable.SetScaleLevel(scale, true, false);
+                    // Even when scaleLevels was empty/missing, a concrete saved scale must
+                    // block InitializeAfterStart from resetting to ModelDefault.
+                    selectable.ScaleLevelsRestoredFromSave = true;
                 }
             }
         }

@@ -60,25 +60,30 @@ public class ConfigurationManager : MonoBehaviour
         if (string.IsNullOrEmpty(rawPath))
             return null;
 
-        string pathWithSlash = rawPath[0] == '/' ? rawPath : "/" + rawPath;
-
-        if (_newObjects != null)
-        {
-            foreach (TrackedObject to in _newObjects)
-            {
-                if (to == null)
-                    continue;
-
-                foreach (Transform t in to.GetComponentsInChildren<Transform>(true))
-                {
-                    if (GetGameObjectPath(t.gameObject) == pathWithSlash)
-                        return t;
-                }
-            }
-        }
+        GameObject found = FindInLoadedObjects(rawPath);
+        if (found != null)
+            return found.transform;
 
         GameObject active = GameObject.Find(NormalizeFindPath(rawPath));
         return active != null ? active.transform : null;
+    }
+
+    /// <summary>
+    /// Paths are saved without RoomLoadSandbox. While objects are parented under the sandbox
+    /// during load, strip that prefix so exact path compares still work. Never suffix-match —
+    /// boom trees have many nodes named AttachPoint and a suffix match parents to the wrong one.
+    /// </summary>
+    private static string GetLoadComparablePath(GameObject obj)
+    {
+        string path = GetGameObjectPath(obj);
+        const string sandboxPrefix = "/RoomLoadSandbox";
+        if (path.StartsWith(sandboxPrefix, StringComparison.Ordinal))
+            path = path.Substring(sandboxPrefix.Length);
+        if (string.IsNullOrEmpty(path))
+            path = "/";
+        else if (path[0] != '/')
+            path = "/" + path;
+        return path;
     }
 
     private void Awake()
@@ -403,6 +408,7 @@ public class ConfigurationManager : MonoBehaviour
                 }
 
                 FinalizeLoadedInstanceColliders();
+                RestoreAllLoadedTransforms();
                 FinalizeLoadedAttachmentPoints();
                 BatchActivateLoadedObjects();
                 CompleteDeferredSelectableInitialization();
@@ -670,6 +676,15 @@ public class ConfigurationManager : MonoBehaviour
                 guidTimer.Stop();
                 AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "randomizeGuids", guidTimer.ElapsedMilliseconds);
 
+                // Re-apply every saved transform in the canonical (pre-MoveUp) hierarchy.
+                // Pass2 restored children before pass4 fixed AP locals (e.g. drop-tube AP scaleZ=5).
+                var transformTimer = Stopwatch.StartNew();
+                RestoreAllLoadedTransforms();
+                transformTimer.Stop();
+                AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "restoreAllTransforms", transformTimer.ElapsedMilliseconds,
+                    $"{_newObjects.Count} root(s)");
+
+                // MoveUp must run AFTER canonical transforms, BEFORE activation/settle.
                 var attachmentTimer = Stopwatch.StartNew();
                 FinalizeLoadedAttachmentPoints();
                 attachmentTimer.Stop();
@@ -838,7 +853,15 @@ public class ConfigurationManager : MonoBehaviour
             if (parent != null)
                 go.transform.SetParent(parent, false);
             else
+            {
                 go.transform.SetParent(null, true);
+                if (!string.IsNullOrEmpty(data.parentPath) || !string.IsNullOrEmpty(data.parent))
+                {
+                    Debug.LogError(
+                        $"[RoomLoad] Orphaned '{data.UIButtonname ?? data.objectName}' — " +
+                        $"could not resolve parentPath='{data.parentPath}' parent='{data.parent}' parentGuid='{data.parentGuid}'");
+                }
+            }
 
             if (trackedObj != null)
             {
@@ -882,7 +905,7 @@ public class ConfigurationManager : MonoBehaviour
 
     // GameObject.Find only searches active objects, so embedded boom parts that are still
     // inactive at Pass 3 (e.g. unselected scale-level siblings) were never found. Search the
-    // freshly-instantiated hierarchy (including inactive objects) first, same as FindLoadedParentTransform.
+    // freshly-instantiated hierarchy (including inactive objects) first.
     private GameObject FindInLoadedObjects(string rawPath)
     {
         if (string.IsNullOrEmpty(rawPath) || _newObjects == null)
@@ -896,7 +919,7 @@ public class ConfigurationManager : MonoBehaviour
 
             foreach (Transform t in to.GetComponentsInChildren<Transform>(true))
             {
-                if (GetGameObjectPath(t.gameObject) == pathWithSlash)
+                if (GetLoadComparablePath(t.gameObject) == pathWithSlash)
                     return t.gameObject;
             }
         }
@@ -948,8 +971,38 @@ public class ConfigurationManager : MonoBehaviour
     }
 
     /// <summary>
-    /// After config load: reassemble boom heads and re-apply transforms/UVs so
-    /// arms are not left in a flat/elevation pose and materials cover arm length.
+    /// Applies saved local/world transforms to every TrackedObject under loaded roots,
+    /// including embedded selectables and attachment points. Must run while the hierarchy
+    /// is still in canonical (pre-MoveUp) form.
+    /// </summary>
+    private void RestoreAllLoadedTransforms()
+    {
+        if (_newObjects == null)
+            return;
+
+        foreach (TrackedObject to in _newObjects)
+        {
+            if (to == null)
+                continue;
+
+            foreach (TrackedObject childTo in to.GetComponentsInChildren<TrackedObject>(true))
+            {
+                if (childTo == null || !childTo.HasStoredValues)
+                    continue;
+
+                bool isRoot = childTo.transform.parent == null || childTo.transform == childTo.transform.root;
+                try { childTo.RestoreTransform(isRoot: isRoot); }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[RestoreAllLoadedTransforms] failed on {childTo.name}: {ex.Message}");
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// After MoveUp + activation: reassemble boom heads and refresh UVs.
+    /// Does not re-apply saved locals — that would undo MoveUp parent changes.
     /// </summary>
     private void SettleLoadedBoomAssembly()
     {
@@ -961,27 +1014,16 @@ public class ConfigurationManager : MonoBehaviour
             if (to == null)
                 continue;
 
-            var boomHead = to.GetComponent<BoomHeadScaleHandler>();
-            if (boomHead != null && to.TryGetComponent(out Selectable sel)
-                && sel.CurrentScaleLevel != null)
+            foreach (BoomHeadScaleHandler boomHead in to.GetComponentsInChildren<BoomHeadScaleHandler>(true))
             {
+                if (boomHead == null) continue;
+                if (!boomHead.TryGetComponent(out Selectable sel) || sel.CurrentScaleLevel == null)
+                    continue;
                 try { boomHead.ReassembleRows(sel.CurrentScaleLevel); }
                 catch (Exception ex)
                 {
-                    Debug.LogWarning($"[SettleLoadedBoomAssembly] ReassembleRows failed on {to.name}: {ex.Message}");
+                    Debug.LogWarning($"[SettleLoadedBoomAssembly] ReassembleRows failed on {boomHead.name}: {ex.Message}");
                 }
-            }
-        }
-
-        foreach (TrackedObject to in _newObjects)
-        {
-            if (to == null)
-                continue;
-            bool isRoot = to.transform.parent == null || to.transform == to.transform.root;
-            try { to.RestoreTransform(isRoot: isRoot); }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[SettleLoadedBoomAssembly] RestoreTransform failed on {to.name}: {ex.Message}");
             }
         }
 
@@ -1164,44 +1206,85 @@ public class ConfigurationManager : MonoBehaviour
         if (!string.IsNullOrEmpty(to.instance_guid))
             _guidToGameObject.TryGetValue(to.instance_guid, out apGO);
 
+        if (apGO == null && !string.IsNullOrEmpty(to.selfPath))
+            apGO = FindInLoadedObjects(to.selfPath) ?? GameObject.Find(NormalizeFindPath(to.selfPath));
+        if (apGO == null && !string.IsNullOrEmpty(to.parent))
+            apGO = FindInLoadedObjects(to.parent) ?? GameObject.Find(NormalizeFindPath(to.parent));
         if (apGO == null && !string.IsNullOrEmpty(to.parentPath))
-            apGO = GameObject.Find(NormalizeFindPath(to.parentPath));
+            apGO = FindInLoadedObjects(to.parentPath) ?? GameObject.Find(NormalizeFindPath(to.parentPath));
 
         if (apGO == null)
         {
-            Debug.LogError($"Could not find attachment point for {to.parentPath} (GUID: {to.instance_guid})");
+            Debug.LogError($"Could not find attachment point for {to.selfPath ?? to.parentPath} (GUID: {to.instance_guid})");
             return;
         }
-        if (!apGO.TryGetComponent<TrackedObject>(out var trackedObject))
+
+        // Prefer the AttachmentPoint on the resolved node (selfPath), not every nested AP under a parent.
+        AttachmentPoint attPoint = apGO.GetComponent<AttachmentPoint>();
+        if (attPoint == null)
+            attPoint = apGO.GetComponentInChildren<AttachmentPoint>(true);
+        if (attPoint == null)
         {
-            Debug.LogError($"GameObject at {to.parentPath} did not have TrackedObject component");
+            Debug.LogError($"Expected AttachmentPoint on {to.selfPath ?? to.parentPath} but none found.");
+            return;
+        }
+
+        if (!attPoint.TryGetComponent<TrackedObject>(out var trackedObject))
+        {
+            Debug.LogError($"AttachmentPoint at {to.selfPath ?? to.parentPath} did not have TrackedObject component");
             return;
         }
 
         trackedObject.StoreValues(to);
-        var attachmentPoints = apGO.GetComponentsInChildren<AttachmentPoint>(true);
-        if (attachmentPoints == null || attachmentPoints.Length == 0)
+        // Save captures AP locals after length/scale (e.g. drop-tube AP z=0.675, scaleZ=5).
+        // Without this, children restore against prefab AP pose and the whole boom chain shifts.
+        trackedObject.RestoreTransform(isRoot: false);
+        AssetPipelineDiagnostics.Log("RoomLoad.AttachmentPoint",
+            $"Restored AP '{attPoint.name}' localPos={to.localPosition} localScale={to.localScale}");
+
+        // Boom parts stay inactive until BatchActivate — only wire direct selectable children
+        // of this AP (nested APs are processed as their own saved rows).
+        for (int i = 0; i < attPoint.transform.childCount; i++)
         {
-            Debug.LogError($"Expected AttachmentPoint on {to.parentPath} but none found.");
-            return;
+            Transform child = attPoint.transform.GetChild(i);
+            if (!child.TryGetComponent<Selectable>(out var childSelectable))
+                continue;
+
+            attPoint.SetAttachedSelectable(childSelectable);
+            childSelectable.ParentAttachmentPoint = attPoint;
         }
-        foreach (var attPoint in attachmentPoints)
-        {
-            if (attPoint == null) continue;
-            var childSelectable = attPoint.GetComponentInChildren<Selectable>();
-            if (childSelectable != null) attPoint.AttachedSelectable.Add(childSelectable);
-            _newPoints.Add(attPoint);
-        }
+
+        _newPoints.Add(attPoint);
     }
 
     private void FinalizeLoadedAttachmentPoints()
     {
+        // Depth-first so parent APs MoveUp before children that depend on them.
+        var moveUpPoints = new List<AttachmentPoint>();
         foreach (TrackedObject to in _newObjects)
         {
             if (to == null) continue;
             foreach (AttachmentPoint ap in to.GetComponentsInChildren<AttachmentPoint>(true))
-                ap.SetToProperParent();
+            {
+                if (ap != null && ap.MoveUpOnAttach)
+                    moveUpPoints.Add(ap);
+            }
         }
+
+        moveUpPoints.Sort((a, b) => GetHierarchyDepth(a.transform).CompareTo(GetHierarchyDepth(b.transform)));
+        foreach (AttachmentPoint ap in moveUpPoints)
+            ap.ApplyProperParentImmediate();
+    }
+
+    private static int GetHierarchyDepth(Transform t)
+    {
+        int depth = 0;
+        while (t != null)
+        {
+            depth++;
+            t = t.parent;
+        }
+        return depth;
     }
 
     private void CompleteDeferredSelectableInitialization()
@@ -1242,7 +1325,13 @@ public class ConfigurationManager : MonoBehaviour
             restored += PlacementLoadOptimizer.RestoreInstanceCollidersAfterLoad(to.gameObject);
 
             foreach (AttachmentPoint attachmentPoint in to.GetComponentsInChildren<AttachmentPoint>(true))
-                attachmentPoint.RefreshStatusForLoad();
+            {
+                try { attachmentPoint.RefreshStatusForLoad(); }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[RestoreLoadedInstanceColliders] RefreshStatusForLoad failed on {attachmentPoint.name}: {ex.Message}");
+                }
+            }
         }
 
         return restored;
