@@ -221,7 +221,20 @@ public class Measurable : MonoBehaviour
 
     private void UpdateMeasurementViaRaycast(Vector3 direction, Measurement measurement, bool ignoreSelectables = false)
     {
-        Ray ray = new Ray(transform.position, direction);
+        // Cutsheets for surgical lights: cast from the light body, not a lower child pivot.
+        Vector3 origin = transform.position;
+        if (Selectable.IsInElevationPhotoMode)
+        {
+            var lightFactory = GetComponentInParent<LightFactory>();
+            if (lightFactory != null)
+            {
+                var rend = lightFactory.GetComponentInChildren<Renderer>();
+                if (rend != null)
+                    origin = rend.bounds.center;
+            }
+        }
+
+        Ray ray = new Ray(origin, direction);
         int mask = LayerMask.GetMask("Wall");
         if (ignoreSelectables)
         {
@@ -328,7 +341,8 @@ public class Measurable : MonoBehaviour
                     measurer.LineRenderers[1].SetPosition(1, line2End);
                     measurer.LineRenderers[1].startWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(line2Start, camera);
                     measurer.LineRenderers[1].endWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(line2End, camera);
-                    heightMod += 0.15f;
+                    // Extra vertical separation so elevation PDF dims do not overlap.
+                    heightMod += 0.22f;
 
                     break;
             }

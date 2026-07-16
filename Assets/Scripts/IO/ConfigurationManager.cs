@@ -407,13 +407,29 @@ public class ConfigurationManager : MonoBehaviour
                 BatchActivateLoadedObjects();
                 CompleteDeferredSelectableInitialization();
                 RestoreLoadedInstanceColliders();
+                SettleLoadedBoomAssembly();
+
+                if (_newObjects == null || _newObjects.Count == 0)
+                {
+                    UI_DialogPrompt.Open(
+                        "Could not reopen this configuration.\n"
+                        + "Required catalog items are missing or offline.\n"
+                        + "Check the console for missing GUID details.",
+                        new ButtonAction("OK"));
+                    if (gameObject != null)
+                        Destroy(gameObject);
+                    return null;
+                }
 
                 OnConfigurationLoadComplete?.Invoke(gameObject);
                 return gameObject;
             }
             else
             {
-                UI_DialogPrompt.Open("File no longer exists.");
+                UI_DialogPrompt.Open(
+                    "This configuration file no longer exists.\n"
+                    + "Saved configs must live under Saved/Configs to reopen after restart.",
+                    new ButtonAction("OK"));
                 Debug.LogError($"File at {file} no longer exists");
                 return null;
             }
@@ -429,40 +445,111 @@ public class ConfigurationManager : MonoBehaviour
     public void LoadRoom(string file)
     {
         AssetPipelineDiagnostics.Log("RoomLoad", $"LoadRoom file='{file}' exists={File.Exists(file)}");
-        Debug.Log($"Clearing default room objects");
+        Debug.Log($"Loading Room at {file}");
+
+        if (!File.Exists(file))
+        {
+            UI_DialogPrompt.Open(
+                "This room save file no longer exists.\n"
+                + "Room saves must live under the AppData Saved folder to reopen.",
+                new ButtonAction("OK"));
+            return;
+        }
+
+        CurrentRoomSaveName = Path.GetFileNameWithoutExtension(file).Replace("_", " ");
+        CreateTracker();
+        string json = File.ReadAllText(file);
+        _roomConfiguration = JsonConvert.DeserializeObject<RoomConfiguration>(json);
+
+        bool saveHasSurgicalBed = RoomSaveContainsNameToken("OR_Table");
+        bool saveHasCeilingLights = RoomSaveContainsNameToken("CeilingLight");
+
+        Debug.Log($"Clearing default room objects (preserve bed={!saveHasSurgicalBed}, lights={!saveHasCeilingLights})");
         List<TrackedObject> existingObjects = FindObjectsOfType<TrackedObject>().ToList();
 
         foreach (TrackedObject to in existingObjects)
         {
-            Transform topParent = to.transform; while (topParent.parent != null) topParent = topParent.parent;
             if (to == null) continue;
-            if (to.transform == to.transform.root || topParent.name == duplicateRoom.currentRoom.name && !IsBaseboard(to.GetData()) && !IsWallProtector(to.GetData()) && !IsRoomBoundary(to.GetData()))
+            Transform topParent = to.transform;
+            while (topParent.parent != null) topParent = topParent.parent;
+            if (to.transform == to.transform.root
+                || topParent.name == duplicateRoom.currentRoom.name
+                   && !IsBaseboard(to.GetData())
+                   && !IsWallProtector(to.GetData())
+                   && !IsRoomBoundary(to.GetData()))
+            {
+                // Keep scene base-room defaults when the save does not include them.
+                if ((!saveHasSurgicalBed && IsSceneBaseSurgicalBed(to))
+                    || (!saveHasCeilingLights && IsSceneBaseCeilingLight(to)))
+                {
+                    continue;
+                }
+
                 Destroy(to.gameObject);
+            }
         }
         existingObjects.Clear();
         existingObjects.TrimExcess();
 
-        Selectable.DestroyAll();
+        // Same preserve rules for remaining ActiveSelectables (DestroyAll would wipe base defaults).
+        Selectable.DeselectAll();
+        foreach (var sel in Selectable.ActiveSelectables.Where(x => x != null && x.IsDestructible).ToList())
+        {
+            if (sel.IsDestroyed)
+                continue;
+            var to = sel.GetComponent<TrackedObject>();
+            if (to != null
+                && ((!saveHasSurgicalBed && IsSceneBaseSurgicalBed(to))
+                    || (!saveHasCeilingLights && IsSceneBaseCeilingLight(to))))
+            {
+                continue;
+            }
+
+            Destroy(sel.gameObject);
+        }
 
         // Sticky proposal title from a prior room must not leak into this load.
         ProposalPreviewModel.ConfigNameOverride = null;
 
-        Debug.Log($"Loading Room at {file}");
+        TryRestoreClientMetaData();
+        LoadRoom();
+    }
 
-        if (File.Exists(file))
+    private bool RoomSaveContainsNameToken(string token)
+    {
+        if (_roomConfiguration.collections == null || string.IsNullOrEmpty(token))
+            return false;
+
+        foreach (Tracker t in _roomConfiguration.collections)
         {
-            CurrentRoomSaveName = Path.GetFileNameWithoutExtension(file).Replace("_", " ");
-            CreateTracker();
-            string json = File.ReadAllText(file);
-
-            _roomConfiguration = JsonConvert
-                .DeserializeObject<RoomConfiguration>(json);
-
-            // restore client metadata into UI
-            TryRestoreClientMetaData();
-
-            LoadRoom();
+            if (t?.objects == null) continue;
+            foreach (TrackedObject.Data d in t.objects)
+            {
+                if ((!string.IsNullOrEmpty(d.objectName) && d.objectName.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0)
+                    || (!string.IsNullOrEmpty(d.UIButtonname) && d.UIButtonname.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0))
+                {
+                    return true;
+                }
+            }
         }
+
+        return false;
+    }
+
+    private static bool IsSceneBaseSurgicalBed(TrackedObject to)
+    {
+        if (to == null) return false;
+        string blob = (to.name ?? "") + " " + (to.GetComponent<Selectable>()?.MetaData?.Name ?? "");
+        return blob.IndexOf("OR_Table", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static bool IsSceneBaseCeilingLight(TrackedObject to)
+    {
+        if (to == null) return false;
+        string blob = (to.name ?? "") + " " + (to.GetComponent<Selectable>()?.MetaData?.Name ?? "")
+                      + " " + (to.GetComponent<Selectable>()?.UIButtonName ?? "");
+        return blob.IndexOf("CeilingLight", StringComparison.OrdinalIgnoreCase) >= 0
+               || blob.IndexOf("Ceiling Light", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     private void TryRestoreClientMetaData()
@@ -605,6 +692,8 @@ public class ConfigurationManager : MonoBehaviour
                 restoreColliderTimer.Stop();
                 AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "restoreInstanceColliders", restoreColliderTimer.ElapsedMilliseconds,
                     $"{restoredColliderCount} mesh collider(s) on {_newObjects.Count} object(s)");
+
+                SettleLoadedBoomAssembly();
 
                 progression += progressionTicks;
                 token.SetProgress(progression);
@@ -752,7 +841,10 @@ public class ConfigurationManager : MonoBehaviour
                 go.transform.SetParent(null, true);
 
             if (trackedObj != null)
+            {
                 trackedObj.StoreValues(data);
+                ResetMaterialPalettes(trackedObj);
+            }
 
             if (parent != null)
                 trackedObj?.RestoreTransform(isRoot: false);
@@ -788,6 +880,29 @@ public class ConfigurationManager : MonoBehaviour
                 $"{_pendingAttachmentPoints.Count} object(s)");
     }
 
+    // GameObject.Find only searches active objects, so embedded boom parts that are still
+    // inactive at Pass 3 (e.g. unselected scale-level siblings) were never found. Search the
+    // freshly-instantiated hierarchy (including inactive objects) first, same as FindLoadedParentTransform.
+    private GameObject FindInLoadedObjects(string rawPath)
+    {
+        if (string.IsNullOrEmpty(rawPath) || _newObjects == null)
+            return null;
+
+        string pathWithSlash = rawPath[0] == '/' ? rawPath : "/" + rawPath;
+        foreach (TrackedObject to in _newObjects)
+        {
+            if (to == null)
+                continue;
+
+            foreach (Transform t in to.GetComponentsInChildren<Transform>(true))
+            {
+                if (GetGameObjectPath(t.gameObject) == pathWithSlash)
+                    return t.gameObject;
+            }
+        }
+        return null;
+    }
+
     private GameObject ProcessEmbeddedSelectable(TrackedObject.Data to)
     {
         try
@@ -795,11 +910,11 @@ public class ConfigurationManager : MonoBehaviour
             // Try to find the embedded object by selfPath, parent, or parentPath
             GameObject go = null;
             if (!string.IsNullOrEmpty(to.selfPath))
-                go = GameObject.Find(NormalizeFindPath(to.selfPath));
+                go = FindInLoadedObjects(to.selfPath) ?? GameObject.Find(NormalizeFindPath(to.selfPath));
             if (go == null && !string.IsNullOrEmpty(to.parent))
-                go = GameObject.Find(NormalizeFindPath(to.parent));
+                go = FindInLoadedObjects(to.parent) ?? GameObject.Find(NormalizeFindPath(to.parent));
             if (go == null && !string.IsNullOrEmpty(to.parentPath))
-                go = GameObject.Find(NormalizeFindPath(to.parentPath));
+                go = FindInLoadedObjects(to.parentPath) ?? GameObject.Find(NormalizeFindPath(to.parentPath));
             if (go == null)
                 throw new NullReferenceException($"Could not find embedded selectable for path: {to.selfPath} or parent: {to.parent}");
 
@@ -829,12 +944,58 @@ public class ConfigurationManager : MonoBehaviour
             return;
         }
 
-        if (obj.TryGetComponent(out MaterialPalette palette))
+        obj.RestoreMaterials();
+    }
+
+    /// <summary>
+    /// After config load: reassemble boom heads and re-apply transforms/UVs so
+    /// arms are not left in a flat/elevation pose and materials cover arm length.
+    /// </summary>
+    private void SettleLoadedBoomAssembly()
+    {
+        if (_newObjects == null)
+            return;
+
+        foreach (TrackedObject to in _newObjects)
         {
-            for (int i = 0; i < obj.GetMaterials().Count(); i++)
+            if (to == null)
+                continue;
+
+            var boomHead = to.GetComponent<BoomHeadScaleHandler>();
+            if (boomHead != null && to.TryGetComponent(out Selectable sel)
+                && sel.CurrentScaleLevel != null)
             {
-                string modifiedName = obj.GetMaterials()[i].Replace(" (Instance)", "");
-                palette.Assign(modifiedName, i);
+                try { boomHead.ReassembleRows(sel.CurrentScaleLevel); }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[SettleLoadedBoomAssembly] ReassembleRows failed on {to.name}: {ex.Message}");
+                }
+            }
+        }
+
+        foreach (TrackedObject to in _newObjects)
+        {
+            if (to == null)
+                continue;
+            bool isRoot = to.transform.parent == null || to.transform == to.transform.root;
+            try { to.RestoreTransform(isRoot: isRoot); }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[SettleLoadedBoomAssembly] RestoreTransform failed on {to.name}: {ex.Message}");
+            }
+        }
+
+        foreach (TrackedObject to in _newObjects)
+        {
+            if (to == null)
+                continue;
+            foreach (var uv in to.GetComponentsInChildren<SetUVToWorld>(true))
+            {
+                try { uv.RefreshUVs(); }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[SettleLoadedBoomAssembly] RefreshUVs failed on {to.name}: {ex.Message}");
+                }
             }
         }
     }
@@ -1191,6 +1352,13 @@ public class ConfigurationManager : MonoBehaviour
         AssetPipelineDiagnostics.Log("RoomLoad.Cache",
             $"Preloaded {bundleNames.Count} unique prefab bundle(s) for {trackedObjects.Count} tracked object(s)");
         if (missingGuids.Count > 0)
-            Debug.LogWarning($"Load cache completed with missing selectable data for {missingGuids.Count} GUID(s). First missing: {missingGuids.First()}");
+        {
+            Debug.LogWarning(
+                $"Load cache completed with missing selectable data for {missingGuids.Count} GUID(s). First missing: {missingGuids.First()}");
+            UI_DialogPrompt.Open(
+                $"Could not resolve {missingGuids.Count} catalog item(s) while loading.\n"
+                + "Some objects may be missing. Ensure the asset catalog/CDN is available.",
+                new ButtonAction("OK"));
+        }
     }
 }

@@ -158,6 +158,10 @@ public class TrackedObject : MonoBehaviour
         if (!string.IsNullOrEmpty(d.sheetName) && gameObject.TryGetComponent(out SelectablePrice sp))
         {
             sp.sheetName = d.sheetName; sp.UIObjectName = d.UIObjectName; sp.Size = d.size; sp.pricingObjectName = d.priceObjectName;
+            // SelectablePrice.Start() only fetches pricing once, before this restore runs, so
+            // objectPricingData would otherwise be stale (often null) for anything loaded from a save.
+            // Force a re-fetch now that the real sheet/object/size are in place.
+            sp.GetPricingDataFromExcel(d.sheetName);
         }
         // Restore scale levels for Selectable (including embedded selectables)
         if (gameObject.TryGetComponent(out Selectable selectable))
@@ -214,6 +218,8 @@ public class TrackedObject : MonoBehaviour
             catch (Exception ex) { Debug.LogWarning($"[TrackedObject] Failed to set active state on {name}: {ex.Message}"); }
         }
 
+        try { RestoreMaterials(); }
+        catch (Exception ex) { Debug.LogWarning($"[TrackedObject] Failed to restore materials on {name}: {ex.Message}"); }
         try { SaveUtility.RestoreEnabledStates(gameObject, data.componentEnabledStates); }
         catch (Exception ex) { Debug.LogWarning($"[TrackedObject] Failed to restore enabled states on {name}: {ex.Message}"); }
         try { SaveUtility.RestoreCustomComponentStates(gameObject, data.componentStates); }
@@ -227,6 +233,21 @@ public class TrackedObject : MonoBehaviour
             }
         }
         catch (Exception ex) { Debug.LogWarning($"[TrackedObject] Failed iterating load hooks on {name}: {ex.Message}"); }
+    }
+
+    /// <summary>Re-applies saved material names onto any MaterialPalette on this object.</summary>
+    public void RestoreMaterials()
+    {
+        if (data.materialNames == null || data.materialNames.Count == 0)
+            return;
+        if (!TryGetComponent(out MaterialPalette palette))
+            return;
+
+        for (int i = 0; i < data.materialNames.Count; i++)
+        {
+            string modifiedName = data.materialNames[i].Replace(" (Instance)", "");
+            palette.Assign(modifiedName, i);
+        }
     }
 
     void GetGUIDs()

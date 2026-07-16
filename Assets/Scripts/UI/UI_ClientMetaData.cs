@@ -102,17 +102,48 @@ public class UI_ClientMetaData : MonoBehaviour
         return t;
     }
 
+    private bool _userRequestedOpen;
+
     private void Awake()
     {
+        // Survive scene changes once — destroy duplicate scene copies so the
+        // Client Data panel does not reappear on every launch/reload.
+        if (Instance != null && Instance != this)
+        {
+            Destroy(gameObject);
+            return;
+        }
+
         Instance = this;
         DontDestroyOnLoad(gameObject);
         EnsureSalesRepFields();
         LoadSalesRepIntoFields();
+        _userRequestedOpen = false;
         gameObject.SetActive(false);
+    }
+
+    private void Start()
+    {
+        // Prefab may start active; force closed unless Open() was requested.
+        if (!_userRequestedOpen && gameObject.activeSelf)
+            gameObject.SetActive(false);
+    }
+
+    private void OnEnable()
+    {
+        if (!_userRequestedOpen)
+        {
+            // Prevent auto-popup when a scene reactivates a DDOL/prefab instance.
+            gameObject.SetActive(false);
+        }
     }
 
     private void OnDisable()
     {
+        // Ignore disable during boot / duplicate cull — only treat real user closes.
+        if (!_userRequestedOpen && string.IsNullOrEmpty(_fingerprintOnOpen))
+            return;
+
         PersistSalesRepFromFields();
         string after = BuildFingerprint();
         LastCloseHadChanges = !string.Equals(after, _fingerprintOnOpen, StringComparison.Ordinal);
@@ -134,6 +165,7 @@ public class UI_ClientMetaData : MonoBehaviour
         Instance.EnsureVisibleCaretsOnAllFields();
         Instance._fingerprintOnOpen = Instance.BuildFingerprint();
         LastCloseHadChanges = false;
+        Instance._userRequestedOpen = true;
         Instance.gameObject.SetActive(true);
     }
 
@@ -141,7 +173,10 @@ public class UI_ClientMetaData : MonoBehaviour
     {
         if (Instance == null || !Instance.gameObject.activeSelf)
             return;
+        // Keep _userRequestedOpen true through OnDisable so persist/OnClosed still run,
+        // then clear it after disable.
         Instance.gameObject.SetActive(false);
+        Instance._userRequestedOpen = false;
     }
 
     private void LoadSalesRepIntoFields()

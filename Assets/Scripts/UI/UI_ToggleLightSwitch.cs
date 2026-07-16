@@ -28,10 +28,10 @@ public class UI_ToggleLightSwitch : MonoBehaviour
 
     private void UpdateLightState(bool isOn)
     {
+        if (_selectedLight == null)
+            return;
         if (isOn != _selectedLight.isOn())
-        {
-            _selectedLight.SwitchLight();
-        }
+            _selectedLight.SetLight(isOn);
     }
 
     private void UpdateActiveState()
@@ -49,8 +49,11 @@ public class UI_ToggleLightSwitch : MonoBehaviour
             {
                 if (x.GetComponent<LightFactory>() != null)
                 {
-                    _selectedLight = x.gameObject.GetComponent<LightFactory>(); // store the value for reuse
-                    _toggle.isOn = _selectedLight.isOn(); // set the toggle to match the current state of the light (ON/OFF)
+                    _selectedLight = x.gameObject.GetComponent<LightFactory>();
+                    // Avoid firing onValueChanged while syncing UI → light (prevents U|ONE double-flip).
+                    _toggle.onValueChanged.RemoveListener(UpdateLightState);
+                    _toggle.isOn = _selectedLight.isOn();
+                    _toggle.onValueChanged.AddListener(UpdateLightState);
                 }
             });
         }

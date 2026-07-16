@@ -145,7 +145,9 @@ public class ScreenshotCapture : MonoBehaviour
         float roomHeight = RoomSize.Instance != null
             ? RoomSize.Instance.CurrentDimensions.Height.ToMeters()
             : 3f;
-        float ceilingHeight = roomHeight + 9;
+        // Sit just above the ceiling plane so top-down framing shows ceiling objects
+        // when the ceiling mesh is temporarily hidden — not far above the room.
+        float ceilingHeight = roomHeight + 0.5f;
         ceilingPoint = new Vector3(roomCenter.x, ceilingHeight, roomCenter.z);
 
         // Add all positions to the list
@@ -232,19 +234,25 @@ public class ScreenshotCapture : MonoBehaviour
             yield return new WaitUntil(() => screenshotCompleted); // Short delay for smooth capturing
         }
 
-        var ceilingBoundary = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling);
-        if (ceilingBoundary != null && ceilingBoundary.MeshRenderer != null)
-            ceilingBoundary.MeshRenderer.enabled = false;
-        // Now capture the ceiling position
+        // Hide ceiling so ceiling objects (configs, lights, diffusers) are visible top-down.
+        SetCeilingRenderersEnabled(false);
         captureCamera.transform.position = ceilingPoint;
-        // Look down from ceiling
         captureCamera.transform.rotation = Quaternion.Euler(90, 0, 0);
+        captureCamera.orthographic = true;
+        float roomWidth = RoomSize.Instance != null
+            ? Mathf.Max(RoomSize.Instance.CurrentDimensions.Width.ToMeters(),
+                RoomSize.Instance.CurrentDimensions.Depth.ToMeters())
+            : 10f;
+        captureCamera.orthographicSize = roomWidth * 0.55f;
 
         yield return new WaitForEndOfFrame();
 
         // Capture ceiling screenshot
         TakeScreenshot(roomCorners.Length + 1);
         yield return new WaitUntil(() => screenshotCompleted);
+
+        // Always restore ceiling visibility after the top-down shot.
+        SetCeilingRenderersEnabled(true);
 
         // Restore original camera settings and exposure settings
         originalState.Restore(captureCamera, urpCameraData);
@@ -263,15 +271,21 @@ public class ScreenshotCapture : MonoBehaviour
             new ButtonAction("Done"));
             ExportFolderUtility.RevealInFileManager(folderPath);
         }
-        if (OperatingRoomCamera.LiveCamera != null
-            && OperatingRoomCamera.LiveCamera.CameraType == OperatingRoomCameraType.FreeLook
-            && ceilingBoundary != null
-            && ceilingBoundary.MeshRenderer != null)
-        {
-            ceilingBoundary.MeshRenderer.enabled = true;
-        }
         LastPresentationBatchOk = true;
         screenshotBatchCompleted = true;
+    }
+
+    private static void SetCeilingRenderersEnabled(bool enabled)
+    {
+        var ceilingBoundary = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling);
+        if (ceilingBoundary == null)
+            return;
+
+        foreach (var r in ceilingBoundary.GetComponentsInChildren<Renderer>(true))
+        {
+            if (r != null)
+                r.enabled = enabled;
+        }
     }
 
     /// <summary>Result of the most recent presentation-snapshot batch.</summary>
@@ -401,7 +415,7 @@ public class ScreenshotCapture : MonoBehaviour
         captureCamera.transform.position = position;
         captureCamera.transform.rotation = rotation ?? Quaternion.Euler(90, 0, 0);
         captureCamera.orthographic = true;
-        RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling).MeshRenderer.enabled = false;
+        SetCeilingRenderersEnabled(false);
         yield return new WaitForEndOfFrame();
 
         filePath = TakeScreenshot(999);
@@ -409,11 +423,8 @@ public class ScreenshotCapture : MonoBehaviour
         // Wait until the screenshot is ACTUALLY completed
         yield return new WaitUntil(() => screenshotCompleted);
 
-        // Now restore ceiling visibility after screenshot is truly saved
-        if (OperatingRoomCamera.LiveCamera.CameraType == OperatingRoomCameraType.FreeLook)
-        {
-            RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling).MeshRenderer.enabled = true;
-        }
+        // Always restore ceiling visibility after the shot is saved.
+        SetCeilingRenderersEnabled(true);
 
         AdjustExposureForScreenshot(false);
         originalState.Restore(captureCamera, urpCameraData);

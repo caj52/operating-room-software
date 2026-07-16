@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -128,8 +128,9 @@ public class SetUVToWorld : MonoBehaviour
 
     private IEnumerator Start()
 	{
-        yield return new WaitUntil(() => _selectable.Started);
-        yield return new WaitForSeconds(5);
+        yield return new WaitUntil(() => _selectable != null && _selectable.Started);
+        yield return new WaitUntil(() => !ConfigurationManager.IsLoading);
+        yield return null;
         UpdateMaterials();
     }
 
@@ -137,6 +138,9 @@ public class SetUVToWorld : MonoBehaviour
     {
         UpdateMaterials();
     }
+
+    /// <summary>Public refresh after load/scale so arm materials extend along the full arm.</summary>
+    public void RefreshUVs() => UpdateMaterials();
 
     private void UpdateMaterials
     (Selectable.ScaleLevel scaleLevel) 

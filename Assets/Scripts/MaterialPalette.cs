@@ -47,6 +47,9 @@ public class MaterialPalette : MonoBehaviour
 
     private Material[] _currentMaterials;
 
+    /// <summary>When true, Start will not overwrite materials with zero-start defaults after a load.</summary>
+    public bool MaterialsRestoredFromSave { get; set; }
+
     private void Awake()
     {
         _instances.Add(this);
@@ -111,6 +114,9 @@ public class MaterialPalette : MonoBehaviour
             }
         }
 
+        if (MaterialsRestoredFromSave)
+            yield break;
+
         if (CanBeReadByGroup || MaterialGroup == MaterialGroup.None)
         {
             for (int i = 0; i < elements.Count(); i++)
@@ -151,10 +157,16 @@ public class MaterialPalette : MonoBehaviour
 
         try
         {
-            var mat = elements[i].materials.Single(x => x.name == material);
+            string want = NormalizeMaterialName(material);
+            var mat = elements[i].materials.FirstOrDefault(x =>
+                NormalizeMaterialName(x.name) == want);
+            if (mat == null)
+                throw new InvalidOperationException($"No match for '{material}'");
+
             mats[i] = mat;
             meshRenderer.sharedMaterials = mats;
             _currentMaterials = mats;
+            MaterialsRestoredFromSave = true;
 
             OnMaterialChanged?.Invoke
                 (new MaterialUpdateEvent(mat, MaterialGroup, i, this));
@@ -168,6 +180,13 @@ public class MaterialPalette : MonoBehaviour
             Debug.LogError($"Failed to find material \"{material}\" within element array {i}");
         }
 
+    }
+
+    private static string NormalizeMaterialName(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return string.Empty;
+        return name.Replace(" (Instance)", "").Trim();
     }
 }
 

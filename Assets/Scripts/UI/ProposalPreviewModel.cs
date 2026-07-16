@@ -23,7 +23,7 @@ public sealed class ProposalPreviewModel
     public string CompanyName { get; private set; } = "Imagine Unlimited";
     public string CompanyAddress { get; private set; } = "9155 Sterling St Suite 120";
     public string CompanyCity { get; private set; } = "Irving, TX 75063";
-    public string CompanyPhone { get; private set; } = "Tel: 1 877 789 8106";
+    public string CompanyPhone { get; private set; } = "Tel: 214.987.0404";
 
     public string SalesRepName { get; set; } = "";
     public string SalesRepEmail { get; set; } = "";

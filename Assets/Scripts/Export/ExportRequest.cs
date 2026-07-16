@@ -70,12 +70,13 @@ public class ExportRequest
 
     public static ExportRequest CreateDefaultsForRoom()
     {
+        // Full Milestone 2 deliverable set for one-click / Export All.
         return new ExportRequest
         {
             Scope = ExportScope.Room,
             IncludeObj = true,
-            IncludeElevations = false,
-            IncludeProposal = false,
+            IncludeElevations = true,
+            IncludeProposal = true,
             IncludeSnapshots = true,
             ElevationMode = ElevationExportMode.CombinedRoom,
             ObjOptions = ObjExportOptions.CreateDefaults()

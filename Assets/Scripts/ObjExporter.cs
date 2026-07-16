@@ -19,14 +19,162 @@ public static class ObjExporter
     public static UnityEvent OnMeshDataWritten { get; } = new();
     public static UnityEvent OnExportFinished { get; } = new();
     public static int count = 1;
-    public static void DoExport(
+    public static async void DoExport(
         bool makeSubmeshes,
         MeshFilter[] meshFilters,
         string name,
         bool roomPackage = false)
     {
-        // Client deliverable is a single self-contained GLB (textures embedded).
-        GlbExporter.DoExport(makeSubmeshes, meshFilters, name, roomPackage);
+        _ = roomPackage;
+
+        if (meshFilters == null || meshFilters.Length == 0)
+        {
+            Debug.LogWarning("OBJ export skipped — no mesh filters provided.");
+            OnExportFinished?.Invoke();
+            return;
+        }
+
+        ObjExporterScript.Start();
+        OnExportStarted?.Invoke();
+
+        try
+        {
+            string meshName = string.IsNullOrWhiteSpace(name) ? "Export" : name;
+            foreach (char c in Path.GetInvalidFileNameChars())
+                meshName = meshName.Replace(c, '_');
+
+            Debug.Log($"OBJ export: {meshFilters.Length} mesh filters → {meshName}.obj");
+
+            Dictionary<MeshRenderer, MeshFilter> rendererFilterMap = new();
+            foreach (var filter in meshFilters)
+            {
+                if (filter == null)
+                    continue;
+                var meshRenderer = filter.GetComponent<MeshRenderer>();
+                if (meshRenderer != null)
+                    rendererFilterMap[meshRenderer] = filter;
+            }
+
+            List<Material> materials = new();
+            List<List<CombineInstance>> combineInstancesByMaterial = new();
+            Dictionary<Material, Material> materialInstanceMap = new();
+
+            int counter = 0;
+            foreach (var kvp in rendererFilterMap)
+            {
+                ProcessMaterials(kvp.Key, kvp.Value, materials, combineInstancesByMaterial, materialInstanceMap);
+                OnMeshCombiningUpdate?.Invoke((float)(counter + 1) / (meshFilters.Length + 1));
+
+                if (counter % 10 == 0)
+                    await Task.Yield();
+
+                counter++;
+
+                if (!Application.isPlaying)
+                    throw new Exception("App quit during task");
+            }
+
+            if (materials.Count == 0 || combineInstancesByMaterial.Count == 0)
+            {
+                Debug.LogWarning("OBJ export skipped — no materials/meshes to combine.");
+                return;
+            }
+
+            List<CombineInstance> finalCombiners = new();
+            List<Mesh> tempSubmeshes = new();
+
+            for (int i = 0; i < combineInstancesByMaterial.Count; i++)
+            {
+                Mesh submesh = new()
+                {
+                    indexFormat = UnityEngine.Rendering.IndexFormat.UInt32
+                };
+                submesh.CombineMeshes(combineInstancesByMaterial[i].ToArray(), true);
+
+                CombineInstance ci = new()
+                {
+                    mesh = submesh,
+                    subMeshIndex = 0,
+                    transform = Matrix4x4.identity
+                };
+
+                finalCombiners.Add(EnsureOutwardFacingNormals(ci));
+                tempSubmeshes.Add(submesh);
+
+                if (i % 5 == 0)
+                    await Task.Yield();
+            }
+
+            Mesh finalMesh = new()
+            {
+                indexFormat = UnityEngine.Rendering.IndexFormat.UInt32
+            };
+            finalMesh.CombineMeshes(finalCombiners.ToArray(), false);
+
+            OnMeshCombineSuccess?.Invoke();
+            await Task.Yield();
+
+            ObjExportData data = new();
+            data.Obj.Append($"#{meshName}.obj\n# {DateTime.Now.ToLongDateString()}\n# {DateTime.Now.ToLongTimeString()}\n#-------\n\n");
+            data.Obj.Append($"mtllib {meshName}.mtl\n\n");
+
+            var obj = new GameObject("CombinedMesh", typeof(MeshFilter));
+            obj.GetComponent<MeshFilter>().sharedMesh = finalMesh;
+            obj.transform.position = Vector3.zero;
+
+            await ProcessTransform(obj.transform, makeSubmeshes, materials, data);
+
+            // MeshToString already wrote usemtl/newmtl blocks; write texture maps via AddMaterialToMtl.
+            data.Mtl.Clear();
+            foreach (var material in materials)
+                AddMaterialToMtl(data, material);
+
+            data.Bake();
+
+            string path = ExportPaths.ObjSceneDir;
+            Directory.CreateDirectory(path);
+            File.WriteAllText(Path.Combine(path, $"{meshName}.obj"), data.ObjString);
+            File.WriteAllText(Path.Combine(path, $"{meshName}.mtl"), data.MtlString);
+
+            count++;
+
+            var writtenTextureNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in data.Textures)
+            {
+                if (string.IsNullOrWhiteSpace(item.Name) || string.IsNullOrWhiteSpace(item.TextureBase64))
+                    continue;
+                if (!writtenTextureNames.Add(item.Name))
+                    continue;
+
+                byte[] imageByteArray = Convert.FromBase64String(item.TextureBase64);
+                File.WriteAllBytes(Path.Combine(path, $"{item.Name}.png"), imageByteArray);
+            }
+
+            // Folder package (established workflow): .obj + matching .mtl + texture PNGs
+            // side-by-side so importers load materials with the mesh.
+            OnSubMeshProcessed?.Invoke(1f);
+            OnMeshDataWritten?.Invoke();
+            Debug.Log($"OBJ export written: {Path.Combine(path, meshName + ".obj")} (mtl + textures in same folder)");
+            ExportFinishedSuccessfully?.Invoke(path);
+
+            foreach (var m in tempSubmeshes)
+                Object.Destroy(m);
+
+            Object.Destroy(finalMesh);
+            Object.Destroy(obj);
+
+            GC.Collect();
+            Resources.UnloadUnusedAssets();
+        }
+        catch (Exception e)
+        {
+            Debug.LogException(e);
+        }
+        finally
+        {
+            OnExportFinished?.Invoke();
+            ObjExporterScript.End();
+        }
     }
 
 
@@ -213,24 +361,38 @@ public static class ObjExporter
         // Illumination model
         data.Mtl.Append("illum 2\n");
 
-        // Add main texture
-        if (material.mainTexture != null)
+        // Diffuse / base color map (URP + built-in)
+        Texture mainTex = material.mainTexture;
+        if (mainTex == null && material.HasProperty("_BaseMap"))
+            mainTex = material.GetTexture("_BaseMap");
+        if (mainTex == null && material.HasProperty("_MainTex"))
+            mainTex = material.GetTexture("_MainTex");
+        if (mainTex != null)
         {
-            string textureName = material.mainTexture.name;
+            string textureName = SanitizeTextureFileName(mainTex.name);
             data.Mtl.Append($"map_Kd {textureName}.png\n");
-            data.AddTexture(material.mainTexture, textureName);
+            data.AddTexture(mainTex, textureName);
         }
 
         // Add normal map (if available)
         if (material.HasProperty("_BumpMap") && material.GetTexture("_BumpMap") is Texture bumpMap)
         {
-            string bumpMapName = bumpMap.name;
+            string bumpMapName = SanitizeTextureFileName(bumpMap.name);
             float bumpScale = material.HasProperty("_BumpScale") ? material.GetFloat("_BumpScale") : 1.0f;
             data.Mtl.Append($"map_bump -bm {bumpScale} {bumpMapName}.png\n");
             data.AddTexture(bumpMap, bumpMapName);
         }
 
         data.Mtl.Append("\n");
+    }
+
+    private static string SanitizeTextureFileName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return "Texture";
+        foreach (char c in Path.GetInvalidFileNameChars())
+            name = name.Replace(c, '_');
+        return name.Trim();
     }
 
     /// <summary>
@@ -475,32 +637,61 @@ public class ObjExportData
 
     /// <summary>
     /// Adds a texture to the export data, converting it to a base64-encoded PNG
+    /// via a readable blit copy (works for non-Readable import settings).
     /// </summary>
     public void AddTexture(Texture texture, string textureName)
     {
         if (texture == null) return;
+        if (Textures.Any(t => t.Name.Equals(textureName, StringComparison.OrdinalIgnoreCase)))
+            return;
 
-        // Cast texture to Texture2D
-        Texture2D texture2D = texture as Texture2D;
-        if (texture2D == null)
+        Texture2D readable = MakeReadableCopy(texture);
+        if (readable == null)
         {
-            Debug.LogWarning($"Texture '{textureName}' is not a Texture2D and cannot be exported.");
+            Debug.LogWarning($"Texture '{textureName}' could not be made readable for OBJ export.");
             return;
         }
 
-        // Encode Texture2D to PNG
-        byte[] textureBytes = texture2D.EncodeToPNG();
-        if (textureBytes == null)
+        try
         {
-            Debug.LogWarning($"Failed to encode texture '{textureName}' to PNG.");
-            return;
+            byte[] textureBytes = readable.EncodeToPNG();
+            if (textureBytes == null || textureBytes.Length == 0)
+            {
+                Debug.LogWarning($"Failed to encode texture '{textureName}' to PNG.");
+                return;
+            }
+
+            Textures.Add(new ObjExportTexture(textureName, Convert.ToBase64String(textureBytes)));
         }
+        finally
+        {
+            if (readable != texture)
+                Object.Destroy(readable);
+        }
+    }
 
-        // Convert to base64
-        string textureBase64 = Convert.ToBase64String(textureBytes);
+    private static Texture2D MakeReadableCopy(Texture texture)
+    {
+        if (texture is Texture2D t2d && t2d.isReadable)
+            return t2d;
 
-        // Add to the texture list
-        Textures.Add(new ObjExportTexture(textureName, textureBase64));
+        int w = texture.width;
+        int h = texture.height;
+        if (w <= 0 || h <= 0)
+            return null;
+
+        RenderTexture tmp = RenderTexture.GetTemporary(w, h, 0, RenderTextureFormat.Default, RenderTextureReadWrite.Linear);
+        Graphics.Blit(texture, tmp);
+        RenderTexture previous = RenderTexture.active;
+        RenderTexture.active = tmp;
+
+        Texture2D readable = new Texture2D(w, h, TextureFormat.RGBA32, false);
+        readable.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+        readable.Apply();
+
+        RenderTexture.active = previous;
+        RenderTexture.ReleaseTemporary(tmp);
+        return readable;
     }
 }
 

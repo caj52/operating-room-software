@@ -24,7 +24,7 @@ public class ProposalPDFGenerator : MonoBehaviour
     private readonly string companyName = "Imagine Unlimited";
     private readonly string companyAddress = "9155 Sterling St Suite 120";
     private readonly string companyCity = "Irving, TX 75063";
-    private readonly string companyPhone = "Tel: 1 877 789 8106";
+    private readonly string companyPhone = "Tel: 214.987.0404";
 
 
 
@@ -1439,8 +1439,10 @@ public class ProposalPDFGenerator : MonoBehaviour
         PdfPCell leftCell = new PdfPCell { Border = Rectangle.NO_BORDER };
         leftCell.AddElement(new Paragraph("Proposal", titleFont));
         leftCell.AddElement(new Paragraph("\n", normalFont));
-        leftCell.AddElement(new Paragraph($"{salesRepName}", titleFont));
-        leftCell.AddElement(new Paragraph($"{salesRepEmail}", normalFont));
+        if (!string.IsNullOrWhiteSpace(salesRepName))
+            leftCell.AddElement(new Paragraph(salesRepName, titleFont));
+        if (!string.IsNullOrWhiteSpace(salesRepEmail))
+            leftCell.AddElement(new Paragraph(salesRepEmail, normalFont));
         leftCell.AddElement(new Paragraph("\n", normalFont));
         leftCell.AddElement(new Paragraph(companyName, normalFont));
         leftCell.AddElement(new Paragraph(companyAddress, normalFont));
@@ -1476,7 +1478,16 @@ public class ProposalPDFGenerator : MonoBehaviour
         clientTable.AddCell(new PdfPCell(new Phrase($"Submitted To: {clientName}", boldFont)) { BackgroundColor = BaseColor.LIGHT_GRAY, Border = Rectangle.NO_BORDER, Padding = 5 });
         document.Add(clientTable);
         document.Add(new Paragraph("\n", normalFont));
-        document.Add(new Paragraph($"Project: {projectName}", new Font(titleFont.BaseFont, titleFont.Size, Font.UNDERLINE)));
+        // CS: sales rep beside Project (single clear line).
+        string projectLine = string.IsNullOrWhiteSpace(projectName) ? "Project:" : $"Project: {projectName}";
+        if (!string.IsNullOrWhiteSpace(salesRepName) || !string.IsNullOrWhiteSpace(salesRepEmail))
+        {
+            string repBits = !string.IsNullOrWhiteSpace(salesRepName) && !string.IsNullOrWhiteSpace(salesRepEmail)
+                ? $"{salesRepName}  |  {salesRepEmail}"
+                : (salesRepName ?? salesRepEmail);
+            projectLine = $"{projectLine}     Sales Rep: {repBits}";
+        }
+        document.Add(new Paragraph(projectLine, new Font(titleFont.BaseFont, titleFont.Size, Font.UNDERLINE)));
         document.Add(new Paragraph("\n", normalFont));
     }
 

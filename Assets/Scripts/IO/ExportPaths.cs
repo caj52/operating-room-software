@@ -4,12 +4,13 @@ using UnityEngine;
 
 /// <summary>
 /// Resolves export output folders.
-/// Parent folder defaults to Documents/Operating Room Exports (override stored in PlayerPrefs).
-/// Every export always goes under a room-name subfolder inside that parent.
+/// Parent folder defaults to Application.persistentDataPath (AppData LocalLow).
+/// Every export goes under {parent}/{RoomName}/ with deliverables in subfolders
+/// (OBJ/Room, elevations, proposals, snapshots).
 /// </summary>
 public static class ExportPaths
 {
-    private const string DocumentsFolderName = "Operating Room Exports";
+    private const string LegacyDocumentsFolderName = "Operating Room Exports";
     private const string ParentFolderPrefsKey = "ExportParentFolder";
 
     /// <summary>
@@ -20,7 +21,7 @@ public static class ExportPaths
 
     /// <summary>
     /// Opens a save dialog prefilled with the suggested export folder
-    /// (Documents/Operating Room Exports / {RoomName}), stores the choice, then runs
+    /// ({persistentDataPath}/{RoomName}), stores the choice, then runs
     /// <paramref name="onReady"/>. Cancelling the dialog does nothing.
     /// </summary>
     public static void PromptForExportFolderThen(Action onReady)
@@ -277,17 +278,22 @@ public static class ExportPaths
     }
 
     public static string GetDefaultParentFolder()
-    {
-        return Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-            DocumentsFolderName);
-    }
+        => Application.persistentDataPath;
 
-    /// <summary>Documents/Operating Room Exports, or the user-chosen parent from PlayerPrefs.</summary>
+    /// <summary>
+    /// AppData LocalLow (persistentDataPath), or a valid user-chosen parent from PlayerPrefs.
+    /// Stale Documents/Operating Room Exports prefs are ignored so exports stay under AppData.
+    /// </summary>
     public static string GetParentFolder()
     {
         if (HasCustomParentFolder())
-            return NormalizeParentFolder(PlayerPrefs.GetString(ParentFolderPrefsKey));
+        {
+            string custom = NormalizeParentFolder(PlayerPrefs.GetString(ParentFolderPrefsKey));
+            if (!IsLegacyDocumentsExportFolder(custom))
+                return custom;
+
+            ClearCustomParentFolder();
+        }
 
         return GetDefaultParentFolder();
     }
@@ -296,6 +302,26 @@ public static class ExportPaths
     {
         return PlayerPrefs.HasKey(ParentFolderPrefsKey)
                && !string.IsNullOrWhiteSpace(PlayerPrefs.GetString(ParentFolderPrefsKey));
+    }
+
+    private static bool IsLegacyDocumentsExportFolder(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+
+        try
+        {
+            string full = Path.GetFullPath(path);
+            string docs = Path.GetFullPath(
+                Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                    LegacyDocumentsFolderName));
+            return full.StartsWith(docs, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception)
+        {
+            return path.IndexOf(LegacyDocumentsFolderName, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
     }
 
     public static void SetParentFolder(string path)
@@ -377,16 +403,13 @@ public static class ExportPaths
         return Path.Combine(parent, room);
     }
 
-    /// <summary>
-    /// Folder for 3D model exports (self-contained .glb files).
-    /// Lives directly in the room folder — no nested ObjFile/Models subfolder.
-    /// </summary>
-    public static string ObjSceneDir => GetExportBasePath();
+    /// <summary>Folder for 3D model exports: {RoomName}/OBJ/Room</summary>
+    public static string ObjSceneDir => Path.Combine(GetExportBasePath(), "OBJ", "Room");
     public static string ElevationsDir => Path.Combine(GetExportBasePath(), "elevations");
     public static string ProposalsDir => Path.Combine(GetExportBasePath(), "proposals");
     public static string SnapshotsDir => Path.Combine(GetExportBasePath(), "snapshots");
     public static string PdfDir => ElevationsDir;
-    public static string RendersDir => Path.Combine(GetExportBasePath(), "Renders");
+    public static string RendersDir => SnapshotsDir;
 
     /// <summary>
     /// Ensures the room export root exists. Deliverable subfolders

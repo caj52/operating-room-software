@@ -396,9 +396,18 @@ public class Save : MonoBehaviour
         if (item == null || string.IsNullOrWhiteSpace(item.Name))
             return;
 
-        string path = item.Name.Trim();
-        if (!path.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
-            path += ".json";
+        // Dialog is name-only — always write under AppData Saved / Saved/Configs
+        // so the load UI can reopen the file after a cold start.
+        string fileName = Path.GetFileName(item.Name.Trim());
+        if (string.IsNullOrWhiteSpace(fileName))
+            return;
+        if (!fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+            fileName += ".json";
+
+        string folder = _savingConfig
+            ? ConfigurationManager.GetSavedConfigsFolder()
+            : ConfigurationManager.GetSavedRoomsFolder();
+        string path = Path.Combine(folder, fileName);
 
         if (_savingConfig)
             SaveConfigurationToPath(path);

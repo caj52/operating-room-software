@@ -131,25 +131,74 @@ public class RoomBoundary : MonoBehaviour
         bool move = Input.GetMouseButton(0);
         Vector2 mouseMovement = new Vector2(move ? InputHandler.MouseDeltaScreenPercentage.x * _mouseMoveSensitivityX : 0, move ? InputHandler.MouseDeltaScreenPercentage.y * _mouseMoveSensitivityY : 0);
 
-        switch (RoomBoundaryType)
+        if (_transposer != null)
         {
-            case RoomBoundaryType.Ceiling:
-                _transposer.m_FollowOffset.x -= mouseMovement.x;
-                _transposer.m_FollowOffset.z -= mouseMovement.y;
-                break;
-            case RoomBoundaryType.WallEast:
-                _transposer.m_FollowOffset.y -= mouseMovement.y;
-                _transposer.m_FollowOffset.z -= mouseMovement.x;
-                break;
-            case RoomBoundaryType.WallSouth:
-                _transposer.m_FollowOffset.x -= mouseMovement.x;
-                _transposer.m_FollowOffset.y -= mouseMovement.y;
-                break;
+            switch (RoomBoundaryType)
+            {
+                case RoomBoundaryType.Ceiling:
+                    _transposer.m_FollowOffset.x -= mouseMovement.x;
+                    _transposer.m_FollowOffset.z -= mouseMovement.y;
+                    break;
+                case RoomBoundaryType.Floor:
+                    _transposer.m_FollowOffset.x -= mouseMovement.x;
+                    _transposer.m_FollowOffset.z += mouseMovement.y;
+                    break;
+                case RoomBoundaryType.WallEast:
+                case RoomBoundaryType.WallWest:
+                    _transposer.m_FollowOffset.y -= mouseMovement.y;
+                    _transposer.m_FollowOffset.z -= mouseMovement.x
+                        * (RoomBoundaryType == RoomBoundaryType.WallWest ? -1f : 1f);
+                    break;
+                case RoomBoundaryType.WallSouth:
+                case RoomBoundaryType.WallNorth:
+                    _transposer.m_FollowOffset.x -= mouseMovement.x
+                        * (RoomBoundaryType == RoomBoundaryType.WallNorth ? -1f : 1f);
+                    _transposer.m_FollowOffset.y -= mouseMovement.y;
+                    break;
+            }
         }
+
+        // Room ortho zoom: allow scroll even when a transparent full-screen UI raycast
+        // target is under the cursor (common cause of "zoom works elsewhere but not here").
+        if (Mathf.Abs(scroll) > 0.0001f
+            && !IsPointerOverBlockingUi())
+        {
+            VirtualCamera.m_Lens.OrthographicSize = Mathf.Max(
+                1f, VirtualCamera.m_Lens.OrthographicSize + scroll);
+        }
+    }
+
+    private static bool IsPointerOverBlockingUi()
+    {
+        if (EventSystem.current == null)
+            return false;
         if (!EventSystem.current.IsPointerOverGameObject())
+            return false;
+
+        // Block only when hovering interactive controls; ignore empty Image raycast pads.
+        var results = new System.Collections.Generic.List<RaycastResult>();
+        var eventData = new PointerEventData(EventSystem.current)
         {
-            VirtualCamera.m_Lens.OrthographicSize = Mathf.Max(1f, VirtualCamera.m_Lens.OrthographicSize + scroll);
+            position = Input.mousePosition
+        };
+        EventSystem.current.RaycastAll(eventData, results);
+        for (int i = 0; i < results.Count; i++)
+        {
+            var go = results[i].gameObject;
+            if (go == null) continue;
+            if (go.GetComponent<UnityEngine.UI.Selectable>() != null
+                || go.GetComponent<UnityEngine.UI.Button>() != null
+                || go.GetComponent<UnityEngine.UI.Toggle>() != null
+                || go.GetComponent<UnityEngine.UI.Slider>() != null
+                || go.GetComponent<TMPro.TMP_InputField>() != null
+                || go.GetComponent<UnityEngine.UI.InputField>() != null
+                || go.GetComponentInParent<FullScreenMenu>() != null)
+            {
+                return true;
+            }
         }
+
+        return false;
     }
 
     private float GetScrollWheel()

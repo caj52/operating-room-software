@@ -97,52 +97,54 @@ public class Measurer : MonoBehaviour
         transform.position = Measurement.Origin;
         transform.LookAt(Measurement.HitPoint);
 
-        // For ToArmAssemblyOrigin, if a Boom arm is detected in the hierarchy, prefer configured arm length (ScaleLevel.Size).
-        // Otherwise, fall back to the world-space distance as before.
-        float distanceMeters;
-        if (Measurement != null && Measurement.MeasurementType == MeasurementType.ToArmAssemblyOrigin)
+        // Prefer world-space span for overlays (matches drawn ray). Use configured arm
+        // length only when it closely matches world (avoids radial/half-scale drift).
+        float worldMeters = Vector3.Distance(Measurement.Origin, Measurement.HitPoint);
+        float distanceMeters = worldMeters;
+        if (Measurement != null
+            && Measurement.MeasurementType == MeasurementType.ToArmAssemblyOrigin
+            && IsBoomArmFromHierarchy())
         {
-            if (IsBoomArmFromHierarchy())
+            float armLen = TryGetArmLengthMetersFromHierarchy();
+            if (armLen > 0f)
             {
-                float armLen = TryGetArmLengthMetersFromHierarchy();
-                if (armLen > 0f)
-                {
+                // If configured length is ~½ of the drawn span, prefer world (common ÷2 bug).
+                if (Mathf.Abs(worldMeters - armLen * 2f) < 0.08f * Mathf.Max(worldMeters, armLen))
+                    distanceMeters = worldMeters;
+                else if (Mathf.Abs(worldMeters - armLen) < 0.08f * Mathf.Max(worldMeters, armLen))
                     distanceMeters = armLen;
-                }
                 else
-                {
-                    distanceMeters = Vector3.Distance(Measurement.Origin, Measurement.HitPoint);
-                }
+                    distanceMeters = armLen;
             }
-            else
-            {
-                distanceMeters = Vector3.Distance(Measurement.Origin, Measurement.HitPoint);
-            }
+        }
+
+        // Elevation / cutsheet overlays: metric (mm) per CS / Architecture feedback.
+        if (Selectable.IsInElevationPhotoMode)
+        {
+            int mm = Mathf.RoundToInt(distanceMeters * 1000f);
+            Distance = $"{mm} mm";
         }
         else
         {
-            distanceMeters = Vector3.Distance(Measurement.Origin, Measurement.HitPoint);
+            float distanceFeet = Mathf.Floor(distanceMeters.ToFeet());
+            float distanceInches = Mathf.Round((distanceMeters.ToFeet() - distanceFeet) * 12f * 10f) / 10f;
+            Distance = $"{distanceFeet}' {distanceInches}\"";
         }
 
-        float distanceFeet = Mathf.Floor(distanceMeters.ToFeet());
-        float distanceInches = Mathf.Round((distanceMeters.ToFeet() - distanceFeet) * 12f * 10f) / 10f;
-        Distance = $"{distanceFeet}' {distanceInches}\"";
-        transform.localScale = new Vector3(transform.localScale.x, transform.localScale.y, Vector3.Distance(Measurement.Origin, Measurement.HitPoint));
+        transform.localScale = new Vector3(
+            transform.localScale.x,
+            transform.localScale.y,
+            worldMeters);
         MeasurementText.UpdateVisibilityAndPosition(camera);
 
-        // Update the horizontal line position if the measurement is related to the floor
-        //if (Measurement.RoomBoundaryType == RoomBoundaryType.Floor)
-        //{
-        //    CreateHorizontalLine();
-        //}
-
-        /*        if (Measurement.HitPoint.y == 0)
-                {//only create horizontal line if the hit point is the floor
-                    CreateHorizontalLine();
-                }*/
-
-        //CreateCeilingToFloorLine();
-
+        if (Measurement != null
+            && (Measurement.MeasurementType == MeasurementType.Floor
+                || Measurement.RoomBoundaryType == RoomBoundaryType.Floor
+                || Mathf.Abs(Measurement.HitPoint.y) < 0.05f))
+        {
+            CreateHorizontalLine();
+            AlignHorizontalLineToFloor();
+        }
     }
     private GameObject horizontalLine;
     private GameObject ceilingLine;
@@ -214,36 +216,64 @@ public class Measurer : MonoBehaviour
     {
         if (horizontalLine == null)
         {
-            // Create a new GameObject for the horizontal line
             horizontalLine = new GameObject("HorizontalLine");
-            // Set the parent to the Measurer object
-            horizontalLine.transform.SetParent(transform);
-            // Add a LineRenderer component to the horizontal line
+            horizontalLine.transform.SetParent(transform, false);
             LineRenderer lineRenderer = horizontalLine.AddComponent<LineRenderer>();
-            // Set the line width
-            lineRenderer.startWidth = 0.05f;
-            lineRenderer.endWidth = 0.05f;
-            // Set the line color to black
+            lineRenderer.useWorldSpace = true;
+            lineRenderer.startWidth = 0.02f;
+            lineRenderer.endWidth = 0.02f;
             lineRenderer.material = new Material(Shader.Find("Sprites/Default"));
             lineRenderer.startColor = Color.black;
             lineRenderer.endColor = Color.black;
-            // Set the same layer as the other children objects
             horizontalLine.layer = gameObject.layer;
-
-            // Set the line positions based on floor width
             lineRenderer.positionCount = 2;
-            float floorWidth = GetFloorWidth(); // You need to implement this method
-            lineRenderer.SetPosition(0, new Vector3(-floorWidth / 2, 0, 0)); // Left point
-            lineRenderer.SetPosition(1, new Vector3(floorWidth / 2, 0, 0));  // Right point
         }
+
+        AlignHorizontalLineToFloor();
     }
 
-    // Method to get the floor width - implement according to your specific setup
+    /// <summary>
+    /// Aligns floor line graphic with the floor hit / dimension floor reference
+    /// so print exports do not show a floating or double floor line.
+    /// </summary>
+    private void AlignHorizontalLineToFloor()
+    {
+        if (horizontalLine == null || Measurement == null)
+            return;
+
+        var lr = horizontalLine.GetComponent<LineRenderer>();
+        if (lr == null)
+            return;
+
+        float floorY = Measurement.HitPoint.y;
+        var floor = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor);
+        if (floor != null)
+            floorY = floor.transform.position.y;
+
+        float halfWidth = GetFloorWidth() * 0.5f;
+        Vector3 center = new Vector3(Measurement.HitPoint.x, floorY, Measurement.HitPoint.z);
+        // Span horizontally in camera-facing elevation plane (camera right axis if available).
+        Vector3 right = Camera.main != null ? Camera.main.transform.right : Vector3.right;
+        right.y = 0f;
+        if (right.sqrMagnitude < 1e-6f)
+            right = Vector3.right;
+        right.Normalize();
+
+        lr.useWorldSpace = true;
+        lr.SetPosition(0, center - right * halfWidth);
+        lr.SetPosition(1, center + right * halfWidth);
+    }
+
     private float GetFloorWidth()
     {
-        // Default value if no other options work
-        Debug.LogWarning("Floor width not found, using default value");
-        return RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor).Width;
+        var floor = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor);
+        if (floor != null && floor.Width > 0.01f)
+            return floor.Width;
+
+        if (RoomSize.Instance != null)
+            return RoomSize.Instance.CurrentDimensions.Width.ToMeters();
+
+        return 4f;
     }
 
     private void CreateVerticalPattern(Vector3 startPosition, Vector3 endPosition)

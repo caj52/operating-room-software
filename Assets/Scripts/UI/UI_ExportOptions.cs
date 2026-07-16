@@ -5,8 +5,8 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Exports hub: Room exports (snapshots / 3D model) or Object exports (3D model,
-/// plus Elevation PDF when a boom is selected). Each row has its own Export button.
+/// Exports hub: primary Export All (one-click) plus per-deliverable rows.
+/// Room: 3D / snapshots / elevations / proposal. Object: 3D (+ elevation PDF for booms).
 /// </summary>
 [RequireComponent(typeof(FullScreenMenu))]
 public class UI_ExportOptions : MonoBehaviour
@@ -18,9 +18,11 @@ public class UI_ExportOptions : MonoBehaviour
     private TMP_Text _titleLabel;
     private TMP_Text _infoLabel;
 
+    private GameObject _rowExportAll;
     private GameObject _rowObj;
     private GameObject _rowSnapshots;
     private GameObject _rowElevation;
+    private GameObject _rowProposal;
 
     private Button _buttonExportTemplate;
     private Button _buttonCancel;
@@ -210,6 +212,11 @@ public class UI_ExportOptions : MonoBehaviour
         if (_innerBox == null || _buttonCancel == null)
             return;
 
+        _rowExportAll = CreateDeliverableRow(
+            "Export All",
+            RunExportAll,
+            includeCustomize: false);
+
         _rowObj = CreateDeliverableRow(
             "3D model",
             RunObjExport,
@@ -218,6 +225,11 @@ public class UI_ExportOptions : MonoBehaviour
         _rowElevation = CreateDeliverableRow(
             "Elevation PDF",
             RunElevationExport,
+            includeCustomize: false);
+
+        _rowProposal = CreateDeliverableRow(
+            "Sales Proposal",
+            RunProposalExport,
             includeCustomize: false);
 
         _rowSnapshots = CreateDeliverableRow(
@@ -329,14 +341,53 @@ public class UI_ExportOptions : MonoBehaviour
 
     private void RunElevationExport()
     {
-        if (!ExportRequest.SelectionIsArmAssembly())
+        if (_scope == ExportScope.SelectedObject)
+        {
+            if (!ExportRequest.SelectionIsArmAssembly())
+                return;
+
+            Close();
+            var req = ExportRequest.CreateDefaultsForSelection();
+            req.IncludeObj = false;
+            req.IncludeElevations = true;
+            req.ElevationMode = ElevationExportMode.PerAssembly;
+            ExportOrchestrator.Run(req);
             return;
+        }
 
         Close();
-        var req = ExportRequest.CreateDefaultsForSelection();
-        req.IncludeObj = false;
-        req.IncludeElevations = true;
-        req.ElevationMode = ElevationExportMode.PerAssembly;
+        ExportOrchestrator.Run(new ExportRequest
+        {
+            Scope = ExportScope.Room,
+            IncludeObj = false,
+            IncludeElevations = true,
+            IncludeProposal = false,
+            IncludeSnapshots = false,
+            ElevationMode = ElevationExportMode.CombinedRoom,
+            ObjOptions = _objOptions ?? ObjExportOptions.CreateDefaults()
+        });
+    }
+
+    private void RunProposalExport()
+    {
+        Close();
+        ExportOrchestrator.Run(new ExportRequest
+        {
+            Scope = ExportScope.Room,
+            IncludeObj = false,
+            IncludeElevations = false,
+            IncludeProposal = true,
+            IncludeSnapshots = false,
+            ObjOptions = _objOptions ?? ObjExportOptions.CreateDefaults()
+        });
+    }
+
+    /// <summary>One-click: all Milestone 2 deliverables in a single folder pick.</summary>
+    private void RunExportAll()
+    {
+        Close();
+        var req = ExportRequest.CreateDefaultsForRoom();
+        req.ObjOptions = _objOptions ?? ObjExportOptions.CreateDefaults();
         ExportOrchestrator.Run(req);
     }
 
@@ -538,15 +589,17 @@ public class UI_ExportOptions : MonoBehaviour
         }
 
         bool objectMode = _scope == ExportScope.SelectedObject;
-        bool showElevation = objectMode && ExportRequest.SelectionIsArmAssembly();
+        bool showElevation = !objectMode || ExportRequest.SelectionIsArmAssembly();
 
         if (_titleLabel != null)
             _titleLabel.text = objectMode ? "Object Exports" : "Room Exports";
 
         UpdateInfoText(objectMode);
 
+        SetActive(_rowExportAll, !objectMode);
         SetActive(_rowObj, true);
         SetActive(_rowSnapshots, !objectMode);
+        SetActive(_rowProposal, !objectMode);
         SetActive(_rowElevation, showElevation);
 
         if (_buttonCustomizeObj != null)
@@ -601,10 +654,12 @@ public class UI_ExportOptions : MonoBehaviour
 
         Add(_titleLabel);
         Add(_infoLabel);
-        // Room: Snapshots → 3D model. Object: 3D model → Elevation PDF (booms only).
-        AddGo(_rowSnapshots);
+        // Room: Export All first, then optional per-deliverable. Object: 3D → Elevation.
+        AddGo(_rowExportAll);
         AddGo(_rowObj);
         AddGo(_rowElevation);
+        AddGo(_rowProposal);
+        AddGo(_rowSnapshots);
         Add(_buttonCancel);
 
         for (int i = 0; i < order.Count; i++)

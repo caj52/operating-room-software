@@ -1839,35 +1839,19 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
                     if (SpecialTypes.Contains(SpecialSelectableType.Door))
                     {
+                        // Seat the door flush in the wall plane at the click point
+                        // (embed half thickness along the wall normal), floor-aligned.
+                        Vector3 wallNormal = hit.normal.normalized;
                         if (hit.collider.gameObject.TryGetComponent(out RoomBoundary roomBoundary))
                         {
-                            RoomBoundaryType roomBoundaryType = roomBoundary.RoomBoundaryType;
-
-                            float halfThickness = RoomBoundary.DefaultWallThickness / 2f;
-                            if (roomBoundaryType == RoomBoundaryType.WallNorth)
-                            {
-                                destination.z = hit.collider.transform.position.z - halfThickness;
-                                //normal = -Vector3.forward;
-                            }
-                            else if (roomBoundaryType == RoomBoundaryType.WallSouth)
-                            {
-                                destination.z = hit.collider.transform.position.z + halfThickness;
-                                //normal = Vector3.forward;
-                            }
-                            else if (roomBoundaryType == RoomBoundaryType.WallWest)
-                            {
-                                destination.x = hit.collider.transform.position.x + halfThickness;
-                                //normal = Vector3.right;
-                            }
-                            else if (roomBoundaryType == RoomBoundaryType.WallEast)
-                            {
-                                destination.x = hit.collider.transform.position.x - halfThickness;
-                                //normal = -Vector3.right;
-                            }
-
+                            wallNormal = GetDoorWallOutwardNormal(roomBoundary.RoomBoundaryType);
                         }
 
-                        destination.y = 0;
+                        float halfThickness = RoomBoundary.DefaultWallThickness / 2f;
+                        destination = hit.point - wallNormal * halfThickness;
+                        destination.y = 0f;
+                        // Face into the room (opposite wall outward).
+                        normal = -wallNormal;
                     }
 
                     if (UI_ToggleSnapping.SnappingEnabled)
@@ -1896,6 +1880,18 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                     transform.SetPositionAndRotation(destination, Quaternion.LookRotation(normal));
                     _virtualParent = hit.collider.transform;
                     OnRaycastPositionUpdated?.Invoke();
+                }
+
+                static Vector3 GetDoorWallOutwardNormal(RoomBoundaryType type)
+                {
+                    switch (type)
+                    {
+                        case RoomBoundaryType.WallNorth: return Vector3.forward;
+                        case RoomBoundaryType.WallSouth: return Vector3.back;
+                        case RoomBoundaryType.WallEast: return Vector3.right;
+                        case RoomBoundaryType.WallWest: return Vector3.left;
+                        default: return Vector3.forward;
+                    }
                 }
 
                 if (_virtualParent == null)

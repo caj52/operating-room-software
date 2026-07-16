@@ -92,7 +92,10 @@ public class MeasurementText : MonoBehaviour
         }
 
 
-        Text.text = NormalizeFeetInches(_measurer.Distance);
+        // Metric elevation overlays already include "mm"; imperial still normalized.
+        Text.text = _measurer.Distance != null && _measurer.Distance.IndexOf("mm", StringComparison.OrdinalIgnoreCase) >= 0
+            ? _measurer.Distance
+            : NormalizeFeetInches(_measurer.Distance);
 
         // Get the direction from camera to text position
         Vector3 directionFromCamera = (_measurer.TextPosition - camera.transform.position).normalized;

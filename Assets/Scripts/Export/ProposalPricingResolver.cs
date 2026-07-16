@@ -255,21 +255,28 @@ public static class ProposalPricingResolver
             ? boomRoot.GetComponentInChildren<BoomConfigurationManager>(true)
             : null;
 
-        int topMm = 1000;
-        int bottomMm = 1000;
-        int shMm = 200;
+        int topMm = 0;
+        int bottomMm = 0;
+        int shMm = 0;
         bool xlTop = false;
         bool xlBottom = false;
         string family = "Powered Boom";
 
+        // Live scale levels beat serialized BoomConfigurationManager arm lengths
+        // (stale 1000mm defaults caused Spring/Anes lookups to miss the sheet).
+        InferSizesFromSelectables(boomRoot, ref topMm, ref bottomMm, ref shMm);
+        InferBoomFamilyFromParts(boomParts, ref family, ref xlTop);
+        InferBoomFamilyFromHierarchy(boomRoot, ref family, ref xlTop, ref xlBottom);
+
         if (bcm != null)
         {
-            topMm = bcm.TopArmLength > 0 ? bcm.TopArmLength : topMm;
-            bottomMm = bcm.BottomArmLength > 0 ? bcm.BottomArmLength : bottomMm;
             switch (bcm.CurrentBoomType)
             {
                 case BoomConfigurationManager.BoomType.PoweredBoom:
-                    family = "Powered Boom";
+                    if (!family.StartsWith("Spring", StringComparison.OrdinalIgnoreCase)
+                        && !family.StartsWith("Fixed", StringComparison.OrdinalIgnoreCase)
+                        && !family.StartsWith("Large Monitor", StringComparison.OrdinalIgnoreCase))
+                        family = "Powered Boom";
                     break;
                 case BoomConfigurationManager.BoomType.PoweredXLBoom:
                     family = "Powered Boom";
@@ -295,34 +302,21 @@ public static class ProposalPricingResolver
                     xlBottom = true;
                     break;
                 case BoomConfigurationManager.BoomType.ServiceHead:
-                    family = "Powered Boom";
+                    if (family == "Powered Boom")
+                        family = "Powered Boom";
                     break;
             }
-        }
-        else
-        {
-            InferBoomFamilyFromParts(boomParts, ref family, ref xlTop);
-            InferSizesFromSelectables(boomRoot, ref topMm, ref bottomMm, ref shMm);
+
+            // Only fill gaps — never overwrite live scale lengths with prefab defaults.
+            if (topMm <= 0 && bcm.TopArmLength > 0)
+                topMm = bcm.TopArmLength;
+            if (bottomMm <= 0 && bcm.BottomArmLength > 0)
+                bottomMm = bcm.BottomArmLength;
         }
 
-        // Service head size from BoomHeadScaleHandler when possible (not used for Large Monitor keys).
-        if (boomRoot != null && !family.StartsWith("Large Monitor", StringComparison.OrdinalIgnoreCase))
-        {
-            foreach (var sel in boomRoot.GetComponentsInChildren<Selectable>(true))
-            {
-                if (sel.GetComponent<BoomHeadScaleHandler>() == null)
-                    continue;
-                float size = sel.CurrentPreviewScaleLevel?.Size ?? 0f;
-                if (size > 0)
-                {
-                    // Scale levels are stored in meters for heads (0.2 → 200mm).
-                    int mm = size >= 10f ? Mathf.RoundToInt(size) : Mathf.RoundToInt(size * 1000f);
-                    if (mm > 0)
-                        shMm = mm;
-                    break;
-                }
-            }
-        }
+        if (topMm <= 0) topMm = 1000;
+        if (bottomMm <= 0) bottomMm = 1000;
+        if (shMm <= 0) shMm = 200;
 
         // Sheet keys: "Large Monitor Boom, Top Arm 600 mm" (space before mm, no SH).
         if (family.StartsWith("Large Monitor", StringComparison.OrdinalIgnoreCase))
@@ -340,6 +334,47 @@ public static class ProposalPricingResolver
 
         string armLabel = xlTop ? "XL Top Arm" : "Top Arm";
         return $"{family}, {armLabel} {topMm}mm, SH {shMm}mm";
+    }
+
+    static void InferBoomFamilyFromHierarchy(
+        GameObject boomRoot, ref string family, ref bool xlTop, ref bool xlBottom)
+    {
+        if (boomRoot == null)
+            return;
+
+        string blob = boomRoot.name ?? "";
+        foreach (var sel in boomRoot.GetComponentsInChildren<Selectable>(true))
+        {
+            if (sel == null) continue;
+            blob += " " + (sel.UIButtonName ?? "") + " " + (sel.name ?? "") + " " + (sel.gameObject.name ?? "");
+        }
+
+        blob = blob.ToLowerInvariant();
+        bool xl = blob.Contains("xl");
+        if (blob.Contains("spring"))
+        {
+            family = "Spring Boom";
+            xlTop = xl || xlTop;
+            return;
+        }
+        if (blob.Contains("large monitor") || blob.Contains("cemor"))
+        {
+            family = "Large Monitor Boom";
+            xlTop = xl || xlTop;
+            return;
+        }
+        if (blob.Contains("fixed") && !blob.Contains("powered"))
+        {
+            family = "Fixed Boom";
+            xlTop = xl || xlTop;
+            xlBottom = blob.Contains("xxl") || xlBottom;
+            return;
+        }
+        if (blob.Contains("powered"))
+        {
+            family = "Powered Boom";
+            xlTop = xl || xlTop;
+        }
     }
 
     static void InferBoomFamilyFromParts(List<SelectablePrice> parts, ref string family, ref bool xlTop)
@@ -380,16 +415,29 @@ public static class ProposalPricingResolver
             return;
         foreach (var sel in root.GetComponentsInChildren<Selectable>(true))
         {
-            string name = (sel.UIButtonName ?? sel.name ?? "").ToLowerInvariant();
-            float size = sel.CurrentPreviewScaleLevel?.Size ?? 0f;
+            if (sel == null)
+                continue;
+
+            string name = ((sel.UIButtonName ?? "") + " " + (sel.name ?? "") + " " + (sel.gameObject.name ?? ""))
+                .ToLowerInvariant();
+            float size = sel.CurrentScaleLevel?.Size
+                         ?? sel.CurrentPreviewScaleLevel?.Size
+                         ?? 0f;
             int mm = size >= 10f ? Mathf.RoundToInt(size) : Mathf.RoundToInt(size * 1000f);
             if (mm <= 0)
                 continue;
-            if (name.Contains("top arm") || name.Contains("toparm"))
+
+            bool isTop = name.Contains("toparm") || name.Contains("top_arm") || name.Contains("top arm")
+                         || name.Contains("boomsegment_1") || name.Contains("segment_1");
+            bool isBottom = name.Contains("bottomarm") || name.Contains("bottom_arm") || name.Contains("bottom arm")
+                            || name.Contains("boomsegment_2") || name.Contains("segment_2");
+
+            if (isTop)
                 topMm = mm;
-            else if (name.Contains("bottom") && name.Contains("arm"))
+            else if (isBottom)
                 bottomMm = mm;
-            else if (sel.GetComponent<BoomHeadScaleHandler>() != null)
+            else if (sel.GetComponent<BoomHeadScaleHandler>() != null
+                     || name.Contains("service head") || name.Contains("servicehead") || name.Contains("boomhead"))
                 shMm = mm;
         }
     }

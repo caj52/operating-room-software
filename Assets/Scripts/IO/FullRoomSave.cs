@@ -46,7 +46,7 @@ public class FullRoomSave : MonoBehaviour
 
     /// <summary>
     /// Opens a native save dialog prefilled with
-    /// Documents/Operating Room Exports / {RoomName} so the user sees the suggested
+    /// {persistentDataPath}/{RoomName} so the user sees the suggested
     /// output path and folder name (standard Save As behavior).
     /// </summary>
     /// <param name="onComplete">Invoked when the dialog closes. True if a location was chosen.</param>

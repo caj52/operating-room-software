@@ -100,32 +100,47 @@ public class ExportOrchestrator : MonoBehaviour
 
             if (activeRequest.IncludeObj && !_cancelled)
             {
-                UI_GeneralLoadingScreen.instance.SetStatus("Exporting 3D model (GLB)...");
+                UI_GeneralLoadingScreen.instance.SetStatus("Exporting 3D model (OBJ/MTL)...");
                 UI_GeneralLoadingScreen.instance.SetProgress((float)stepIndex / stepCount);
+                yield return null;
                 yield return ExportObj(activeRequest.ObjOptions);
                 stepIndex++;
+                yield return null;
             }
 
             if (activeRequest.IncludeElevations && !_cancelled)
             {
-                UI_GeneralLoadingScreen.instance.SetStatus("Exporting elevation sheets (PDF)...");
-                UI_GeneralLoadingScreen.instance.SetProgress((float)stepIndex / stepCount);
-                yield return ExportElevations(activeRequest);
-                stepIndex++;
+                if (activeRequest.Scope == ExportScope.Room && CountBoomAssemblies() == 0)
+                {
+                    // Soft-skip for Export All when the room has no booms.
+                    stepIndex++;
+                }
+                else
+                {
+                    UI_GeneralLoadingScreen.instance.SetStatus("Exporting elevation sheets (PDF)...");
+                    UI_GeneralLoadingScreen.instance.SetProgress((float)stepIndex / stepCount);
+                    yield return null;
+                    yield return ExportElevations(activeRequest);
+                    stepIndex++;
+                    yield return null;
+                }
             }
 
             if (activeRequest.IncludeProposal && !_cancelled)
             {
                 UI_GeneralLoadingScreen.instance.SetStatus("Exporting sales proposal (PDF)...");
                 UI_GeneralLoadingScreen.instance.SetProgress((float)stepIndex / stepCount);
+                yield return null;
                 yield return ExportProposal();
                 stepIndex++;
+                yield return null;
             }
 
             if (activeRequest.IncludeSnapshots && !_cancelled)
             {
                 UI_GeneralLoadingScreen.instance.SetStatus("Exporting presentation snapshots...");
                 UI_GeneralLoadingScreen.instance.SetProgress((float)stepIndex / stepCount);
+                yield return null;
                 yield return ExportSnapshots();
             }
 
@@ -235,8 +250,8 @@ public class ExportOrchestrator : MonoBehaviour
             if (succeeded)
             {
                 _completedSteps.Add(activeRequestScopeIsSelection()
-                    ? "Selected 3D model (GLB)"
-                    : "Room 3D model (GLB)");
+                    ? "Selected 3D model (OBJ/MTL)"
+                    : "Room 3D model (OBJ/MTL)");
                 if (!string.IsNullOrWhiteSpace(outputPath))
                     _outputPaths.Add(outputPath);
             }

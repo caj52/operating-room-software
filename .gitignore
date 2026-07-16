@@ -74,3 +74,6 @@ crashlytics-build.properties
 
 # Root-level Unity batchmode logs
 /unity-*.log
+
+# Milestone 2 verify reports (local only)
+/Tools/Reports/

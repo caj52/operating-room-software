@@ -31,12 +31,20 @@ public class LightFactory : MonoBehaviour
 
     void Start()
     {
-        // We need to get reference to the material though the object's renderer
-        emissiveMaterial = emissiveObject.GetComponent<Renderer>().material;
-        // Set the emissive color to the material's emission channel
-        emissiveMaterial.SetColor("_EmissionColor", emissionColor);
+        if (emissiveObject != null)
+        {
+            var rend = emissiveObject.GetComponent<Renderer>();
+            if (rend != null)
+            {
+                // Instance material so U|ONE / U|002 don't share emission state.
+                emissiveMaterial = rend.material;
+                emissiveMaterial.SetColor("_EmissionColor", emissionColor);
+            }
+        }
 
         BuildLights();
+        // Keep emission in sync with initial on/off (U|ONE was stuck "off" visually).
+        ToggleEmissive();
     }
 
     /// <summary>
@@ -45,9 +53,16 @@ public class LightFactory : MonoBehaviour
     /// </summary>
     public void SwitchLight()
     {
-        on = !on; //using a simple flip of the initial on boolean's state
+        SetLight(!on);
+    }
+
+    /// <summary>Sets the light/emission state explicitly (avoids toggle-listener double flips).</summary>
+    public void SetLight(bool isOn)
+    {
+        on = isOn;
         ToggleEmissive();
-        _light.enabled = on; 
+        if (_light != null)
+            _light.enabled = on;
     }
 
     /// <summary>
@@ -83,13 +98,18 @@ public class LightFactory : MonoBehaviour
     /// </summary>
     void ToggleEmissive()
     {
-        if(on)
+        if (emissiveMaterial == null)
+            return;
+
+        if (on)
         {
             emissiveMaterial.EnableKeyword("_EMISSION");
+            emissiveMaterial.SetColor("_EmissionColor", emissionColor);
         }
         else
         {
             emissiveMaterial.DisableKeyword("_EMISSION");
+            emissiveMaterial.SetColor("_EmissionColor", Color.black);
         }
     }
 }

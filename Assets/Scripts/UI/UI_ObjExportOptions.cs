@@ -136,6 +136,7 @@ public class UI_ObjExportOptions : MonoBehaviour
     private static bool _customizeMode;
     private string _exportAllLabel;
     private string _exportSelectionLabel;
+    private string _cancelLabel;
 
     public static void Open()
     {
@@ -154,7 +155,7 @@ public class UI_ObjExportOptions : MonoBehaviour
 
     /// <summary>
     /// Opens 3D include toggles so the user can refine what goes into a later orchestrated export.
-    /// Does not export immediately — Apply returns the options to the caller.
+    /// Closing with Done keeps the current toggles and returns options to the caller.
     /// </summary>
     public static void OpenForCustomization(Action<ObjExportOptions> onApplied)
     {
@@ -220,34 +221,50 @@ public class UI_ObjExportOptions : MonoBehaviour
         {
             string n = button.gameObject.name;
             var label = button.GetComponentInChildren<TMPro.TextMeshProUGUI>(true);
-            if (label == null)
-                continue;
 
             if (n.Contains("ExportScene") || n.Contains("ExportAll"))
             {
+                // Customize mode only needs Done — hide the redundant apply/export twin.
                 if (customize)
                 {
-                    if (string.IsNullOrEmpty(_exportAllLabel))
+                    if (label != null && string.IsNullOrEmpty(_exportAllLabel))
                         _exportAllLabel = label.text;
-                    label.text = "Use these settings";
+                    button.gameObject.SetActive(false);
                 }
-                else if (!string.IsNullOrEmpty(_exportAllLabel))
+                else
                 {
-                    label.text = _exportAllLabel;
+                    button.gameObject.SetActive(true);
+                    if (label != null && !string.IsNullOrEmpty(_exportAllLabel))
+                        label.text = _exportAllLabel;
                 }
             }
             else if (n.Contains("ExportSelection") || n.Contains("Selection"))
             {
                 if (customize)
                 {
-                    if (string.IsNullOrEmpty(_exportSelectionLabel))
+                    if (label != null && string.IsNullOrEmpty(_exportSelectionLabel))
                         _exportSelectionLabel = label.text;
                     button.gameObject.SetActive(false);
                 }
                 else if (!string.IsNullOrEmpty(_exportSelectionLabel))
                 {
-                    label.text = _exportSelectionLabel;
+                    if (label != null)
+                        label.text = _exportSelectionLabel;
                     button.gameObject.SetActive(Selectable.SelectedSelectables.Count > 0);
+                }
+            }
+            else if (n.Contains("Cancel"))
+            {
+                if (customize)
+                {
+                    if (label != null && string.IsNullOrEmpty(_cancelLabel))
+                        _cancelLabel = label.text;
+                    if (label != null)
+                        label.text = "Done";
+                }
+                else if (label != null && !string.IsNullOrEmpty(_cancelLabel))
+                {
+                    label.text = _cancelLabel;
                 }
             }
         }
@@ -255,12 +272,17 @@ public class UI_ObjExportOptions : MonoBehaviour
 
     private void OnDisable()
     {
-        // Closed without Apply while refining options — return to the export hub.
+        // Leaving the contents panel keeps whatever toggles are showing and returns to the hub.
         if (!_customizeMode)
             return;
 
+        var opts = GetOptions();
+        var cb = _onCustomizeApplied;
         ExitCustomizeModeStatic();
-        UI_ExportOptions.Reopen();
+        if (cb != null)
+            cb.Invoke(opts);
+        else
+            UI_ExportOptions.Reopen();
     }
 
     public ObjExportOptions GetOptions()
@@ -282,11 +304,8 @@ public class UI_ObjExportOptions : MonoBehaviour
     {
         if (_customizeMode)
         {
-            var opts = GetOptions();
-            var cb = _onCustomizeApplied;
-            ExitCustomizeModeStatic();
+            // Done / close path applies via OnDisable — just dismiss.
             gameObject.SetActive(false);
-            cb?.Invoke(opts);
             return;
         }
 
@@ -304,7 +323,7 @@ public class UI_ObjExportOptions : MonoBehaviour
     {
         if (_customizeMode)
         {
-            ExportAllObjects();
+            gameObject.SetActive(false);
             return;
         }
 
