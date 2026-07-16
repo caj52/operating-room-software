@@ -122,7 +122,7 @@ public class UI_ObjExportOptions : MonoBehaviour
             return;
 
         UI_DialogPrompt.Open(
-            $"3D model (GLB) saved.",
+            $"3D model (OBJ/MTL) saved.",
             new ButtonAction("Done"));
         ExportFolderUtility.RevealInFileManager(path);
     }

@@ -185,7 +185,7 @@ public static class Milestone2Verify
         ExpectSource(checks, "SRC-METRIC-DIMS",
             "Elevation overlays use metric (mm) in photo mode",
             "Assets/Scripts/Measurer.cs",
-            mustContain: new[] { "IsInElevationPhotoMode", " mm", "CreateHorizontalLine" },
+            mustContain: new[] { "IsInElevationPhotoMode", " mm", "GetFloorTopY" },
             mustNotContain: null);
 
         ExpectSource(checks, "SRC-SNAPSHOT-CEILING",

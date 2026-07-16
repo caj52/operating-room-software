@@ -292,9 +292,8 @@ public class PdfExporterLocal
             try
             {
                 float metersCH = GetCeilingHeight();
-                float ftWhole = Mathf.Floor(metersCH.ToFeet());
-                float inches = Mathf.Round((metersCH.ToFeet() - ftWhole) * 12f * 10f) / 10f;
-                string ceilingText = $"{metersCH:F2} m ({ftWhole}' {inches}\")";
+                int mmCH = Mathf.RoundToInt(metersCH * 1000f);
+                string ceilingText = $"{mmCH} mm";
                 var chTable = new PdfPTable(2) { WidthPercentage = 60f, SpacingBefore = 0f, SpacingAfter = 8f, HorizontalAlignment = Element.ALIGN_LEFT };
                 chTable.SetWidths(new float[] { 60, 40 });
                 chTable.AddCell(new PdfPCell(new Phrase("Ceiling Height", itemFont)) { BackgroundColor = white, FixedHeight = rowH, Border = Rectangle.BOX, Padding = 4 });
@@ -551,9 +550,8 @@ public class PdfExporterLocal
         try
         {
             float metersCH = GetCeilingHeight();
-            float ftWhole = Mathf.Floor(metersCH.ToFeet());
-            float inches = Mathf.Round((metersCH.ToFeet() - ftWhole) * 12f * 10f) / 10f;
-            string ceilingText = $"{metersCH:F2} m ({ftWhole}' {inches}\")";
+            int mmCH = Mathf.RoundToInt(metersCH * 1000f);
+            string ceilingText = $"{mmCH} mm";
 
             var chTable = new PdfPTable(2)
             {
@@ -789,9 +787,8 @@ public class PdfExporterLocal
         tpl.MoveTo(5, visualHeight); tpl.LineTo(15, visualHeight); tpl.Stroke();
 
         float meters = GetCeilingHeight();
-        float ft = Mathf.Floor(meters.ToFeet());
-        float inch = Mathf.Round((meters.ToFeet() - ft) * 12f * 10f) / 10f;
-        Distance = $"{ft}' {inch}\"";
+        int mm = Mathf.RoundToInt(meters * 1000f);
+        Distance = $"{mm} mm";
 
         var fontPath = Path.Combine(Application.streamingAssetsPath, "Data/Fonts/Teko/Teko-Regular.ttf");
         BaseFont teko = GetCachedBaseFont(fontPath);
