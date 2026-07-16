@@ -397,8 +397,14 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             GenerateGuidName();
         }
 
-        // If scale levels were restored from save, skip recalculation logic
-        if (ScaleLevelsRestoredFromSave)
+        // If scale levels were restored from save, skip recalculation logic.
+        // Also skip when TrackedObject has stored transform data: root selectables
+        // (e.g. ArmSegment_1(Clone)) often save with empty scaleLevels while the
+        // actual mesh scale lives on child transforms — rerunning prefab SetScaleLevel
+        // here overwrites RestoreTransform and causes the post-load arm stretch bug.
+        bool loadedTransformsFromSave = TryGetComponent(out TrackedObject trackedForLoad)
+            && trackedForLoad.HasStoredValues;
+        if (ScaleLevelsRestoredFromSave || loadedTransformsFromSave)
         {
             //_originalRotation2 = transform.localRotation;
             OriginalLocalPosition = transform.localPosition;
@@ -821,6 +827,54 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         CurrentPreviewScaleLevel = scaleLevel;
     }
 
+    /// <summary>
+    /// After RestoreTransform, Z-scaled drop tubes often lack the inverse child scale
+    /// that interactive SetScaleLevel applies (boom saves it on AttachPoint; light
+    /// AttachmentPoint usually does not). Rebuild that compensation from ModelDefault.
+    /// </summary>
+    public void ReapplyInverseChildScalingAfterLoad()
+    {
+        // Prefer CurrentScaleLevel.ScaleZ; fall back to the live local Z after restore.
+        float targetZ = CurrentScaleLevel != null ? CurrentScaleLevel.ScaleZ : transform.localScale.z;
+        if (targetZ <= 0.0001f || Mathf.Abs(targetZ - 1f) < 0.0001f)
+            targetZ = transform.localScale.z;
+        if (targetZ <= 0.0001f || Mathf.Abs(targetZ - 1f) < 0.0001f)
+            return;
+
+        Vector3 ls = transform.localScale;
+        if (Mathf.Abs(ls.z - targetZ) > 0.001f)
+            transform.localScale = new Vector3(ls.x, ls.y, targetZ);
+
+        float inv = 1f / targetZ;
+        int fixedCount = 0;
+        for (int i = 0; i < transform.childCount; i++)
+        {
+            Transform child = transform.GetChild(i);
+            // Only compensate the attachment chain — not mesh LODs / caps.
+            if (child.GetComponent<AttachmentPoint>() == null
+                && !child.name.Equals("AttachmentPoint", StringComparison.OrdinalIgnoreCase)
+                && !child.name.Equals("AttachPoint", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            Vector3 cls = child.localScale;
+            if (Mathf.Abs(cls.z * targetZ - 1f) < 0.05f)
+                continue;
+
+            child.localScale = new Vector3(
+                Mathf.Abs(cls.x) < 1e-6f ? 1f : cls.x,
+                Mathf.Abs(cls.y) < 1e-6f ? 1f : cls.y,
+                inv);
+            fixedCount++;
+        }
+
+        if (fixedCount > 0)
+        {
+            Debug.Log(
+                $"[RoomLoad.Scale] ReapplyInverseChildScaling on {name}: " +
+                $"targetZ={targetZ:F3} fixedChildren={fixedCount}");
+        }
+    }
+
     public void SetScaleLevel(ScaleLevel scaleLevel, bool setSelected, bool fireEvent = true)
     {
         Transform oldParent = null;
@@ -884,7 +938,12 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                     // Debug.Log($"Local Diff after InverseTransformVector for {child.name} is ({localDiff.x}, {localDiff.y}, {localDiff.z})");
                     if (child.TryGetComponent(out Selectable selectable))
                     {
-                        if (selectable.IsGizmoSettingAllowed(GizmoType.Scale, Axis.Z))
+                        // Attachment-chain children must always inverse-scale even when
+                        // they lack a Scale-Z gizmo (light drop-tube AttachmentPoint).
+                        bool isAttachChain = child.GetComponent<AttachmentPoint>() != null
+                            || child.name.Equals("AttachmentPoint", StringComparison.OrdinalIgnoreCase)
+                            || child.name.Equals("AttachPoint", StringComparison.OrdinalIgnoreCase);
+                        if (isAttachChain || selectable.IsGizmoSettingAllowed(GizmoType.Scale, Axis.Z))
                         {
                             child.transform.localScale = Vector3.Scale(child.transform.localScale, diffVector);
                         }
@@ -1048,6 +1107,15 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         var camera = GetComponentInChildren<Camera>();
         ActiveCameraRenderTextureElevation = camera;
 
+        // Hide the 3D floor mesh during capture — the PDF ground graphic is the floor.
+        bool floorWasActive = true;
+        var floorBoundary = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor);
+        if (floorBoundary != null)
+        {
+            floorWasActive = floorBoundary.gameObject.activeSelf;
+            floorBoundary.gameObject.SetActive(false);
+        }
+
         SetAssemblyToDefaultRotations();
         _measurableActiveStates.Clear();
         ToggleMeasurableActiveStates(true);
@@ -1082,6 +1150,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         RestoreArmAssemblyRotations();
         _assemblySelectables.ForEach(x => x.FaceZTowardGround());
+        if (floorBoundary != null)
+            floorBoundary.gameObject.SetActive(floorWasActive);
         IsInElevationPhotoMode = false;
         ToggleMeasurableActiveStates(false);
 
@@ -1160,6 +1230,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             }
         }
         var unionBounds = unionBoundsNullable ?? GetAssemblyBounds();
+        unionBounds = ClampElevationBoundsToFloor(unionBounds);
 
         // Second pass: capture (front only in fast preview, front+back for real exports)
         for (int i = 0; i < viewCount; i++)
@@ -1222,6 +1293,14 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             var camera = GetComponentInChildren<Camera>();
             ActiveCameraRenderTextureElevation = camera;
 
+            bool floorWasActive = true;
+            var floorBoundary = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor);
+            if (floorBoundary != null)
+            {
+                floorWasActive = floorBoundary.gameObject.activeSelf;
+                floorBoundary.gameObject.SetActive(false);
+            }
+
             SetAssemblyToDefaultRotations();
             _measurableActiveStates.Clear();
             ToggleMeasurableActiveStates(true);
@@ -1244,6 +1323,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
             RestoreArmAssemblyRotations();
             _assemblySelectables.ForEach(x => x.FaceZTowardGround());
+            if (floorBoundary != null)
+                floorBoundary.gameObject.SetActive(floorWasActive);
             IsInElevationPhotoMode = false;
             ToggleMeasurableActiveStates(false);
         }
@@ -1265,6 +1346,14 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             IsInElevationPhotoMode = true;
             var camera = GetComponentInChildren<Camera>();
             ActiveCameraRenderTextureElevation = camera;
+
+            bool floorWasActive = true;
+            var floorBoundary = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor);
+            if (floorBoundary != null)
+            {
+                floorWasActive = floorBoundary.gameObject.activeSelf;
+                floorBoundary.gameObject.SetActive(false);
+            }
 
             SetAssemblyToDefaultRotations();
             _measurableActiveStates.Clear();
@@ -1296,6 +1385,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 {
                     if (x != null) x.FaceZTowardGround();
                 });
+                if (floorBoundary != null)
+                    floorBoundary.gameObject.SetActive(floorWasActive);
                 IsInElevationPhotoMode = false;
                 ToggleMeasurableActiveStates(false);
             }
@@ -1494,6 +1585,30 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         // Do not render. Restore camera position
         camera.transform.position = cameraOriginalPos;
 
+        return bounds;
+    }
+
+    /// <summary>
+    /// Elevation PDFs stamp a ground graphic under the photos; photo bottoms must
+    /// sit on that graphic's top edge. Clamp so we never frame below the room floor
+    /// surface (otherwise dim lines look like they pierce through the ground mark).
+    /// </summary>
+    private static Bounds ClampElevationBoundsToFloor(Bounds bounds)
+    {
+        float floorY = 0f;
+        var floor = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor);
+        if (floor != null)
+            floorY = floor.transform.position.y + (floor.transform.localScale.y * 0.5f);
+
+        if (bounds.min.y >= floorY - 0.0001f)
+            return bounds;
+
+        Vector3 min = bounds.min;
+        Vector3 max = bounds.max;
+        min.y = floorY;
+        if (max.y < min.y + 0.01f)
+            max.y = min.y + 0.01f;
+        bounds.SetMinMax(min, max);
         return bounds;
     }
 

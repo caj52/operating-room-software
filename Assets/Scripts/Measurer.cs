@@ -94,12 +94,23 @@ public class Measurer : MonoBehaviour
             camera = Camera.main;
         }
 
+        // Elevation PDFs use a decorative ground graphic under the photos; its TOP
+        // edge is the floor. Dim lines must end at world y of that plane (room floor
+        // surface / y=0) so photo bottoms meet the graphic flush — not the floor
+        // mesh center, which sits half-thickness below and makes lines overshoot.
+        Vector3 hitPoint = Measurement.HitPoint;
+        bool isFloorHit = Measurement.MeasurementType == MeasurementType.Floor
+            || Measurement.RoomBoundaryType == RoomBoundaryType.Floor
+            || Mathf.Abs(hitPoint.y) < 0.05f;
+        if (isFloorHit)
+            hitPoint.y = GetFloorTopY();
+
         transform.position = Measurement.Origin;
-        transform.LookAt(Measurement.HitPoint);
+        transform.LookAt(hitPoint);
 
         // Prefer world-space span for overlays (matches drawn ray). Use configured arm
         // length only when it closely matches world (avoids radial/half-scale drift).
-        float worldMeters = Vector3.Distance(Measurement.Origin, Measurement.HitPoint);
+        float worldMeters = Vector3.Distance(Measurement.Origin, hitPoint);
         float distanceMeters = worldMeters;
         if (Measurement != null
             && Measurement.MeasurementType == MeasurementType.ToArmAssemblyOrigin
@@ -137,14 +148,9 @@ public class Measurer : MonoBehaviour
             worldMeters);
         MeasurementText.UpdateVisibilityAndPosition(camera);
 
-        if (Measurement != null
-            && (Measurement.MeasurementType == MeasurementType.Floor
-                || Measurement.RoomBoundaryType == RoomBoundaryType.Floor
-                || Mathf.Abs(Measurement.HitPoint.y) < 0.05f))
-        {
-            CreateHorizontalLine();
-            AlignHorizontalLineToFloor();
-        }
+        // Do not draw an extra floor graphic in elevation exports. The room floor
+        // mesh already renders the thick hatched floor line; dimension rays should
+        // simply terminate there.
     }
     private GameObject horizontalLine;
     private GameObject ceilingLine;
@@ -245,10 +251,7 @@ public class Measurer : MonoBehaviour
         if (lr == null)
             return;
 
-        float floorY = Measurement.HitPoint.y;
-        var floor = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor);
-        if (floor != null)
-            floorY = floor.transform.position.y;
+        float floorY = GetFloorTopY();
 
         float halfWidth = GetFloorWidth() * 0.5f;
         Vector3 center = new Vector3(Measurement.HitPoint.x, floorY, Measurement.HitPoint.z);
@@ -262,6 +265,18 @@ public class Measurer : MonoBehaviour
         lr.useWorldSpace = true;
         lr.SetPosition(0, center - right * halfWidth);
         lr.SetPosition(1, center + right * halfWidth);
+    }
+
+    /// <summary>
+    /// World Y of the visible floor surface (top of floor mesh). Room convention
+    /// places this at y=0; floor transform center sits half-thickness below.
+    /// </summary>
+    private static float GetFloorTopY()
+    {
+        var floor = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor);
+        if (floor == null)
+            return 0f;
+        return floor.transform.position.y + (floor.transform.localScale.y * 0.5f);
     }
 
     private float GetFloorWidth()

@@ -759,12 +759,15 @@ public class PdfExporterLocal
         outer.AddCell(new PdfPCell(imgs) { Border = Rectangle.NO_BORDER, Padding = 0f });
 
         var cb = writer.DirectContent;
+        // Ground graphic sits flush under the elevation photos. Its TOP edge is the
+        // floor reference — dim lines in the captures must end at the photo bottom
+        // so they meet this line (do not overlap upward or lines appear to pierce it).
         Image beamImg = BuildBeamImage(cb, usablePageWidth, 10f);
         outer.AddCell(new PdfPCell(beamImg)
         {
             Border = Rectangle.NO_BORDER,
             Padding = 0f,
-            PaddingTop = -8f, // nudge beam upward a bit to sit closer to the images
+            PaddingTop = 0f,
             HorizontalAlignment = Element.ALIGN_LEFT,
             VerticalAlignment = Element.ALIGN_TOP
         });

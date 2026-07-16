@@ -782,15 +782,45 @@ namespace SplenSoft.AssetBundles
             return new StreamingAssetBundleRequestResult(false, null);
         }
 
+        /// <summary>
+        /// Unity refuses to load the same bundle file twice ("already loaded" error).
+        /// Concurrent requests for the same bundle (e.g. two assemblies sharing an arm
+        /// prefab during a room load) must reuse the in-memory bundle instead of failing.
+        /// </summary>
+        private static AssetBundle FindAlreadyLoadedBundle(string name)
+        {
+            foreach (var loaded in AssetBundle.GetAllLoadedAssetBundles())
+            {
+                if (loaded != null && string.Equals(loaded.name, name, StringComparison.OrdinalIgnoreCase))
+                    return loaded;
+            }
+            return null;
+        }
+
         private static StreamingAssetBundleRequestResult TryLoadAssetBundleFromFile(
             string path, string name, string source)
         {
             if (string.IsNullOrEmpty(path) || !File.Exists(path))
                 return new StreamingAssetBundleRequestResult(false, null);
 
+            AssetBundle already = FindAlreadyLoadedBundle(name);
+            if (already != null)
+            {
+                Diag("ABM.GetAssetBundle", $"REUSE already-loaded {name}");
+                return new StreamingAssetBundleRequestResult(true, already);
+            }
+
             AssetBundle bundle = AssetBundle.LoadFromFile(path);
             if (bundle == null)
             {
+                // Load can fail because another request loaded it between our check and now.
+                already = FindAlreadyLoadedBundle(name);
+                if (already != null)
+                {
+                    Diag("ABM.GetAssetBundle", $"REUSE already-loaded (post-fail) {name}");
+                    return new StreamingAssetBundleRequestResult(true, already);
+                }
+
                 Debug.LogError($"Could not load asset bundle {name} from {source}: {path}");
                 return new StreamingAssetBundleRequestResult(false, null);
             }
@@ -806,6 +836,13 @@ namespace SplenSoft.AssetBundles
             if (string.IsNullOrEmpty(path) || !File.Exists(path))
                 return new StreamingAssetBundleRequestResult(false, null);
 
+            AssetBundle already = FindAlreadyLoadedBundle(name);
+            if (already != null)
+            {
+                Diag("ABM.GetAssetBundle", $"REUSE already-loaded {name}");
+                return new StreamingAssetBundleRequestResult(true, already);
+            }
+
             AssetBundleCreateRequest request = AssetBundle.LoadFromFileAsync(path);
             while (!request.isDone)
             {
@@ -817,6 +854,13 @@ namespace SplenSoft.AssetBundles
             AssetBundle bundle = request.assetBundle;
             if (bundle == null)
             {
+                already = FindAlreadyLoadedBundle(name);
+                if (already != null)
+                {
+                    Diag("ABM.GetAssetBundle", $"REUSE already-loaded (post-fail) {name}");
+                    return new StreamingAssetBundleRequestResult(true, already);
+                }
+
                 Debug.LogError($"Could not load asset bundle {name} from {source}: {path}");
                 return new StreamingAssetBundleRequestResult(false, null);
             }

@@ -106,17 +106,33 @@ public class BoomConfigurationManager : MonoBehaviour
         }
     }
 
+    // GameObject names vary by boom prefab (e.g. "BoomSegment_1", "1000SH_XXL_BoomArm _2XLFixed")
+    // and rarely match "TopArm"/"BottomArm" literally. UIButtonName ("Boom - Fixed Top Arm (XL)")
+    // is the reliable identifier set by the boom configurator, so check it first.
+    private static bool MatchesArmRole(Selectable s, string roleToken, params string[] nameHints)
+    {
+        if (s == null)
+            return false;
+
+        if (!string.IsNullOrEmpty(s.UIButtonName)
+            && s.UIButtonName.IndexOf(roleToken, System.StringComparison.OrdinalIgnoreCase) >= 0)
+            return true;
+
+        string goName = s.gameObject.name;
+        return nameHints.Any(h => goName.IndexOf(h, System.StringComparison.OrdinalIgnoreCase) >= 0);
+    }
+
     private void GatherComponentReferences()
     {
         _allSelectables = GetComponentsInChildren<Selectable>(true).ToList();
 
         // Find top arm selectable
         _topArmSelectable = _allSelectables.FirstOrDefault(s =>
-            s != null && s.gameObject.name.Contains("TopArm"));
+            MatchesArmRole(s, "Top Arm", "TopArm", "BoomSegment_1", "Segment_1", "UpperArm", "Upper_Arm"));
 
         // Find bottom arm selectable
         _bottomArmSelectable = _allSelectables.FirstOrDefault(s =>
-            s != null && s.gameObject.name.Contains("BottomArm"));
+            MatchesArmRole(s, "Bottom Arm", "BottomArm", "BoomArm", "LowerArm", "Lower_Arm"));
 
         if (_topArmSelectable == null)
         {

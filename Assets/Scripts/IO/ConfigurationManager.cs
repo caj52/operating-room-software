@@ -410,10 +410,12 @@ public class ConfigurationManager : MonoBehaviour
                 FinalizeLoadedInstanceColliders();
                 RestoreAllLoadedTransforms();
                 FinalizeLoadedAttachmentPoints();
+                FixLoadedNonUniformDropTubeScales();
                 BatchActivateLoadedObjects();
                 CompleteDeferredSelectableInitialization();
                 RestoreLoadedInstanceColliders();
                 SettleLoadedBoomAssembly();
+                FixLoadedNonUniformDropTubeScales();
 
                 if (_newObjects == null || _newObjects.Count == 0)
                 {
@@ -680,6 +682,7 @@ public class ConfigurationManager : MonoBehaviour
                 // Pass2 restored children before pass4 fixed AP locals (e.g. drop-tube AP scaleZ=5).
                 var transformTimer = Stopwatch.StartNew();
                 RestoreAllLoadedTransforms();
+                LogLoadedArmScaleSnapshot("after RestoreAllLoadedTransforms");
                 transformTimer.Stop();
                 AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "restoreAllTransforms", transformTimer.ElapsedMilliseconds,
                     $"{_newObjects.Count} root(s)");
@@ -687,17 +690,21 @@ public class ConfigurationManager : MonoBehaviour
                 // MoveUp must run AFTER canonical transforms, BEFORE activation/settle.
                 var attachmentTimer = Stopwatch.StartNew();
                 FinalizeLoadedAttachmentPoints();
+                FixLoadedNonUniformDropTubeScales();
+                LogLoadedArmScaleSnapshot("after FinalizeLoadedAttachmentPoints");
                 attachmentTimer.Stop();
                 AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "finalizeAttachmentPoints", attachmentTimer.ElapsedMilliseconds);
 
                 var activateTimer = Stopwatch.StartNew();
                 BatchActivateLoadedObjects();
+                LogLoadedArmScaleSnapshot("after BatchActivateLoadedObjects");
                 activateTimer.Stop();
                 AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "batchActivate", activateTimer.ElapsedMilliseconds,
                     $"{_newObjects.Count} object(s)");
 
                 var deferredInitTimer = Stopwatch.StartNew();
                 CompleteDeferredSelectableInitialization();
+                LogLoadedArmScaleSnapshot("after CompleteDeferredSelectableInitialization");
                 deferredInitTimer.Stop();
                 AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "completeDeferredInit", deferredInitTimer.ElapsedMilliseconds,
                     $"{_newObjects.Count} object(s)");
@@ -709,6 +716,8 @@ public class ConfigurationManager : MonoBehaviour
                     $"{restoredColliderCount} mesh collider(s) on {_newObjects.Count} object(s)");
 
                 SettleLoadedBoomAssembly();
+                FixLoadedNonUniformDropTubeScales();
+                LogLoadedArmScaleSnapshot("after SettleLoadedBoomAssembly");
 
                 progression += progressionTicks;
                 token.SetProgress(progression);
@@ -998,6 +1007,81 @@ public class ConfigurationManager : MonoBehaviour
                 }
             }
         }
+
+        // Light drop tubes save tube Z but often omit inverse AttachmentPoint Z.
+        // Re-derive that compensation so arms don't inherit tube squash/shear.
+        FixLoadedNonUniformDropTubeScales();
+    }
+
+    /// <summary>
+    /// Boom drop tubes persist compensating AttachPoint.z (=1/tube.z). Light drop tubes
+    /// usually do not. Without that inverse, the whole arm inherits tube.lossyScale.z
+    /// and shears under rotation. Also repairs zeroed inner light mesh roots.
+    /// </summary>
+    private void FixLoadedNonUniformDropTubeScales()
+    {
+        if (_newObjects == null)
+            return;
+
+        foreach (TrackedObject to in _newObjects)
+        {
+            if (to == null)
+                continue;
+
+            foreach (Transform t in to.GetComponentsInChildren<Transform>(true))
+            {
+                if (t == null)
+                    continue;
+
+                // Exact inner mesh container that logs showed stuck at (0,0,0).
+                if (t.name == "Simeon_Light_7000" && t.localScale.sqrMagnitude < 1e-8f)
+                {
+                    t.localScale = Vector3.one;
+                    AssetPipelineDiagnostics.Log("RoomLoad.Scale",
+                        $"Repaired zero localScale on {GetLoadComparablePath(t.gameObject)}");
+                }
+
+                if (t.name.IndexOf("DropTube.001", StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+
+                float tubeZ = t.localScale.z;
+                if (tubeZ <= 0.0001f || Mathf.Abs(tubeZ - 1f) < 0.0001f)
+                    continue;
+
+                float inv = 1f / tubeZ;
+                for (int i = 0; i < t.childCount; i++)
+                {
+                    Transform child = t.GetChild(i);
+                    bool isAttach =
+                        child.GetComponent<AttachmentPoint>() != null
+                        || child.name.Equals("AttachmentPoint", StringComparison.OrdinalIgnoreCase)
+                        || child.name.Equals("AttachPoint", StringComparison.OrdinalIgnoreCase);
+                    if (!isAttach)
+                        continue;
+
+                    Vector3 cls = child.localScale;
+                    if (Mathf.Abs(cls.z * tubeZ - 1f) < 0.05f)
+                        continue;
+
+                    child.localScale = new Vector3(
+                        Mathf.Abs(cls.x) < 1e-6f ? 1f : cls.x,
+                        Mathf.Abs(cls.y) < 1e-6f ? 1f : cls.y,
+                        inv);
+                    AssetPipelineDiagnostics.Log("RoomLoad.Scale",
+                        $"Compensate {child.name} under {t.name}: localScale.z {cls.z:F3} -> {inv:F3} (tubeZ={tubeZ:F3})");
+                }
+            }
+
+            foreach (Selectable sel in to.GetComponentsInChildren<Selectable>(true))
+            {
+                if (sel == null) continue;
+                try { sel.ReapplyInverseChildScalingAfterLoad(); }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[FixLoadedNonUniformDropTubeScales] {sel.name}: {ex.Message}");
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -1038,6 +1122,49 @@ public class ConfigurationManager : MonoBehaviour
                 {
                     Debug.LogWarning($"[SettleLoadedBoomAssembly] RefreshUVs failed on {to.name}: {ex.Message}");
                 }
+            }
+        }
+    }
+
+    private void LogLoadedArmScaleSnapshot(string phase)
+    {
+        if (_newObjects == null)
+            return;
+
+        foreach (TrackedObject root in _newObjects)
+        {
+            if (root == null)
+                continue;
+
+            foreach (Transform t in root.GetComponentsInChildren<Transform>(true))
+            {
+                if (t == null)
+                    continue;
+
+                string n = t.name;
+                bool relevant =
+                    n.IndexOf("ArmDropTube", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    n.IndexOf("BoomDropTube", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    n.IndexOf("AttachmentPoint", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    n.Equals("AttachPoint", StringComparison.OrdinalIgnoreCase) ||
+                    n.IndexOf("ArmSegment", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    n.IndexOf("Cardanic", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    n.IndexOf("Simeon_Light", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    n.IndexOf("LightHead", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                if (!relevant)
+                    continue;
+
+                Selectable selectable = t.GetComponent<Selectable>();
+                string selectedScale = selectable?.CurrentScaleLevel != null
+                    ? $" currentScale(size={selectable.CurrentScaleLevel.Size}, scaleZ={selectable.CurrentScaleLevel.ScaleZ})"
+                    : "";
+                string saved = t.TryGetComponent(out TrackedObject tracked) && tracked.HasStoredValues
+                    ? $" savedLocalScale={tracked.data.localScale}"
+                    : "";
+
+                AssetPipelineDiagnostics.Log("RoomLoad.Scale",
+                    $"{phase}: {GetLoadComparablePath(t.gameObject)} localScale={t.localScale} lossyScale={t.lossyScale} localRot={t.localEulerAngles}{selectedScale}{saved}");
             }
         }
     }
