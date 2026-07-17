@@ -8,7 +8,11 @@ using UnityEngine.UI;
 public class UI_ClientMetaData : MonoBehaviour
 {
     private const string PrefsSalesRepName = "SalesProposal.SalesRepName";
+    private const string PrefsSalesRepPhone = "SalesProposal.SalesRepPhone";
     private const string PrefsSalesRepEmail = "SalesProposal.SalesRepEmail";
+
+    /// <summary>Vertical step between manually laid-out Client Data input rows.</summary>
+    private const float SalesRepRowStep = 52f;
 
     private static UI_ClientMetaData Instance { get; set; }
 
@@ -50,6 +54,7 @@ public class UI_ClientMetaData : MonoBehaviour
     { get; set; }
 
     [SerializeField] private TMP_InputField InputFieldSalesRepName;
+    [SerializeField] private TMP_InputField InputFieldSalesRepPhone;
     [SerializeField] private TMP_InputField InputFieldSalesRepEmail;
 
     /// <summary>
@@ -71,6 +76,24 @@ public class UI_ClientMetaData : MonoBehaviour
             PlayerPrefs.Save();
             if (Instance?.InputFieldSalesRepName != null)
                 Instance.InputFieldSalesRepName.text = v;
+        }
+    }
+
+    public static string SalesRepPhone
+    {
+        get
+        {
+            if (Instance?.InputFieldSalesRepPhone != null)
+                return ReadField(Instance.InputFieldSalesRepPhone);
+            return PlayerPrefs.GetString(PrefsSalesRepPhone, "");
+        }
+        set
+        {
+            string v = value?.Trim() ?? "";
+            PlayerPrefs.SetString(PrefsSalesRepPhone, v);
+            PlayerPrefs.Save();
+            if (Instance?.InputFieldSalesRepPhone != null)
+                Instance.InputFieldSalesRepPhone.text = v;
         }
     }
 
@@ -184,6 +207,9 @@ public class UI_ClientMetaData : MonoBehaviour
         if (InputFieldSalesRepName != null)
             InputFieldSalesRepName.text = PlayerPrefs.GetString(PrefsSalesRepName, "");
 
+        if (InputFieldSalesRepPhone != null)
+            InputFieldSalesRepPhone.text = PlayerPrefs.GetString(PrefsSalesRepPhone, "");
+
         if (InputFieldSalesRepEmail != null)
             InputFieldSalesRepEmail.text = PlayerPrefs.GetString(PrefsSalesRepEmail, "");
     }
@@ -192,6 +218,8 @@ public class UI_ClientMetaData : MonoBehaviour
     {
         if (InputFieldSalesRepName != null)
             PlayerPrefs.SetString(PrefsSalesRepName, InputFieldSalesRepName.text?.Trim() ?? "");
+        if (InputFieldSalesRepPhone != null)
+            PlayerPrefs.SetString(PrefsSalesRepPhone, InputFieldSalesRepPhone.text?.Trim() ?? "");
         if (InputFieldSalesRepEmail != null)
             PlayerPrefs.SetString(PrefsSalesRepEmail, InputFieldSalesRepEmail.text?.Trim() ?? "");
         PlayerPrefs.Save();
@@ -207,6 +235,7 @@ public class UI_ClientMetaData : MonoBehaviour
             ReadField(InputFieldProjectNumber),
             ReadField(InputFieldOrderReferenceNumber),
             ReadField(InputFieldSalesRepName),
+            ReadField(InputFieldSalesRepPhone),
             ReadField(InputFieldSalesRepEmail));
     }
 
@@ -250,12 +279,12 @@ public class UI_ClientMetaData : MonoBehaviour
 
     /// <summary>
     /// Adds sales-rep inputs under Client Metadata when the prefab doesn't have them yet.
+    /// Prefab uses fixed top-anchored positions (VerticalLayoutGroup is off), so clones
+    /// must be placed below Reference and Cancel shifted down — otherwise they stack on
+    /// Project Name and are unusable.
     /// </summary>
     private void EnsureSalesRepFields()
     {
-        if (InputFieldSalesRepName != null && InputFieldSalesRepEmail != null)
-            return;
-
         var template = InputFieldProjectName ?? InputFieldAccountName;
         if (template == null)
             return;
@@ -272,10 +301,86 @@ public class UI_ClientMetaData : MonoBehaviour
                 template, parent, cancel, "InputField_SalesRepName", "Sales Rep Name");
         }
 
+        if (InputFieldSalesRepPhone == null)
+        {
+            InputFieldSalesRepPhone = CloneInputField(
+                template, parent, cancel, "InputField_SalesRepPhone", "Sales Rep Phone");
+        }
+
         if (InputFieldSalesRepEmail == null)
         {
             InputFieldSalesRepEmail = CloneInputField(
                 template, parent, cancel, "InputField_SalesRepEmail", "Sales Rep Email");
+        }
+
+        LayoutSalesRepFields(parent, cancel);
+    }
+
+    private void LayoutSalesRepFields(Transform parent, Transform cancel)
+    {
+        var anchor = InputFieldOrderReferenceNumber != null
+            ? InputFieldOrderReferenceNumber.transform as RectTransform
+            : (InputFieldProjectNumber != null
+                ? InputFieldProjectNumber.transform as RectTransform
+                : null);
+        if (anchor == null)
+            return;
+
+        float y = anchor.anchoredPosition.y - SalesRepRowStep;
+        PlaceField(InputFieldSalesRepName, y, cancel);
+        y -= SalesRepRowStep;
+        PlaceField(InputFieldSalesRepPhone, y, cancel);
+        y -= SalesRepRowStep;
+        PlaceField(InputFieldSalesRepEmail, y, cancel);
+
+        if (cancel is RectTransform cancelRt)
+        {
+            float cancelY = y - SalesRepRowStep - 10f;
+            cancelRt.anchoredPosition = new Vector2(cancelRt.anchoredPosition.x, cancelY);
+            cancel.SetAsLastSibling();
+
+            // Grow the form so Cancel is not clipped under the fixed panel height.
+            float neededBottom = Mathf.Abs(cancelY) + cancelRt.sizeDelta.y * 0.5f + 24f;
+            ExpandFormHeight(parent as RectTransform, neededBottom);
+        }
+    }
+
+    private static void PlaceField(TMP_InputField field, float anchoredY, Transform insertBefore)
+    {
+        if (field == null)
+            return;
+
+        var rt = field.transform as RectTransform;
+        if (rt == null)
+            return;
+
+        rt.anchoredPosition = new Vector2(rt.anchoredPosition.x, anchoredY);
+        if (insertBefore != null)
+            field.transform.SetSiblingIndex(insertBefore.GetSiblingIndex());
+        else
+            field.transform.SetAsLastSibling();
+    }
+
+    private void ExpandFormHeight(RectTransform innerBox, float neededBottom)
+    {
+        if (innerBox == null || neededBottom <= innerBox.sizeDelta.y + 0.5f)
+            return;
+
+        float grow = neededBottom - innerBox.sizeDelta.y;
+        innerBox.sizeDelta = new Vector2(innerBox.sizeDelta.x, neededBottom);
+
+        // Outer chrome (parent of InnerBox) is a sibling frame — grow it too when present.
+        var root = transform as RectTransform;
+        if (root == null)
+            return;
+
+        for (int i = 0; i < root.childCount; i++)
+        {
+            var child = root.GetChild(i) as RectTransform;
+            if (child == null || child == innerBox)
+                continue;
+            if (child.sizeDelta.y > 100f)
+                child.sizeDelta = new Vector2(child.sizeDelta.x, child.sizeDelta.y + grow);
         }
     }
 

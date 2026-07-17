@@ -33,6 +33,7 @@ public class ProposalPDFGenerator : MonoBehaviour
     public string projectName = "Project Name";
     public string configName = "Tandem Equipment Boom with Light";
     public string salesRepName = "Sales Rep Name";
+    public string salesRepPhone = "";
     public string salesRepEmail = "SalesRepEmail@igoimagine.com";
 
     public string accountName = "";
@@ -224,9 +225,12 @@ public class ProposalPDFGenerator : MonoBehaviour
         }
 
         salesRepName = UI_ClientMetaData.SalesRepName ?? "";
+        salesRepPhone = UI_ClientMetaData.SalesRepPhone ?? "";
         salesRepEmail = UI_ClientMetaData.SalesRepEmail ?? "";
         if (IsPlaceholder(salesRepName))
             salesRepName = "";
+        if (IsPlaceholder(salesRepPhone))
+            salesRepPhone = "";
         if (IsPlaceholder(salesRepEmail))
             salesRepEmail = "";
 
@@ -1441,6 +1445,8 @@ public class ProposalPDFGenerator : MonoBehaviour
         leftCell.AddElement(new Paragraph("\n", normalFont));
         if (!string.IsNullOrWhiteSpace(salesRepName))
             leftCell.AddElement(new Paragraph(salesRepName, titleFont));
+        if (!string.IsNullOrWhiteSpace(salesRepPhone))
+            leftCell.AddElement(new Paragraph(salesRepPhone, normalFont));
         if (!string.IsNullOrWhiteSpace(salesRepEmail))
             leftCell.AddElement(new Paragraph(salesRepEmail, normalFont));
         leftCell.AddElement(new Paragraph("\n", normalFont));
@@ -1478,17 +1484,26 @@ public class ProposalPDFGenerator : MonoBehaviour
         clientTable.AddCell(new PdfPCell(new Phrase($"Submitted To: {clientName}", boldFont)) { BackgroundColor = BaseColor.LIGHT_GRAY, Border = Rectangle.NO_BORDER, Padding = 5 });
         document.Add(clientTable);
         document.Add(new Paragraph("\n", normalFont));
-        // CS: sales rep beside Project (single clear line).
+        // Always print Sales Rep beside Project so the label is editable even when empty.
         string projectLine = string.IsNullOrWhiteSpace(projectName) ? "Project:" : $"Project: {projectName}";
-        if (!string.IsNullOrWhiteSpace(salesRepName) || !string.IsNullOrWhiteSpace(salesRepEmail))
-        {
-            string repBits = !string.IsNullOrWhiteSpace(salesRepName) && !string.IsNullOrWhiteSpace(salesRepEmail)
-                ? $"{salesRepName}  |  {salesRepEmail}"
-                : (salesRepName ?? salesRepEmail);
-            projectLine = $"{projectLine}     Sales Rep: {repBits}";
-        }
+        string repBits = BuildSalesRepBits(salesRepName, salesRepPhone, salesRepEmail);
+        projectLine = string.IsNullOrWhiteSpace(repBits)
+            ? $"{projectLine}     Sales Rep:"
+            : $"{projectLine}     Sales Rep: {repBits}";
         document.Add(new Paragraph(projectLine, new Font(titleFont.BaseFont, titleFont.Size, Font.UNDERLINE)));
         document.Add(new Paragraph("\n", normalFont));
+    }
+
+    private static string BuildSalesRepBits(string name, string phone, string email)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(name))
+            parts.Add(name.Trim());
+        if (!string.IsNullOrWhiteSpace(phone))
+            parts.Add(phone.Trim());
+        if (!string.IsNullOrWhiteSpace(email))
+            parts.Add(email.Trim());
+        return parts.Count == 0 ? "" : string.Join("  |  ", parts);
     }
 
     private void AddTableTitle(Document doc, string text)

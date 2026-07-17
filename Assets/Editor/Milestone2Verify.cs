@@ -168,7 +168,7 @@ public static class Milestone2Verify
         ExpectSource(checks, "SRC-SALES-REP",
             "Proposal prints Sales Rep beside Project",
             "Assets/_DevWIP/Faizan/PDF/Scripts/ProposalPDFGenerator.cs",
-            mustContain: new[] { "Sales Rep:", "salesRepName" },
+            mustContain: new[] { "Sales Rep:", "salesRepName", "salesRepPhone" },
             mustNotContain: null);
 
         ExpectSource(checks, "SRC-BOOM-KEY",
@@ -483,7 +483,8 @@ Paste updates into chat or re-run verify after exports so ART-* flips PASS.
 
 --- Sales Proposal ---
 [ ] Header phone = 214.987.0404
-[ ] Sales rep name/email present when set in Client Data (beside Project)
+[ ] Sales rep name/phone/email present when set in Client Data (beside Project)
+[ ] Sales rep fields editable from Client Data and from proposal preview click
 [ ] Config1 list ≈ $106,151.40 (± small % vs Estimating Form)
 [ ] Config2 list ≈ $38,190.13 (Spring boom — not Powered 1000mm)
 [ ] Config3 list ≈ $74,115.64

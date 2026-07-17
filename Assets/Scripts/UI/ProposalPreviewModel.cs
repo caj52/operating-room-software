@@ -26,6 +26,7 @@ public sealed class ProposalPreviewModel
     public string CompanyPhone { get; private set; } = "Tel: 214.987.0404";
 
     public string SalesRepName { get; set; } = "";
+    public string SalesRepPhone { get; set; } = "";
     public string SalesRepEmail { get; set; } = "";
 
     public string ClientName { get; private set; } = "";
@@ -125,6 +126,7 @@ public sealed class ProposalPreviewModel
         if (reloadEditableFields)
         {
             SalesRepName = UI_ClientMetaData.SalesRepName ?? "";
+            SalesRepPhone = UI_ClientMetaData.SalesRepPhone ?? "";
             SalesRepEmail = UI_ClientMetaData.SalesRepEmail ?? "";
 
             if (DiscountPercentage <= 0f)
@@ -137,6 +139,7 @@ public sealed class ProposalPreviewModel
         else if (syncSalesRep)
         {
             SalesRepName = UI_ClientMetaData.SalesRepName ?? "";
+            SalesRepPhone = UI_ClientMetaData.SalesRepPhone ?? "";
             SalesRepEmail = UI_ClientMetaData.SalesRepEmail ?? "";
         }
 
@@ -164,6 +167,7 @@ public sealed class ProposalPreviewModel
     public void PersistEditableFields()
     {
         UI_ClientMetaData.SalesRepName = SalesRepName?.Trim() ?? "";
+        UI_ClientMetaData.SalesRepPhone = SalesRepPhone?.Trim() ?? "";
         UI_ClientMetaData.SalesRepEmail = SalesRepEmail?.Trim() ?? "";
         ProposalPDFGenerator.SaveDiscountPercentage(Mathf.Max(0f, DiscountPercentage));
         PlayerPrefs.SetString(PrefsNote1, Note1 ?? DefaultNote1);
@@ -193,6 +197,7 @@ public sealed class ProposalPreviewModel
         generator.accountAddress = addressParts.Count > 0 ? string.Join(", ", addressParts) : "";
 
         generator.salesRepName = SalesRepName ?? "";
+        generator.salesRepPhone = SalesRepPhone ?? "";
         generator.salesRepEmail = SalesRepEmail ?? "";
         generator.configName = string.IsNullOrWhiteSpace(ConfigName) ? "Configuration" : ConfigName;
         generator.discountPercentage = Mathf.Max(0f, DiscountPercentage);

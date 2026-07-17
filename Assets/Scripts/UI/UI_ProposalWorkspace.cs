@@ -47,8 +47,9 @@ public class UI_ProposalWorkspace : MonoBehaviour
         public static readonly Color EditableHover = new(0.98f, 0.93f, 0.86f, 1f);
         public static readonly Color EditableBorder = new(0.90f, 0.82f, 0.70f, 1f);
         /// <summary>Soft highlight drawn over PDF regions that open an editor.</summary>
-        public static readonly Color Hotspot = new(0.98f, 0.82f, 0.35f, 0.28f);
-        public static readonly Color HotspotHover = new(0.98f, 0.72f, 0.22f, 0.42f);
+        public static readonly Color Hotspot = new(0.98f, 0.82f, 0.35f, 0.32f);
+        public static readonly Color HotspotHover = new(0.98f, 0.68f, 0.18f, 0.52f);
+        public static readonly Color HotspotPressed = new(0.95f, 0.55f, 0.10f, 0.62f);
         public static readonly Color Accent = new(0.91f, 0.47f, 0.13f, 1f);
         public static readonly Color AccentDark = new(0.78f, 0.38f, 0.08f, 1f);
         public static readonly Color Ghost = new(1f, 1f, 1f, 0.92f);
@@ -66,7 +67,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
     bool _built;
 
     /// <summary>Bump to force-rebuild the DontDestroyOnLoad workspace after UI hierarchy fixes.</summary>
-    const int UiBuildVersion = 4;
+    const int UiBuildVersion = 5;
     static int _loadedUiBuildVersion;
 
     UnityAction _onPricingChanged;
@@ -1355,6 +1356,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
         CreateHint(rail.transform, "Use these when the page highlight isn’t enough.");
 
         CreateGhostButton(rail.transform, "Options", EditOptions, -1f, 34f);
+        CreateGhostButton(rail.transform, "Sales Rep", EditSalesRep, -1f, 34f);
         CreateGhostButton(rail.transform, "Client Data", EditClientData, -1f, 34f);
         CreateGhostButton(rail.transform, "Refresh visuals", () => BeginPreviewGeneration(forceVisuals: true), -1f, 34f);
 
@@ -1386,7 +1388,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
 
     void CreateHotspot(ProposalPreviewHotspot spot)
     {
-        var go = new GameObject("Hotspot_" + spot.Kind, typeof(RectTransform), typeof(Image), typeof(Button));
+        var go = new GameObject("Hotspot_" + spot.Kind, typeof(RectTransform), typeof(Image));
         go.transform.SetParent(_hotspotLayer, false);
         var rt = go.GetComponent<RectTransform>();
         rt.anchorMin = new Vector2(spot.X0, spot.Y0);
@@ -1395,27 +1397,133 @@ public class UI_ProposalWorkspace : MonoBehaviour
         rt.offsetMax = Vector2.zero;
 
         var img = go.GetComponent<Image>();
-        img.color = Color.white;
+        img.color = Theme.Hotspot;
         img.raycastTarget = true;
 
-        var btn = go.GetComponent<Button>();
-        btn.targetGraphic = img;
-        btn.transition = UnityEngine.UI.Selectable.Transition.ColorTint;
-        var colors = btn.colors;
-        colors.normalColor = Theme.Hotspot;
-        colors.highlightedColor = Theme.HotspotHover;
-        colors.pressedColor = Theme.HotspotHover;
-        colors.selectedColor = Theme.HotspotHover;
-        colors.disabledColor = new Color(Theme.Hotspot.r, Theme.Hotspot.g, Theme.Hotspot.b, 0.12f);
-        colors.colorMultiplier = 1f;
-        colors.fadeDuration = 0.08f;
-        btn.colors = colors;
-        btn.onClick.AddListener(() => OpenEditorFor(spot.Kind));
+        // Don't use Button + ScrollRect together — tiny pointer movement cancels onClick.
+        // Pause page scrolling for the press and fire on pointer-up within a small drag.
+        var click = go.AddComponent<ProposalHotspotClick>();
+        click.Initialize(
+            img,
+            Theme.Hotspot,
+            Theme.HotspotHover,
+            Theme.HotspotPressed,
+            _pageScroll,
+            () => OpenEditorFor(spot.Kind));
 
         if (!string.IsNullOrEmpty(spot.Tooltip))
         {
             var tip = go.AddComponent<UI_HoverTooltip>();
             tip.SetText(spot.Tooltip);
+        }
+    }
+
+    /// <summary>
+    /// Clickable PDF region that stays responsive inside a ScrollRect (Button onClick
+    /// is often swallowed by drag).
+    /// </summary>
+    sealed class ProposalHotspotClick : MonoBehaviour,
+        IPointerEnterHandler, IPointerExitHandler, IPointerDownHandler, IPointerUpHandler
+    {
+        const float ClickSlopPixels = 40f;
+
+        Image _image;
+        Color _normal;
+        Color _hover;
+        Color _pressed;
+        ScrollRect _scroll;
+        UnityAction _onActivated;
+        bool _inside;
+        bool _holding;
+        bool _scrollWasEnabled;
+        Vector2 _downScreen;
+
+        public void Initialize(
+            Image image,
+            Color normal,
+            Color hover,
+            Color pressed,
+            ScrollRect scroll,
+            UnityAction onActivated)
+        {
+            _image = image;
+            _normal = normal;
+            _hover = hover;
+            _pressed = pressed;
+            _scroll = scroll;
+            _onActivated = onActivated;
+            if (_image != null)
+                _image.color = _normal;
+        }
+
+        public void OnPointerEnter(PointerEventData eventData)
+        {
+            _inside = true;
+            if (!_holding && _image != null)
+                _image.color = _hover;
+        }
+
+        public void OnPointerExit(PointerEventData eventData)
+        {
+            _inside = false;
+            if (!_holding && _image != null)
+                _image.color = _normal;
+        }
+
+        public void OnPointerDown(PointerEventData eventData)
+        {
+            if (eventData == null || eventData.button != PointerEventData.InputButton.Left)
+                return;
+
+            _holding = true;
+            _downScreen = eventData.position;
+            if (_image != null)
+                _image.color = _pressed;
+
+            if (_scroll != null)
+            {
+                _scrollWasEnabled = _scroll.enabled;
+                _scroll.enabled = false;
+            }
+        }
+
+        public void OnPointerUp(PointerEventData eventData)
+        {
+            if (!_holding)
+                return;
+
+            _holding = false;
+            RestoreScroll();
+
+            if (_image != null)
+                _image.color = _inside ? _hover : _normal;
+
+            if (eventData == null || eventData.button != PointerEventData.InputButton.Left)
+                return;
+
+            float slop = ClickSlopPixels * ClickSlopPixels;
+            if ((eventData.position - _downScreen).sqrMagnitude > slop)
+                return;
+
+            _onActivated?.Invoke();
+        }
+
+        void OnDisable()
+        {
+            if (_holding)
+            {
+                _holding = false;
+                RestoreScroll();
+            }
+            if (_image != null)
+                _image.color = _normal;
+            _inside = false;
+        }
+
+        void RestoreScroll()
+        {
+            if (_scroll != null)
+                _scroll.enabled = _scrollWasEnabled;
         }
     }
 
@@ -1455,24 +1563,32 @@ public class UI_ProposalWorkspace : MonoBehaviour
             _model = ProposalPreviewModel.Capture();
 
         string beforeName = _model.SalesRepName ?? "";
+        string beforePhone = _model.SalesRepPhone ?? "";
         string beforeEmail = _model.SalesRepEmail ?? "";
+        SetStatus("Editing sales rep…");
 
         OpenTextPopover("Sales rep",
             new[]
             {
                 ("Name", beforeName),
+                ("Phone", beforePhone),
                 ("Email", beforeEmail),
             },
             values =>
             {
                 string name = values[0] ?? "";
-                string email = values[1] ?? "";
+                string phone = values.Length > 1 ? values[1] ?? "" : "";
+                string email = values.Length > 2 ? values[2] ?? "" : "";
                 _model.SalesRepName = name;
+                _model.SalesRepPhone = phone;
                 _model.SalesRepEmail = email;
                 _model.PersistEditableFields();
                 if (!string.Equals(name, beforeName, StringComparison.Ordinal)
+                    || !string.Equals(phone, beforePhone, StringComparison.Ordinal)
                     || !string.Equals(email, beforeEmail, StringComparison.Ordinal))
                     SchedulePreviewRefresh(forceVisuals: false);
+                else
+                    SetStatus("Preview up to date — click highlighted fields to edit");
             });
     }
 
@@ -2134,7 +2250,10 @@ public class UI_ProposalWorkspace : MonoBehaviour
         {
             CreateLabel(panel.transform, label, 11f, FontStyles.Normal, TextAlignmentOptions.Left, -1f, 16f)
                 .color = Theme.InkMuted;
-            inputs.Add(CreateInputField(panel.transform, value ?? "", multiline));
+            var input = CreateInputField(panel.transform, value ?? "", multiline);
+            if (input.placeholder is TMP_Text ph && string.IsNullOrWhiteSpace(value))
+                ph.text = "Click to type " + label.ToLowerInvariant() + "…";
+            inputs.Add(input);
         }
 
         if (!string.IsNullOrEmpty(footerHint))
@@ -2427,8 +2546,8 @@ public class UI_ProposalWorkspace : MonoBehaviour
 
     static TMP_InputField CreateInputField(Transform parent, string value, bool multiline = false)
     {
-        float height = multiline ? 72f : 32f;
-        var go = new GameObject("Input", typeof(RectTransform), typeof(Image), typeof(TMP_InputField), typeof(LayoutElement));
+        float height = multiline ? 72f : 36f;
+        var go = new GameObject("Input", typeof(RectTransform), typeof(Image), typeof(TMP_InputField), typeof(LayoutElement), typeof(Outline));
         go.transform.SetParent(parent, false);
         var bg = go.GetComponent<Image>();
         bg.color = Theme.InputFill;
@@ -2436,6 +2555,12 @@ public class UI_ProposalWorkspace : MonoBehaviour
         var le = go.GetComponent<LayoutElement>();
         le.preferredHeight = height;
         le.minHeight = height;
+
+        var outline = go.GetComponent<Outline>();
+        outline.effectColor = Theme.Accent;
+        outline.effectDistance = new Vector2(1.6f, -1.6f);
+        outline.useGraphicAlpha = false;
+        outline.enabled = false;
 
         var textArea = new GameObject("Text Area", typeof(RectTransform), typeof(RectMask2D));
         textArea.transform.SetParent(go.transform, false);
@@ -2493,16 +2618,24 @@ public class UI_ProposalWorkspace : MonoBehaviour
         colors.pressedColor = Color.white;
         colors.colorMultiplier = 1f;
         input.colors = colors;
-        input.transition = UnityEngine.UI.Selectable.Transition.ColorTint;
+        input.transition = UnityEngine.UI.Selectable.Transition.None;
 
-        // Clicking an unfocused field should show the caret immediately.
-        input.onSelect.AddListener(_ =>
+        void SetFocused(bool focused)
         {
+            bg.color = focused ? Color.white : Theme.InputFill;
+            outline.enabled = focused;
             ApplyVisibleCaretStyle(input);
-            if (!input.isFocused)
-                input.ActivateInputField();
-            input.ForceLabelUpdate();
-        });
+            if (focused)
+            {
+                if (!input.isFocused)
+                    input.ActivateInputField();
+                input.ForceLabelUpdate();
+            }
+        }
+
+        // Clicking an unfocused field should show caret + accent ring immediately.
+        input.onSelect.AddListener(_ => SetFocused(true));
+        input.onDeselect.AddListener(_ => SetFocused(false));
 
         return input;
     }

@@ -33,6 +33,7 @@ public static class ProposalPdfPreviewHotspotFinder
             return results;
 
         string salesName = model?.SalesRepName?.Trim() ?? "";
+        string salesPhone = model?.SalesRepPhone?.Trim() ?? "";
         string salesEmail = model?.SalesRepEmail?.Trim() ?? "";
         string configName = model?.ConfigName?.Trim() ?? "";
 
@@ -52,11 +53,11 @@ public static class ProposalPdfPreviewHotspotFinder
                     continue;
 
                 int pageIndex = page - 1;
-                AddSalesRep(results, glyphs, pageIndex, pageW, pageH, salesName, salesEmail);
                 AddLabelRegion(results, glyphs, pageIndex, pageW, pageH,
                     ProposalPreviewEditKind.ClientData, "Submitted to / client",
                     g => StartsWithIgnoreCase(g.Text, "Submitted To"), preferTop: true);
                 AddProject(results, glyphs, pageIndex, pageW, pageH);
+                AddSalesRep(results, glyphs, pageIndex, pageW, pageH, salesName, salesPhone, salesEmail);
                 AddConfigTitle(results, glyphs, pageIndex, pageW, pageH, configName);
                 AddOptions(results, glyphs, pageIndex, pageW, pageH);
                 AddDiscount(results, glyphs, pageIndex, pageW, pageH);
@@ -86,24 +87,37 @@ public static class ProposalPdfPreviewHotspotFinder
         float pageW,
         float pageH,
         string salesName,
+        string salesPhone,
         string salesEmail)
     {
-        var hits = new List<Glyph>();
         var lines = BuildLines(glyphs);
 
+        // 1) Generous strip on the Project line covering "Sales Rep:" + values.
         foreach (var line in lines)
         {
-            string text = line.Text;
-            bool nameHit = !string.IsNullOrEmpty(salesName)
-                           && text.IndexOf(salesName, StringComparison.OrdinalIgnoreCase) >= 0;
-            bool emailHit = !string.IsNullOrEmpty(salesEmail)
-                            && text.IndexOf(salesEmail, StringComparison.OrdinalIgnoreCase) >= 0;
-            if (nameHit || emailHit)
-                hits.AddRange(line.Glyphs);
+            int idx = line.Text.IndexOf("Sales Rep", StringComparison.OrdinalIgnoreCase);
+            if (idx < 0)
+                continue;
+
+            float labelFrac = idx / Math.Max(1f, line.Text.Length);
+            float cutX = line.X0 + (line.X1 - line.X0) * Mathf.Clamp01(labelFrac - 0.05f);
+            // Keep a wide clickable zone even when the label is short / empty.
+            cutX = Mathf.Min(cutX, pageW * 0.52f);
+            float y0 = line.Y0 - 14f;
+            float y1 = line.Y1 + 14f;
+            if (y1 - y0 < 36f)
+            {
+                float mid = (y0 + y1) * 0.5f;
+                y0 = mid - 18f;
+                y1 = mid + 18f;
+            }
+
+            EmitSalesRepSpot(results, pageIndex, pageW, pageH,
+                cutX - PadX, y0, Mathf.Max(pageW - 10f, cutX + 160f), y1);
+            break;
         }
 
-        // Locate the "Proposal" header so we can cover the whole left column block
-        // (name + email), not just tight glyph boxes that miss padding / letterspacing.
+        // 2) Header block under "Proposal" for name / phone / email (and empty click target).
         TextLine proposalLine = default;
         bool hasProposal = false;
         foreach (var line in lines)
@@ -115,12 +129,29 @@ public static class ProposalPdfPreviewHotspotFinder
             break;
         }
 
-        if (hits.Count == 0 && pageIndex == 0 && hasProposal)
+        if (!hasProposal || pageIndex != 0)
+            return;
+
+        var headerHits = new List<Glyph>();
+        foreach (var line in lines)
         {
-            hits.AddRange(lines
+            string text = line.Text;
+            bool nameHit = !string.IsNullOrEmpty(salesName)
+                           && text.IndexOf(salesName, StringComparison.OrdinalIgnoreCase) >= 0;
+            bool phoneHit = !string.IsNullOrEmpty(salesPhone)
+                            && text.IndexOf(salesPhone, StringComparison.OrdinalIgnoreCase) >= 0;
+            bool emailHit = !string.IsNullOrEmpty(salesEmail)
+                            && text.IndexOf(salesEmail, StringComparison.OrdinalIgnoreCase) >= 0;
+            if (nameHit || phoneHit || emailHit)
+                headerHits.AddRange(line.Glyphs);
+        }
+
+        if (headerHits.Count == 0)
+        {
+            headerHits.AddRange(lines
                 .Where(l =>
                     l.MidY < proposalLine.Y0 - 2f
-                    && l.MidY > proposalLine.Y0 - 72f
+                    && l.MidY > proposalLine.Y0 - 88f
                     && l.X0 < pageW * 0.70f
                     && !StartsWithIgnoreCase(l.Text, "Imagine")
                     && !StartsWithIgnoreCase(l.Text, "Submitted")
@@ -131,46 +162,55 @@ public static class ProposalPdfPreviewHotspotFinder
                 .SelectMany(l => l.Glyphs));
         }
 
-        if (hits.Count == 0 && !hasProposal)
-            return;
-
-        // Left header cell is 70% of the page — give a generous click target there.
         float colX0 = 12f;
         float colX1 = pageW * 0.68f;
-        float y0;
-        float y1;
-
-        if (hits.Count > 0)
+        float yTop;
+        float yBot;
+        if (headerHits.Count > 0)
         {
-            y0 = hits.Min(h => h.Y0) - 10f;
-            y1 = hits.Max(h => h.Y1) + 10f;
-            if (hasProposal)
-                y1 = Mathf.Max(y1, proposalLine.Y0 - 2f);
+            yBot = headerHits.Min(h => h.Y0) - 12f;
+            yTop = Mathf.Max(headerHits.Max(h => h.Y1) + 12f, proposalLine.Y0 - 2f);
         }
         else
         {
-            // Empty name/email: still offer a clickable strip under "Proposal".
-            y1 = proposalLine.Y0 - 2f;
-            y0 = proposalLine.Y0 - 64f;
+            yTop = proposalLine.Y0 - 2f;
+            yBot = proposalLine.Y0 - 78f;
         }
 
+        EmitSalesRepSpot(results, pageIndex, pageW, pageH, colX0, yBot, colX1, yTop);
+    }
+
+    static void EmitSalesRepSpot(
+        List<ProposalPreviewHotspot> results,
+        int pageIndex,
+        float pageW,
+        float pageH,
+        float x0,
+        float y0,
+        float x1,
+        float y1)
+    {
         y0 = Mathf.Clamp(y0, FooterExclusionPoints, pageH);
         y1 = Mathf.Clamp(y1, FooterExclusionPoints, pageH);
-        if (y1 - y0 < 28f)
+        x0 = Mathf.Clamp(x0, 0f, pageW);
+        x1 = Mathf.Clamp(x1, 0f, pageW);
+        if (y1 - y0 < 32f)
         {
             float mid = (y0 + y1) * 0.5f;
-            y0 = mid - 14f;
-            y1 = mid + 14f;
+            y0 = mid - 16f;
+            y1 = mid + 16f;
         }
+        if (x1 - x0 < 80f || y1 - y0 < 12f)
+            return;
 
         results.Add(new ProposalPreviewHotspot(
             ProposalPreviewEditKind.SalesRep,
             pageIndex,
-            colX0 / pageW,
+            x0 / pageW,
             y0 / pageH,
-            colX1 / pageW,
+            x1 / pageW,
             y1 / pageH,
-            "Sales rep"));
+            "Sales rep — click to edit"));
     }
 
     static void AddProject(
@@ -180,10 +220,35 @@ public static class ProposalPdfPreviewHotspotFinder
         float pageW,
         float pageH)
     {
-        AddLabelRegion(results, glyphs, pageIndex, pageW, pageH,
+        var lines = BuildLines(glyphs);
+        var hit = lines
+            .Where(l => StartsWithIgnoreCase(l.Text, "Project:"))
+            .OrderByDescending(l => l.MidY)
+            .FirstOrDefault();
+        if (hit.Glyphs == null || hit.Glyphs.Count == 0)
+            return;
+
+        var list = new List<Glyph>(hit.Glyphs);
+        int salesIdx = hit.Text.IndexOf("Sales Rep", StringComparison.OrdinalIgnoreCase);
+        if (salesIdx >= 0)
+        {
+            float labelFrac = salesIdx / Math.Max(1f, hit.Text.Length);
+            float cutX = hit.X0 + (hit.X1 - hit.X0) * Mathf.Clamp01(labelFrac - 0.05f);
+            cutX = Mathf.Min(cutX, pageW * 0.52f);
+            list = list.Where(g => g.X1 <= cutX + 2f).ToList();
+            if (list.Count == 0)
+                return;
+        }
+        else
+        {
+            list.AddRange(glyphs.Where(g =>
+                Mathf.Abs(g.MidY - hit.MidY) < 6f
+                && g.X0 >= hit.X0 - 1f));
+        }
+
+        EmitUnion(results, list, pageIndex, pageW, pageH,
             ProposalPreviewEditKind.Project, "Project",
-            g => StartsWithIgnoreCase(g.Text, "Project:"), preferTop: true,
-            expandRightToContent: true);
+            fullContentWidth: salesIdx < 0, minHeightPts: 18f);
     }
 
     static void AddConfigTitle(
