@@ -38,6 +38,12 @@ public class ConfigurationManager : MonoBehaviour
     DuplicateRoom duplicateRoom;
     public static bool IsLoading { get; private set; }
 
+    /// <summary>
+    /// Once a room/config load starts, never destroy/reseed bed+lights from the cold-start
+    /// path — that race was wiping fixtures that LoadRoom just restored.
+    /// </summary>
+    private bool _coldStartFixturesSuppressed;
+
     private const string _attachPointGUID = "_AP"; // legacy
 
     private Tracker _tracker;
@@ -124,11 +130,12 @@ public class ConfigurationManager : MonoBehaviour
     {
         while (Application.isPlaying && !SelectableAssetBundles.Initialized)
             await Task.Yield();
-        if (!Application.isPlaying || IsLoading)
+        if (!ShouldSeedColdStartFixtures())
             return;
 
         // Drop broken scene fixtures before seeding from catalog.
-        // Destroy() is deferred — do not re-query presence afterward; always seed.
+        // Destroy() is deferred — do not re-query presence afterward; always seed
+        // when still on a fresh cold start (no load has begun).
         foreach (TrackedObject to in FindObjectsByType<TrackedObject>(
                      FindObjectsInactive.Include, FindObjectsSortMode.None))
         {
@@ -137,11 +144,22 @@ public class ConfigurationManager : MonoBehaviour
                 Destroy(to.gameObject);
         }
 
+        if (!ShouldSeedColdStartFixtures())
+            return;
+
         Transform room = GetCurrentRoomTransform();
         await SpawnDefaultCeilingLightsAsync(room);
-        if (!Application.isPlaying || IsLoading)
+        if (!ShouldSeedColdStartFixtures())
             return;
         await SpawnDefaultOperatingTableAsync(room);
+    }
+
+    private bool ShouldSeedColdStartFixtures()
+    {
+        return Application.isPlaying
+               && !IsLoading
+               && !_coldStartFixturesSuppressed
+               && string.IsNullOrEmpty(CurrentRoomSaveName);
     }
 
     private Transform GetCurrentRoomTransform()
@@ -160,12 +178,14 @@ public class ConfigurationManager : MonoBehaviour
         }
 
         GameObject prefab = await data.GetPrefab(loadingToken: Loading.GetLoadingToken());
-        if (!Application.isPlaying || prefab == null || IsLoading)
+        if (!ShouldSeedColdStartFixtures() || prefab == null)
             return;
 
         Quaternion rot = new Quaternion(0.7071068f, 0f, 0f, 0.7071068f);
         for (int i = 0; i < DefaultCeilingLightPositions.Length; i++)
         {
+            if (!ShouldSeedColdStartFixtures())
+                return;
             GameObject go = Instantiate(prefab);
             go.name = i == 0 ? "CeilingLightFixture" : $"CeilingLightFixture ({i})";
             if (room != null)
@@ -186,7 +206,7 @@ public class ConfigurationManager : MonoBehaviour
         }
 
         GameObject prefab = await data.GetPrefab(loadingToken: Loading.GetLoadingToken());
-        if (!Application.isPlaying || prefab == null || IsLoading)
+        if (!ShouldSeedColdStartFixtures() || prefab == null)
             return;
 
         GameObject go = Instantiate(prefab);
@@ -460,17 +480,24 @@ public class ConfigurationManager : MonoBehaviour
         await Task.Delay(1000);
         token.SetProgress(0.33f);
 
+        Transform roomRoot = GetCurrentRoomTransform();
+
         foreach (TrackedObject obj in foundObjects)
         {
-            Transform topParent = obj.transform;
-            while (topParent.parent != null) topParent = topParent.parent;
-            if (obj.transform == obj.transform.root || topParent.name == "Room1")
+            if (obj == null) continue;
+            // One collection per placed root — not every nested TrackedObject under the room.
+            // Nested boom/light parts are captured via GetComponentsInChildren on the root.
+            if (!IsRoomSaveCollectionRoot(obj, roomRoot))
+                continue;
+
+            CreateTracker();
+            TrackedObject[] temps = obj.transform.GetComponentsInChildren<TrackedObject>(true);
+            foreach (TrackedObject to in temps)
             {
-                CreateTracker();
-                TrackedObject[] temps = obj.transform.GetComponentsInChildren<TrackedObject>();
-                foreach (TrackedObject to in temps) _tracker.objects.Add(to.GetData());
-                _roomConfiguration.collections.Add(_tracker);
+                if (to != null)
+                    _tracker.objects.Add(to.GetData());
             }
+            _roomConfiguration.collections.Add(_tracker);
         }
 
         await Task.Delay(1000);
@@ -517,9 +544,28 @@ public class ConfigurationManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Room JSON stores one <see cref="Tracker"/> per placed assembly root (direct child of
+    /// the current room, or a scene-root selectable). Nested TrackedObjects must not each
+    /// open their own collection — that duplicated whole subtrees on load.
+    /// </summary>
+    private static bool IsRoomSaveCollectionRoot(TrackedObject obj, Transform roomRoot)
+    {
+        if (obj == null)
+            return false;
+
+        Transform parent = obj.transform.parent;
+        if (parent == null)
+            return true;
+        if (roomRoot != null && parent == roomRoot)
+            return true;
+        return false;
+    }
+
     public async Task<GameObject> LoadArmAssembly(string file)
     {
         Debug.Log($"Loading config file at {file}");
+        _coldStartFixturesSuppressed = true;
         IsLoading = true;
         AssetPipelineDiagnostics.RoomLoadQuietMode = true;
 
@@ -606,6 +652,10 @@ public class ConfigurationManager : MonoBehaviour
             return;
         }
 
+        // Stop cold-start bed/light reseeding from racing this load.
+        _coldStartFixturesSuppressed = true;
+        IsLoading = true;
+
         CurrentRoomSaveName = Path.GetFileNameWithoutExtension(file).Replace("_", " ");
         CreateTracker();
         string json = File.ReadAllText(file);
@@ -618,6 +668,8 @@ public class ConfigurationManager : MonoBehaviour
 
         Debug.Log("Clearing default room objects");
         List<TrackedObject> existingObjects = FindObjectsOfType<TrackedObject>().ToList();
+        Transform roomRoot = GetCurrentRoomTransform();
+        string roomName = roomRoot != null ? roomRoot.name : "Room1";
 
         foreach (TrackedObject to in existingObjects)
         {
@@ -625,7 +677,7 @@ public class ConfigurationManager : MonoBehaviour
             Transform topParent = to.transform;
             while (topParent.parent != null) topParent = topParent.parent;
             if (to.transform == to.transform.root
-                || topParent.name == duplicateRoom.currentRoom.name
+                || topParent.name == roomName
                    && !IsBaseboard(to.GetData())
                    && !IsWallProtector(to.GetData())
                    && !IsRoomBoundary(to.GetData()))

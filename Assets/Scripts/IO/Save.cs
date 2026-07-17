@@ -25,9 +25,18 @@ public class Save : MonoBehaviour
     public TMP_Text header;
 
     // Main.unity camflyhideui — Save column only (x≈-95):
-    //   Save (-95,-30) → Settings (-95,-95) → Articulation (-93,-154) → Quotation (-94,-212)
-    // Right column (Object menu / scene / room / screenshot / load) is never moved.
+    //   collapsed: Save (-95,-30) → Settings (-95,-95) → Quotation (-95,-160)
+    //   expanded:  Save → SaveConfig → Settings → Quotation (cascaded down a row)
+    // Right column (Settings-row room panel / Quotation-row load) is never moved.
+    // Inactive icons (screenshot / articulation) must not participate in the cascade.
     private const float SaveColumnXSlop = 8f;
+
+    static readonly HashSet<string> SaveColumnIgnoreNames = new(StringComparer.Ordinal)
+    {
+        "Button_SaveConfiguration",
+        "Button_OpenArticulation",
+        "Button_Screenshot",
+    };
 
     private bool _wired;
     private bool _picking;
@@ -172,6 +181,10 @@ public class Save : MonoBehaviour
             var child = parent.GetChild(i) as RectTransform;
             if (child == null || child == saveRt)
                 continue;
+            if (!child.gameObject.activeSelf)
+                continue;
+            if (SaveColumnIgnoreNames.Contains(child.gameObject.name))
+                continue;
             if (Mathf.Abs(child.sizeDelta.x - saveRt.sizeDelta.x) > 1f ||
                 Mathf.Abs(child.sizeDelta.y - saveRt.sizeDelta.y) > 1f)
                 continue;
@@ -277,8 +290,8 @@ public class Save : MonoBehaviour
 
         // Cascade each button into the next row's home Y so left/right columns
         // stay lined up. Last button extends by the previous row gap.
-        // homes: Settings(-95), Articulation(-153.8), Quotation(-211.7)
-        // after: Settings→-153.8, Articulation→-211.7, Quotation→-269.6
+        // homes: Settings(-95), Quotation(-160)
+        // after: Settings→-160, Quotation→-225
         for (int i = 0; i < _saveColumnBelow.Count; i++)
         {
             var (rt, home) = _saveColumnBelow[i];
