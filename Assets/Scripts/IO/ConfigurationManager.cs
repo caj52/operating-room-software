@@ -98,7 +98,113 @@ public class ConfigurationManager : MonoBehaviour
 
     }
 
-    private void Start() => duplicateRoom = FindObjectOfType<DuplicateRoom>();
+    private const string OperatingTableGuid = "gameobject_839a064b625fb724ab496f21e46986e7";
+
+    private void Start()
+    {
+        duplicateRoom = FindObjectOfType<DuplicateRoom>();
+        _ = EnsureDefaultOperatingTableAsync();
+    }
+
+    /// <summary>
+    /// New rooms rely on the Main-scene OR_Table PrefabInstance. That instance nests a
+    /// .blend model which can resolve with no mesh at runtime; catalog/bundle instances work.
+    /// If the scene fixture is missing or has no mesh, replace it from the selectable catalog.
+    /// </summary>
+    private async Task EnsureDefaultOperatingTableAsync()
+    {
+        while (Application.isPlaying && !SelectableAssetBundles.Initialized)
+            await Task.Yield();
+        if (!Application.isPlaying || IsLoading)
+            return;
+
+        TrackedObject[] existing = FindObjectsByType<TrackedObject>(
+            FindObjectsInactive.Include, FindObjectsSortMode.None)
+            .Where(IsOperatingTableObject)
+            .ToArray();
+
+        foreach (TrackedObject to in existing)
+        {
+            if (OperatingTableLooksValid(to.gameObject))
+            {
+                PlacementLoadOptimizer.FinalizeInstanceColliders(to.gameObject);
+                PlacementLoadOptimizer.RestoreInstanceCollidersAfterLoad(to.gameObject);
+                return;
+            }
+
+            Destroy(to.gameObject);
+        }
+
+        if (!SelectableAssetBundles.TryGetSelectableData(OperatingTableGuid, out SelectableData data))
+        {
+            Debug.LogError("[OR_Table] Catalog missing default operating table guid; new room has no table.");
+            return;
+        }
+
+        GameObject prefab = await data.GetPrefab();
+        if (!Application.isPlaying || prefab == null || IsLoading)
+            return;
+
+        Transform room = duplicateRoom != null && duplicateRoom.currentRoom != null
+            ? duplicateRoom.currentRoom.transform
+            : GameObject.Find("Room1")?.transform;
+
+        GameObject go = Instantiate(prefab);
+        go.name = "OR_Table_0";
+        if (room != null)
+            go.transform.SetParent(room, false);
+
+        // Match Main.unity fixture pose.
+        go.transform.localPosition = new Vector3(0f, 0.05715f, 0f);
+        go.transform.localRotation = new Quaternion(-0.5f, 0.5f, 0.5f, 0.5f);
+        go.transform.localScale = Vector3.one;
+
+        GameObject floor = GameObject.Find("RoomBoundary_Floor");
+        if (floor != null && go.TryGetComponent<KeepRelativePosition>(out var keepRel))
+            keepRel.VirtualParentChanged(floor.transform);
+
+        foreach (DestroyOnLoad dol in go.GetComponentsInChildren<DestroyOnLoad>(true))
+        {
+            if (dol != null)
+                Destroy(dol.gameObject);
+        }
+
+        PlacementLoadOptimizer.FinalizeInstanceColliders(go);
+        PlacementLoadOptimizer.RestoreInstanceCollidersAfterLoad(go);
+        go.SetActive(true);
+    }
+
+    private static bool IsOperatingTableObject(TrackedObject to)
+    {
+        if (to == null) return false;
+        string blob = (to.name ?? "") + " " + (to.GetComponent<Selectable>()?.MetaData?.Name ?? "");
+        return blob.IndexOf("OR_Table", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static bool OperatingTableLooksValid(GameObject go)
+    {
+        if (go == null || !go.activeInHierarchy)
+            return false;
+        if (!OperatingTableHasMesh(go))
+            return false;
+        return go.GetComponentsInChildren<Renderer>(true)
+            .Any(r => r != null && r.enabled && r.gameObject.activeInHierarchy);
+    }
+
+    private static bool OperatingTableHasMesh(GameObject go)
+    {
+        foreach (MeshFilter mf in go.GetComponentsInChildren<MeshFilter>(true))
+        {
+            if (mf != null && mf.sharedMesh != null)
+                return true;
+        }
+        foreach (SkinnedMeshRenderer smr in go.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+        {
+            if (smr != null && smr.sharedMesh != null)
+                return true;
+        }
+        return false;
+    }
 
     private void HandleBackwardsCompatibility()
     {
@@ -469,10 +575,7 @@ public class ConfigurationManager : MonoBehaviour
         string json = File.ReadAllText(file);
         _roomConfiguration = JsonConvert.DeserializeObject<RoomConfiguration>(json);
 
-        bool saveHasSurgicalBed = RoomSaveContainsNameToken("OR_Table");
-        bool saveHasCeilingLights = RoomSaveContainsNameToken("CeilingLight");
-
-        Debug.Log($"Clearing default room objects (preserve bed={!saveHasSurgicalBed}, lights={!saveHasCeilingLights})");
+        Debug.Log("Clearing default room objects");
         List<TrackedObject> existingObjects = FindObjectsOfType<TrackedObject>().ToList();
 
         foreach (TrackedObject to in existingObjects)
@@ -486,78 +589,19 @@ public class ConfigurationManager : MonoBehaviour
                    && !IsWallProtector(to.GetData())
                    && !IsRoomBoundary(to.GetData()))
             {
-                // Keep scene base-room defaults when the save does not include them.
-                if ((!saveHasSurgicalBed && IsSceneBaseSurgicalBed(to))
-                    || (!saveHasCeilingLights && IsSceneBaseCeilingLight(to)))
-                {
-                    continue;
-                }
-
                 Destroy(to.gameObject);
             }
         }
         existingObjects.Clear();
         existingObjects.TrimExcess();
 
-        // Same preserve rules for remaining ActiveSelectables (DestroyAll would wipe base defaults).
-        Selectable.DeselectAll();
-        foreach (var sel in Selectable.ActiveSelectables.Where(x => x != null && x.IsDestructible).ToList())
-        {
-            if (sel.IsDestroyed)
-                continue;
-            var to = sel.GetComponent<TrackedObject>();
-            if (to != null
-                && ((!saveHasSurgicalBed && IsSceneBaseSurgicalBed(to))
-                    || (!saveHasCeilingLights && IsSceneBaseCeilingLight(to))))
-            {
-                continue;
-            }
-
-            Destroy(sel.gameObject);
-        }
+        Selectable.DestroyAll();
 
         // Sticky proposal title from a prior room must not leak into this load.
         ProposalPreviewModel.ConfigNameOverride = null;
 
         TryRestoreClientMetaData();
         LoadRoom();
-    }
-
-    private bool RoomSaveContainsNameToken(string token)
-    {
-        if (_roomConfiguration.collections == null || string.IsNullOrEmpty(token))
-            return false;
-
-        foreach (Tracker t in _roomConfiguration.collections)
-        {
-            if (t?.objects == null) continue;
-            foreach (TrackedObject.Data d in t.objects)
-            {
-                if ((!string.IsNullOrEmpty(d.objectName) && d.objectName.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0)
-                    || (!string.IsNullOrEmpty(d.UIButtonname) && d.UIButtonname.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0))
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private static bool IsSceneBaseSurgicalBed(TrackedObject to)
-    {
-        if (to == null) return false;
-        string blob = (to.name ?? "") + " " + (to.GetComponent<Selectable>()?.MetaData?.Name ?? "");
-        return blob.IndexOf("OR_Table", StringComparison.OrdinalIgnoreCase) >= 0;
-    }
-
-    private static bool IsSceneBaseCeilingLight(TrackedObject to)
-    {
-        if (to == null) return false;
-        string blob = (to.name ?? "") + " " + (to.GetComponent<Selectable>()?.MetaData?.Name ?? "")
-                      + " " + (to.GetComponent<Selectable>()?.UIButtonName ?? "");
-        return blob.IndexOf("CeilingLight", StringComparison.OrdinalIgnoreCase) >= 0
-               || blob.IndexOf("Ceiling Light", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     private void TryRestoreClientMetaData()
