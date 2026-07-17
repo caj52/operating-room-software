@@ -1133,40 +1133,51 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         _measurableActiveStates.Clear();
         ToggleMeasurableActiveStates(true);
 
-        List<bool> visibilities = ActiveSelectables.ConvertAll(x => x.gameObject.activeSelf);
-
-        ActiveSelectables
-            .Where(x => !_assemblySelectables.Contains(x))
-            .ToList()
-            .ForEach(x => x.gameObject.SetActive(false));
+        List<(Selectable selectable, bool wasActive)> visibilitySnapshot = ActiveSelectables
+            .Where(x => x != null)
+            .Select(x => (x, x.gameObject.activeSelf))
+            .ToList();
 
         List<PdfExporterLocal.PdfImageData> imageData = new();
-        // Single capture pass — front and back share one union-bounds frame.
-        var captured = GetAssemblyPDFImageData(camera);
-        if (captured != null)
+        try
         {
-            foreach (var img in captured)
+            ActiveSelectables
+                .Where(x => x != null && !_assemblySelectables.Contains(x))
+                .ToList()
+                .ForEach(x => x.gameObject.SetActive(false));
+
+            // Single capture pass — front and back share one union-bounds frame.
+            var captured = GetAssemblyPDFImageData(camera);
+            if (captured != null)
             {
-                if (img == null || string.IsNullOrEmpty(img.Path))
-                    continue;
-                imageData.Add(new PdfExporterLocal.PdfImageData
+                foreach (var img in captured)
                 {
-                    Path = img.Path,
-                    Width = img.Width > 0 ? img.Width : 1000,
-                    Height = img.Height > 0 ? img.Height : 1000
-                });
+                    if (img == null || string.IsNullOrEmpty(img.Path))
+                        continue;
+                    imageData.Add(new PdfExporterLocal.PdfImageData
+                    {
+                        Path = img.Path,
+                        Width = img.Width > 0 ? img.Width : 1000,
+                        Height = img.Height > 0 ? img.Height : 1000
+                    });
+                }
             }
         }
+        finally
+        {
+            foreach (var (selectable, wasActive) in visibilitySnapshot)
+            {
+                if (selectable != null && selectable.gameObject != null)
+                    selectable.gameObject.SetActive(wasActive);
+            }
 
-        for (int i = 0; i < ActiveSelectables.Count; i++)
-            ActiveSelectables[i].gameObject.SetActive(visibilities[i]);
-
-        RestoreArmAssemblyRotations();
-        _assemblySelectables.ForEach(x => x.FaceZTowardGround());
-        if (floorBoundary != null)
-            floorBoundary.gameObject.SetActive(floorWasActive);
-        IsInElevationPhotoMode = false;
-        ToggleMeasurableActiveStates(false);
+            RestoreArmAssemblyRotations();
+            _assemblySelectables.ForEach(x => x.FaceZTowardGround());
+            if (floorBoundary != null)
+                floorBoundary.gameObject.SetActive(floorWasActive);
+            IsInElevationPhotoMode = false;
+            ToggleMeasurableActiveStates(false);
+        }
 
         onComplete?.Invoke(imageData, _assemblySelectables);
     }
@@ -1320,27 +1331,38 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             ToggleMeasurableActiveStates(true);
 
             //store visibility states of all selectables in scene for later
-            List<bool> visibilities = ActiveSelectables.ConvertAll(x => x.gameObject.activeSelf);
+            List<(Selectable selectable, bool wasActive)> visibilitySnapshot = ActiveSelectables
+                .Where(x => x != null)
+                .Select(x => (x, x.gameObject.activeSelf))
+                .ToList();
 
-            //shut off all selectables in the scene except for the ones in this arm assembly
-            ActiveSelectables
-                .Where(x => !_assemblySelectables.Contains(x))
-                .ToList()
-                .ForEach(x => x.gameObject.SetActive(false));
+            try
+            {
+                //shut off all selectables in the scene except for the ones in this arm assembly
+                ActiveSelectables
+                    .Where(x => x != null && !_assemblySelectables.Contains(x))
+                    .ToList()
+                    .ForEach(x => x.gameObject.SetActive(false));
 
-            PdfExporter.ExportElevationPdf(
-                GetAssemblyPDFImageData(camera),
-                _assemblySelectables, title, subtitle, assemblyDatas);
+                PdfExporter.ExportElevationPdf(
+                    GetAssemblyPDFImageData(camera),
+                    _assemblySelectables, title, subtitle, assemblyDatas);
+            }
+            finally
+            {
+                foreach (var (selectable, wasActive) in visibilitySnapshot)
+                {
+                    if (selectable != null && selectable.gameObject != null)
+                        selectable.gameObject.SetActive(wasActive);
+                }
 
-            for (int i = 0; i < ActiveSelectables.Count; i++)
-                ActiveSelectables[i].gameObject.SetActive(visibilities[i]);
-
-            RestoreArmAssemblyRotations();
-            _assemblySelectables.ForEach(x => x.FaceZTowardGround());
-            if (floorBoundary != null)
-                floorBoundary.gameObject.SetActive(floorWasActive);
-            IsInElevationPhotoMode = false;
-            ToggleMeasurableActiveStates(false);
+                RestoreArmAssemblyRotations();
+                _assemblySelectables.ForEach(x => x.FaceZTowardGround());
+                if (floorBoundary != null)
+                    floorBoundary.gameObject.SetActive(floorWasActive);
+                IsInElevationPhotoMode = false;
+                ToggleMeasurableActiveStates(false);
+            }
         }
     }
 
@@ -1375,13 +1397,16 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             ToggleMeasurableActiveStates(true);
 
             //store visibility states of all selectables in scene for later
-            List<bool> visibilities = ActiveSelectables.ConvertAll(x => x.gameObject.activeSelf);
+            List<(Selectable selectable, bool wasActive)> visibilitySnapshot = ActiveSelectables
+                .Where(x => x != null)
+                .Select(x => (x, x.gameObject.activeSelf))
+                .ToList();
 
             try
             {
                 //shut off all selectables in the scene except for the ones in this arm assembly
                 ActiveSelectables
-                    .Where(x => !_assemblySelectables.Contains(x))
+                    .Where(x => x != null && !_assemblySelectables.Contains(x))
                     .ToList()
                     .ForEach(x => x.gameObject.SetActive(false));
 
@@ -1389,10 +1414,10 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             }
             finally
             {
-                for (int i = 0; i < ActiveSelectables.Count; i++)
+                foreach (var (selectable, wasActive) in visibilitySnapshot)
                 {
-                    if (ActiveSelectables[i] != null)
-                        ActiveSelectables[i].gameObject.SetActive(visibilities[i]);
+                    if (selectable != null && selectable.gameObject != null)
+                        selectable.gameObject.SetActive(wasActive);
                 }
 
                 RestoreArmAssemblyRotations();
