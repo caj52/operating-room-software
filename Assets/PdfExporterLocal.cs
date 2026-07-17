@@ -291,9 +291,7 @@ public class PdfExporterLocal
             // Footer (ceiling height)
             try
             {
-                float metersCH = GetCeilingHeight();
-                int mmCH = Mathf.RoundToInt(metersCH * 1000f);
-                string ceilingText = $"{mmCH} mm";
+                string ceilingText = FormatCeilingHeightMm();
                 var chTable = new PdfPTable(2) { WidthPercentage = 60f, SpacingBefore = 0f, SpacingAfter = 8f, HorizontalAlignment = Element.ALIGN_LEFT };
                 chTable.SetWidths(new float[] { 60, 40 });
                 chTable.AddCell(new PdfPCell(new Phrase("Ceiling Height", itemFont)) { BackgroundColor = white, FixedHeight = rowH, Border = Rectangle.BOX, Padding = 4 });
@@ -549,9 +547,7 @@ public class PdfExporterLocal
         // Footer: Ceiling Height (fixed spelling)
         try
         {
-            float metersCH = GetCeilingHeight();
-            int mmCH = Mathf.RoundToInt(metersCH * 1000f);
-            string ceilingText = $"{mmCH} mm";
+            string ceilingText = FormatCeilingHeightMm();
 
             var chTable = new PdfPTable(2)
             {
@@ -739,7 +735,12 @@ public class PdfExporterLocal
                 {
                     Image img = Image.GetInstance(imageData[i].Path);
                     img.Alignment = Element.ALIGN_BOTTOM;
-                    float scale = Math.Min(availableImageWidth / img.Width, maxTargetHeight / img.Height);
+                    // Scale relative to exported ceiling height (same source as table/footer).
+                    float ceilingMeters = roomHeight > 0.01f ? roomHeight : GetCeilingHeight();
+                    float heightCap = maxTargetHeight;
+                    if (ceilingMeters > 0.5f && ceilingMeters < 8f)
+                        heightCap = Mathf.Clamp(maxTargetHeight * (ceilingMeters / 3f), 200f, maxTargetHeight);
+                    float scale = Math.Min(availableImageWidth / img.Width, heightCap / img.Height);
                     img.ScaleAbsolute(img.Width * scale, img.Height * scale);
                     cell.AddElement(img);
                 }
@@ -786,9 +787,7 @@ public class PdfExporterLocal
         tpl.MoveTo(5, 0); tpl.LineTo(15, 0); tpl.Stroke();
         tpl.MoveTo(5, visualHeight); tpl.LineTo(15, visualHeight); tpl.Stroke();
 
-        float meters = GetCeilingHeight();
-        int mm = Mathf.RoundToInt(meters * 1000f);
-        Distance = $"{mm} mm";
+        Distance = FormatCeilingHeightMm();
 
         var fontPath = Path.Combine(Application.streamingAssetsPath, "Data/Fonts/Teko/Teko-Regular.ttf");
         BaseFont teko = GetCachedBaseFont(fontPath);
@@ -816,7 +815,11 @@ public class PdfExporterLocal
                 try
                 {
                     Image img = Image.GetInstance(imageData[i].Path);
-                    float scale = Math.Min(availableImageWidth / img.Width, maxTargetHeight / img.Height);
+                    float ceilingMeters = GetCeilingHeight();
+                    float heightCap = maxTargetHeight;
+                    if (ceilingMeters > 0.5f && ceilingMeters < 8f)
+                        heightCap = Mathf.Clamp(maxTargetHeight * (ceilingMeters / 3f), 200f, maxTargetHeight);
+                    float scale = Math.Min(availableImageWidth / img.Width, heightCap / img.Height);
                     img.ScaleAbsolute(img.Width * scale, img.Height * scale);
                     cell.AddElement(img);
                 }
@@ -864,7 +867,21 @@ public class PdfExporterLocal
     private static float GetCeilingHeight()
     {
         var ceiling = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling);
-        return ceiling != null ? ceiling.Height : 0f;
+        if (ceiling == null)
+            return 0f;
+
+        // Live underside Y (floor top ≈ 0) so table/footer match photo ceiling reference.
+        float underside = ceiling.transform.position.y - (ceiling.transform.localScale.y * 0.5f);
+        if (underside > 0.1f)
+            return underside;
+
+        return ceiling.Height;
+    }
+
+    private static string FormatCeilingHeightMm()
+    {
+        int mm = Mathf.RoundToInt(GetCeilingHeight() * 1000f);
+        return $"{mm} mm";
     }
 
     private static void AddCompanyLogo(Document doc)

@@ -44,6 +44,16 @@ public class Measurable : MonoBehaviour
 
     public static UnityEvent ActiveMeasurablesChanged { get; } = new UnityEvent();
     private static readonly float _lineRendererSizeScalar = 0.005f;
+    /// <summary>Floor-dim mm values already placed this elevation capture (dedupe note 1).</summary>
+    private static readonly HashSet<int> _elevationFloorMmUsed = new();
+    private static int _elevationFloorSepIndex;
+
+    public static void BeginElevationMeasurementPass()
+    {
+        _elevationFloorMmUsed.Clear();
+        _elevationFloorSepIndex = 0;
+    }
+
     public List<Measurement> Measurements { get; } = new();
     [field: SerializeField] public List<MeasurementType> MeasurementTypes { get; private set; } = new();
     [field: SerializeField] private bool ForwardOnly { get; set; }
@@ -221,18 +231,8 @@ public class Measurable : MonoBehaviour
 
     private void UpdateMeasurementViaRaycast(Vector3 direction, Measurement measurement, bool ignoreSelectables = false)
     {
-        // Cutsheets for surgical lights: cast from the light body, not a lower child pivot.
-        Vector3 origin = transform.position;
-        if (Selectable.IsInElevationPhotoMode)
-        {
-            var lightFactory = GetComponentInParent<LightFactory>();
-            if (lightFactory != null)
-            {
-                var rend = lightFactory.GetComponentInChildren<Renderer>();
-                if (rend != null)
-                    origin = rend.bounds.center;
-            }
-        }
+        // Cutsheets: cast from the underside of the element (note 7), not center/child pivot.
+        Vector3 origin = GetElevationCastOrigin(direction);
 
         Ray ray = new Ray(origin, direction);
         int mask = LayerMask.GetMask("Wall");
@@ -262,6 +262,97 @@ public class Measurable : MonoBehaviour
         {
             RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor).gameObject.SetActive(false);
         }
+    }
+
+    /// <summary>
+    /// Elevation floor/ceiling rays start at the underside (floor casts) or top
+    /// (ceiling casts) of the primary renderer — light heads, boom hubs, SH bodies.
+    /// </summary>
+    private Vector3 GetElevationCastOrigin(Vector3 direction)
+    {
+        Vector3 origin = transform.position;
+        if (!Selectable.IsInElevationPhotoMode)
+            return origin;
+
+        Renderer rend = null;
+        var lightFactory = GetComponentInParent<LightFactory>();
+        if (lightFactory != null)
+        {
+            rend = lightFactory.GetComponentInChildren<Renderer>();
+        }
+        else
+        {
+            // Nearest local renderer on this selectable (hub/arm/head), not the whole assembly AABB.
+            var sel = GetComponentInParent<Selectable>();
+            if (sel != null)
+            {
+                float best = float.MaxValue;
+                foreach (var r in sel.GetComponentsInChildren<Renderer>())
+                {
+                    if (r == null || !r.enabled || !r.gameObject.activeInHierarchy)
+                        continue;
+                    float d = (r.bounds.ClosestPoint(origin) - origin).sqrMagnitude;
+                    if (d < best)
+                    {
+                        best = d;
+                        rend = r;
+                    }
+                }
+            }
+        }
+
+        if (rend == null)
+            return origin;
+
+        Bounds b = rend.bounds;
+        float y = direction.y < -0.5f ? b.min.y
+            : direction.y > 0.5f ? b.max.y
+            : origin.y;
+        return new Vector3(b.center.x, y, b.center.z);
+    }
+
+    private static void ForceBlackLeaders(LineRenderer lr)
+    {
+        if (lr == null) return;
+        lr.startColor = Color.black;
+        lr.endColor = Color.black;
+        var grad = new Gradient();
+        grad.SetKeys(
+            new[] { new GradientColorKey(Color.black, 0f), new GradientColorKey(Color.black, 1f) },
+            new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(1f, 1f) });
+        lr.colorGradient = grad;
+    }
+
+    /// <summary>
+    /// Note 2: mid top-arm floor dims (BoomSegment_1 / ArmSegment_1 ToFloor) are ambiguous
+    /// vs cutsheet callouts — hide them in elevation photos only.
+    /// </summary>
+    private bool ShouldSkipElevationFloorDim()
+    {
+        if (!Selectable.IsInElevationPhotoMode)
+            return false;
+
+        // Keep lights, monitor/SH heads, distal arms.
+        if (GetComponentInParent<LightFactory>() != null)
+            return false;
+
+        var sel = GetComponentInParent<Selectable>();
+        if (sel == null || sel.gameObject == null)
+            return false;
+
+        string n = sel.gameObject.name;
+        if (n.IndexOf("BoomSegment_1", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("ArmSegment_1", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("TopArm", StringComparison.OrdinalIgnoreCase) >= 0)
+            return true;
+
+        // Top boom housing / IU cover naming.
+        if (n.IndexOf("TurningCover", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("CeilingCover", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("TandemCover", StringComparison.OrdinalIgnoreCase) >= 0)
+            return true;
+
+        return false;
     }
 
     private float GetDistanceToCameraPlane(Vector3 point, Camera camera = null)
@@ -303,9 +394,49 @@ public class Measurable : MonoBehaviour
                     UpdateMeasurementViaRaycast(Vector3.up, item);
                     break;
                 case MeasurementType.Floor:
-                    UpdateMeasurementViaRaycast(Vector3.down, item, true);
-                    if (Selectable.IsInElevationPhotoMode)
+                    if (ShouldSkipElevationFloorDim())
                     {
+                        if (item.Measurer != null)
+                            item.Measurer.gameObject.SetActive(false);
+                        break;
+                    }
+
+                    UpdateMeasurementViaRaycast(Vector3.down, item, true);
+
+                    if (Selectable.IsInElevationPhotoMode && item.Measurer != null)
+                    {
+                        // Note 1: dedupe near-identical floor heights; separate survivors laterally.
+                        float span = Vector3.Distance(item.Origin, item.HitPoint);
+                        int mm = Mathf.RoundToInt(span * 1000f);
+                        bool duplicate = false;
+                        foreach (int used in _elevationFloorMmUsed)
+                        {
+                            if (Mathf.Abs(used - mm) <= 5)
+                            {
+                                duplicate = true;
+                                break;
+                            }
+                        }
+
+                        if (duplicate)
+                        {
+                            item.Measurer.gameObject.SetActive(false);
+                            break;
+                        }
+
+                        _elevationFloorMmUsed.Add(mm);
+
+                        Vector3 right = camera != null ? camera.transform.right : Vector3.right;
+                        right.y = 0f;
+                        if (right.sqrMagnitude < 1e-6f)
+                            right = Vector3.right;
+                        right.Normalize();
+                        float sep = (_elevationFloorSepIndex++ % 2 == 0 ? 1f : -1f)
+                            * (0.08f + 0.06f * (_elevationFloorSepIndex / 2));
+                        item.Origin += right * sep;
+                        item.HitPoint += right * sep;
+
+                        item.Measurer.gameObject.SetActive(true);
                         item.Measurer.UpdateTransform(camera);
                     }
                     break;
@@ -331,7 +462,8 @@ public class Measurable : MonoBehaviour
                     measurer.LineRenderers[0].SetPosition(1, line1End);
                     measurer.LineRenderers[0].startWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(line1Start, camera);
                     measurer.LineRenderers[0].endWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(line1End, camera);
-   
+                    if (Selectable.IsInElevationPhotoMode)
+                        ForceBlackLeaders(measurer.LineRenderers[0]);
 
                     measurer.LineRenderers[1].enabled = true;
                     measurer.LineRenderers[1].positionCount = 2;
@@ -341,8 +473,11 @@ public class Measurable : MonoBehaviour
                     measurer.LineRenderers[1].SetPosition(1, line2End);
                     measurer.LineRenderers[1].startWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(line2Start, camera);
                     measurer.LineRenderers[1].endWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(line2End, camera);
+                    if (Selectable.IsInElevationPhotoMode)
+                        ForceBlackLeaders(measurer.LineRenderers[1]);
+
                     // Extra vertical separation so elevation PDF dims do not overlap.
-                    heightMod += 0.22f;
+                    heightMod += Selectable.IsInElevationPhotoMode ? 0.28f : 0.22f;
 
                     break;
             }

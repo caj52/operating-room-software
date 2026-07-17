@@ -84,7 +84,17 @@ public class Measurer : MonoBehaviour
         var parents = Measurement?.Measurable ?
             Measurement.Measurable.GetComponentsInParent<Selectable>(true) : null;
         if (parents == null || parents.Length == 0) return false;
-        return parents.Any(s => s != null && s.gameObject != null && s.gameObject.name.IndexOf("Boom", StringComparison.OrdinalIgnoreCase) >= 0);
+        return parents.Any(s =>
+        {
+            if (s == null || s.gameObject == null)
+                return false;
+
+            string n = s.gameObject.name;
+            return n.IndexOf("Boom", StringComparison.OrdinalIgnoreCase) >= 0
+                || n.IndexOf("ArmSegment", StringComparison.OrdinalIgnoreCase) >= 0
+                || n.IndexOf("TopArm", StringComparison.OrdinalIgnoreCase) >= 0
+                || n.IndexOf("BottomArm", StringComparison.OrdinalIgnoreCase) >= 0;
+        });
     }
 
     public void UpdateTransform(Camera camera = null)
@@ -109,7 +119,8 @@ public class Measurer : MonoBehaviour
         transform.LookAt(hitPoint);
 
         // Prefer world-space span for overlays (matches drawn ray). Use configured arm
-        // length only when it closely matches world (avoids radial/half-scale drift).
+        // length (cutsheet) when present — note 8. Only fall back to world when the
+        // drawn span is clearly a half-scale / double-span artifact.
         float worldMeters = Vector3.Distance(Measurement.Origin, hitPoint);
         float distanceMeters = worldMeters;
         if (Measurement != null
@@ -119,13 +130,10 @@ public class Measurer : MonoBehaviour
             float armLen = TryGetArmLengthMetersFromHierarchy();
             if (armLen > 0f)
             {
-                // If configured length is ~½ of the drawn span, prefer world (common ÷2 bug).
                 if (Mathf.Abs(worldMeters - armLen * 2f) < 0.08f * Mathf.Max(worldMeters, armLen))
                     distanceMeters = worldMeters;
-                else if (Mathf.Abs(worldMeters - armLen) < 0.08f * Mathf.Max(worldMeters, armLen))
-                    distanceMeters = armLen;
                 else
-                    distanceMeters = armLen;
+                    distanceMeters = armLen; // cutsheet length wins (incl. near-match and mismatch)
             }
         }
 

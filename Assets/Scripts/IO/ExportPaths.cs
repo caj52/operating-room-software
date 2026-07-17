@@ -109,8 +109,10 @@ public static class ExportPaths
         if (string.IsNullOrEmpty(dir) || string.IsNullOrEmpty(leaf))
             return;
 
-        SetParentFolder(dir);
-        SetExportBaseOverride(Path.Combine(dir, leaf));
+        // Collapse any …/RoomName/RoomName nests in the picked parent before storing.
+        string parent = NormalizeParentFolder(dir);
+        SetParentFolder(parent);
+        SetExportBaseOverride(Path.Combine(parent, leaf));
     }
 
     public static void SetExportBaseOverride(string path)
@@ -288,9 +290,19 @@ public static class ExportPaths
     {
         if (HasCustomParentFolder())
         {
-            string custom = NormalizeParentFolder(PlayerPrefs.GetString(ParentFolderPrefsKey));
+            string raw = PlayerPrefs.GetString(ParentFolderPrefsKey);
+            string custom = NormalizeParentFolder(raw);
             if (!IsLegacyDocumentsExportFolder(custom))
+            {
+                // Rewrite prefs if an older build stored a nested …/RoomName/RoomName parent.
+                if (!string.Equals(raw, custom, StringComparison.OrdinalIgnoreCase))
+                {
+                    PlayerPrefs.SetString(ParentFolderPrefsKey, custom);
+                    PlayerPrefs.Save();
+                }
+
                 return custom;
+            }
 
             ClearCustomParentFolder();
         }
@@ -338,8 +350,8 @@ public static class ExportPaths
     }
 
     /// <summary>
-    /// Walks up one level when <paramref name="path"/> already looks like a room
-    /// export directory (leaf equals the current room save name).
+    /// Walks up while the leaf folder equals the current room save name so
+    /// …/TestRoom/TestRoom/TestRoom does not keep nesting deeper each export.
     /// </summary>
     public static string NormalizeParentFolder(string path)
     {
@@ -348,15 +360,25 @@ public static class ExportPaths
 
         try
         {
-            string full = Path.GetFullPath(path.Trim());
-            string leaf = Path.GetFileName(full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            string full = Path.GetFullPath(path.Trim())
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             string room = SanitizeFolderName(GetRoomExportName());
-            if (!string.IsNullOrEmpty(leaf)
-                && leaf.Equals(room, StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrEmpty(room))
+                return full;
+
+            // Collapse every trailing room-name segment, not just one level.
+            while (true)
             {
+                string leaf = Path.GetFileName(full);
+                if (string.IsNullOrEmpty(leaf)
+                    || !leaf.Equals(room, StringComparison.OrdinalIgnoreCase))
+                    break;
+
                 string parent = Path.GetDirectoryName(full);
-                if (!string.IsNullOrEmpty(parent))
-                    return parent;
+                if (string.IsNullOrEmpty(parent) || parent == full)
+                    break;
+
+                full = parent.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             }
 
             return full;
@@ -376,31 +398,16 @@ public static class ExportPaths
     /// <summary>Parent folder + room-name subfolder. All deliverables live under here.</summary>
     public static string GetExportBasePath()
     {
+        string roomName = SanitizeFolderName(GetRoomExportName());
+
         if (!string.IsNullOrWhiteSpace(_sessionExportBaseOverride))
-            return _sessionExportBaseOverride;
-
-        string parent = GetParentFolder();
-        string room = SanitizeFolderName(GetRoomExportName());
-
-        // Guard against a stale prefs parent that already ends with the room name
-        // (…/Operating Room Exports/SaveExample + SaveExample → double nest).
-        try
         {
-            string parentLeaf = Path.GetFileName(
-                Path.GetFullPath(parent).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-            if (!string.IsNullOrEmpty(parentLeaf)
-                && parentLeaf.Equals(room, StringComparison.OrdinalIgnoreCase))
-            {
-                string up = Path.GetDirectoryName(Path.GetFullPath(parent));
-                if (!string.IsNullOrEmpty(up))
-                    parent = up;
-            }
-        }
-        catch (Exception)
-        {
+            // Session override is meant to be the room folder; collapse any nested room names.
+            string collapsedParent = NormalizeParentFolder(_sessionExportBaseOverride);
+            return Path.Combine(collapsedParent, roomName);
         }
 
-        return Path.Combine(parent, room);
+        return Path.Combine(NormalizeParentFolder(GetParentFolder()), roomName);
     }
 
     /// <summary>Folder for 3D model exports: {RoomName}/OBJ/Room</summary>

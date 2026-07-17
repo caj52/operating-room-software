@@ -571,6 +571,18 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     }
 
     /// <summary>
+    /// Clears selection highlights/gizmos for photo/PDF capture.
+    /// Unlike <see cref="DeselectAll"/>, does not bail when a gizmo was used last frame.
+    /// </summary>
+    public static void ClearSelectionForCapture()
+    {
+        if (SelectedSelectables.Count == 0)
+            return;
+
+        SelectedSelectables[0].Deselect();
+    }
+
+    /// <summary>
     /// Destroys all <see cref="IsDestructible"/> objects 
     /// in the scene
     /// </summary>
@@ -1106,6 +1118,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         IsInElevationPhotoMode = true;
         var camera = GetComponentInChildren<Camera>();
         ActiveCameraRenderTextureElevation = camera;
+        ClearSelectionForCapture();
 
         // Hide the 3D floor mesh during capture — the PDF ground graphic is the floor.
         bool floorWasActive = true;
@@ -1292,6 +1305,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             IsInElevationPhotoMode = true;
             var camera = GetComponentInChildren<Camera>();
             ActiveCameraRenderTextureElevation = camera;
+            ClearSelectionForCapture();
 
             bool floorWasActive = true;
             var floorBoundary = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor);
@@ -1346,6 +1360,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             IsInElevationPhotoMode = true;
             var camera = GetComponentInChildren<Camera>();
             ActiveCameraRenderTextureElevation = camera;
+            ClearSelectionForCapture();
 
             bool floorWasActive = true;
             var floorBoundary = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor);
@@ -1437,6 +1452,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         // run your existing “show only those measurables” logic
         float addedHeight = 0.1f;
+        Measurable.BeginElevationMeasurementPass();
         _assemblySelectables.ForEach(item =>
         {
             if (item.Measurables.Count == 0) return;
@@ -1458,12 +1474,14 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
                 valid.ForEach(measurement =>
                 {
+                    if (measurement.Measurer == null || !measurement.Measurer.gameObject.activeSelf)
+                        return;
+                    measurement.Measurer.UpdateTransform(camera);
                     measurement.Measurer.MeasurementText
                         .UpdateVisibilityAndPosition(camera, force: true);
-                    measurement.Measurer.UpdateTransform(camera);
 
                     bounds.Encapsulate(measurement.Measurer.Renderer.bounds);
-                    var textBounds = new Bounds(measurement.Measurer.TextPosition, Vector3.one * 1f);
+                    var textBounds = new Bounds(measurement.Measurer.MeasurementText.transform.position, Vector3.one * 1f);
                     bounds.Encapsulate(textBounds);
                 });
             });
@@ -1545,6 +1563,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         camera.orthographicSize = bounds.extents.y;
 
         float addedHeight = 0.1f;
+        Measurable.BeginElevationMeasurementPass();
         _assemblySelectables.ForEach(item =>
         {
             if (item.Measurables.Count == 0) return;
@@ -1566,12 +1585,14 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
                 valid.ForEach(measurement =>
                 {
+                    if (measurement.Measurer == null || !measurement.Measurer.gameObject.activeSelf)
+                        return;
+                    measurement.Measurer.UpdateTransform(camera);
                     measurement.Measurer.MeasurementText
                         .UpdateVisibilityAndPosition(camera, force: true);
-                    measurement.Measurer.UpdateTransform(camera);
 
                     bounds.Encapsulate(measurement.Measurer.Renderer.bounds);
-                    var textBounds = new Bounds(measurement.Measurer.TextPosition, Vector3.one * 1f);
+                    var textBounds = new Bounds(measurement.Measurer.MeasurementText.transform.position, Vector3.one * 1f);
                     bounds.Encapsulate(textBounds);
                 });
             });
@@ -1635,6 +1656,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         // Update measurement transforms for current camera so they render in right place (but don't change bounds)
         float addedHeight = 0.1f;
+        Measurable.BeginElevationMeasurementPass();
         _assemblySelectables.ForEach(item =>
         {
             if (item.Measurables.Count == 0) return;
@@ -1651,8 +1673,10 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 measurable.UpdateMeasurements(ref addedHeight, camera);
                 valid.ForEach(measurement =>
                 {
-                    measurement.Measurer.MeasurementText.UpdateVisibilityAndPosition(camera, force: true);
+                    if (measurement.Measurer == null || !measurement.Measurer.gameObject.activeSelf)
+                        return;
                     measurement.Measurer.UpdateTransform(camera);
+                    measurement.Measurer.MeasurementText.UpdateVisibilityAndPosition(camera, force: true);
                 });
             });
         });
