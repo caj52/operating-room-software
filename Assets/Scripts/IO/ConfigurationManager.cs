@@ -103,37 +103,27 @@ public class ConfigurationManager : MonoBehaviour
     private void Start()
     {
         duplicateRoom = FindObjectOfType<DuplicateRoom>();
-        _ = EnsureDefaultOperatingTableAsync();
+        _ = SpawnDefaultOperatingTableIfMissingAsync();
     }
 
     /// <summary>
-    /// New rooms rely on the Main-scene OR_Table PrefabInstance. That instance nests a
-    /// .blend model which can resolve with no mesh at runtime; catalog/bundle instances work.
-    /// If the scene fixture is missing or has no mesh, replace it from the selectable catalog.
+    /// Default new-room table comes from the selectable catalog (same path as LoadRoom /
+    /// ObjectMenu), not a Main-scene PrefabInstance. The table prefab nests a .blend mesh
+    /// that is itself an asset bundle; scene instances of that prefab resolve without a
+    /// usable mesh, while catalog loads do not.
     /// </summary>
-    private async Task EnsureDefaultOperatingTableAsync()
+    private async Task SpawnDefaultOperatingTableIfMissingAsync()
     {
         while (Application.isPlaying && !SelectableAssetBundles.Initialized)
             await Task.Yield();
         if (!Application.isPlaying || IsLoading)
             return;
 
-        TrackedObject[] existing = FindObjectsByType<TrackedObject>(
-            FindObjectsInactive.Include, FindObjectsSortMode.None)
-            .Where(IsOperatingTableObject)
-            .ToArray();
-
-        foreach (TrackedObject to in existing)
-        {
-            if (OperatingTableLooksValid(to.gameObject))
-            {
-                PlacementLoadOptimizer.FinalizeInstanceColliders(to.gameObject);
-                PlacementLoadOptimizer.RestoreInstanceCollidersAfterLoad(to.gameObject);
-                return;
-            }
-
-            Destroy(to.gameObject);
-        }
+        bool alreadyPresent = FindObjectsByType<TrackedObject>(
+                FindObjectsInactive.Include, FindObjectsSortMode.None)
+            .Any(IsOperatingTableObject);
+        if (alreadyPresent)
+            return;
 
         if (!SelectableAssetBundles.TryGetSelectableData(OperatingTableGuid, out SelectableData data))
         {
@@ -141,7 +131,8 @@ public class ConfigurationManager : MonoBehaviour
             return;
         }
 
-        GameObject prefab = await data.GetPrefab();
+        // Same full-screen loader as LoadRoom (GetPrefab defaults to the compact Item indicator).
+        GameObject prefab = await data.GetPrefab(loadingToken: Loading.GetLoadingToken());
         if (!Application.isPlaying || prefab == null || IsLoading)
             return;
 
@@ -154,7 +145,6 @@ public class ConfigurationManager : MonoBehaviour
         if (room != null)
             go.transform.SetParent(room, false);
 
-        // Match Main.unity fixture pose.
         go.transform.localPosition = new Vector3(0f, 0.05715f, 0f);
         go.transform.localRotation = new Quaternion(-0.5f, 0.5f, 0.5f, 0.5f);
         go.transform.localScale = Vector3.one;
@@ -179,31 +169,6 @@ public class ConfigurationManager : MonoBehaviour
         if (to == null) return false;
         string blob = (to.name ?? "") + " " + (to.GetComponent<Selectable>()?.MetaData?.Name ?? "");
         return blob.IndexOf("OR_Table", StringComparison.OrdinalIgnoreCase) >= 0;
-    }
-
-    private static bool OperatingTableLooksValid(GameObject go)
-    {
-        if (go == null || !go.activeInHierarchy)
-            return false;
-        if (!OperatingTableHasMesh(go))
-            return false;
-        return go.GetComponentsInChildren<Renderer>(true)
-            .Any(r => r != null && r.enabled && r.gameObject.activeInHierarchy);
-    }
-
-    private static bool OperatingTableHasMesh(GameObject go)
-    {
-        foreach (MeshFilter mf in go.GetComponentsInChildren<MeshFilter>(true))
-        {
-            if (mf != null && mf.sharedMesh != null)
-                return true;
-        }
-        foreach (SkinnedMeshRenderer smr in go.GetComponentsInChildren<SkinnedMeshRenderer>(true))
-        {
-            if (smr != null && smr.sharedMesh != null)
-                return true;
-        }
-        return false;
     }
 
     private void HandleBackwardsCompatibility()
