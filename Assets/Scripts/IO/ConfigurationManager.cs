@@ -99,46 +99,95 @@ public class ConfigurationManager : MonoBehaviour
     }
 
     private const string OperatingTableGuid = "gameobject_839a064b625fb724ab496f21e46986e7";
+    private const string CeilingLightGuid = "gameobject_ada2137b3a434a54fbc11fd0fb37f568";
+
+    private static readonly Vector3[] DefaultCeilingLightPositions =
+    {
+        new Vector3(0f, 3.048f, 2f),
+        new Vector3(-2f, 3.048f, 0f),
+        new Vector3(2f, 3.048f, 0f),
+        new Vector3(0f, 3.048f, -2f),
+    };
 
     private void Start()
     {
         duplicateRoom = FindObjectOfType<DuplicateRoom>();
-        _ = SpawnDefaultOperatingTableIfMissingAsync();
+        _ = EnsureBaseRoomFixturesFromCatalogAsync();
     }
 
     /// <summary>
-    /// Default new-room table comes from the selectable catalog (same path as LoadRoom /
-    /// ObjectMenu), not a Main-scene PrefabInstance. The table prefab nests a .blend mesh
-    /// that is itself an asset bundle; scene instances of that prefab resolve without a
-    /// usable mesh, while catalog loads do not.
+    /// Cold start: Main-scene CeilingLight / OR_Table PrefabInstances nest asset-bundled
+    /// .blend meshes that resolve with no usable mesh. Catalog instances work — same path
+    /// LoadRoom uses after <see cref="EnsureBaseRoomDefaultsInSaveData"/>.
     /// </summary>
-    private async Task SpawnDefaultOperatingTableIfMissingAsync()
+    private async Task EnsureBaseRoomFixturesFromCatalogAsync()
     {
         while (Application.isPlaying && !SelectableAssetBundles.Initialized)
             await Task.Yield();
         if (!Application.isPlaying || IsLoading)
             return;
 
-        bool alreadyPresent = FindObjectsByType<TrackedObject>(
-                FindObjectsInactive.Include, FindObjectsSortMode.None)
-            .Any(IsOperatingTableObject);
-        if (alreadyPresent)
+        // Drop broken scene fixtures before seeding from catalog.
+        // Destroy() is deferred — do not re-query presence afterward; always seed.
+        foreach (TrackedObject to in FindObjectsByType<TrackedObject>(
+                     FindObjectsInactive.Include, FindObjectsSortMode.None))
+        {
+            if (to == null) continue;
+            if (IsCeilingLightObject(to) || IsOperatingTableObject(to))
+                Destroy(to.gameObject);
+        }
+
+        Transform room = GetCurrentRoomTransform();
+        await SpawnDefaultCeilingLightsAsync(room);
+        if (!Application.isPlaying || IsLoading)
+            return;
+        await SpawnDefaultOperatingTableAsync(room);
+    }
+
+    private Transform GetCurrentRoomTransform()
+    {
+        if (duplicateRoom != null && duplicateRoom.currentRoom != null)
+            return duplicateRoom.currentRoom.transform;
+        return GameObject.Find("Room1")?.transform;
+    }
+
+    private async Task SpawnDefaultCeilingLightsAsync(Transform room)
+    {
+        if (!SelectableAssetBundles.TryGetSelectableData(CeilingLightGuid, out SelectableData data))
+        {
+            Debug.LogError("[CeilingLight] Catalog missing default ceiling light guid; new room has no lights.");
+            return;
+        }
+
+        GameObject prefab = await data.GetPrefab(loadingToken: Loading.GetLoadingToken());
+        if (!Application.isPlaying || prefab == null || IsLoading)
             return;
 
+        Quaternion rot = new Quaternion(0.7071068f, 0f, 0f, 0.7071068f);
+        for (int i = 0; i < DefaultCeilingLightPositions.Length; i++)
+        {
+            GameObject go = Instantiate(prefab);
+            go.name = i == 0 ? "CeilingLightFixture" : $"CeilingLightFixture ({i})";
+            if (room != null)
+                go.transform.SetParent(room, false);
+            go.transform.localPosition = DefaultCeilingLightPositions[i];
+            go.transform.localRotation = rot;
+            go.transform.localScale = Vector3.one;
+            FinalizeSpawnedBaseFixture(go);
+        }
+    }
+
+    private async Task SpawnDefaultOperatingTableAsync(Transform room)
+    {
         if (!SelectableAssetBundles.TryGetSelectableData(OperatingTableGuid, out SelectableData data))
         {
             Debug.LogError("[OR_Table] Catalog missing default operating table guid; new room has no table.");
             return;
         }
 
-        // Same full-screen loader as LoadRoom (GetPrefab defaults to the compact Item indicator).
         GameObject prefab = await data.GetPrefab(loadingToken: Loading.GetLoadingToken());
         if (!Application.isPlaying || prefab == null || IsLoading)
             return;
-
-        Transform room = duplicateRoom != null && duplicateRoom.currentRoom != null
-            ? duplicateRoom.currentRoom.transform
-            : GameObject.Find("Room1")?.transform;
 
         GameObject go = Instantiate(prefab);
         go.name = "OR_Table_0";
@@ -153,6 +202,11 @@ public class ConfigurationManager : MonoBehaviour
         if (floor != null && go.TryGetComponent<KeepRelativePosition>(out var keepRel))
             keepRel.VirtualParentChanged(floor.transform);
 
+        FinalizeSpawnedBaseFixture(go);
+    }
+
+    private static void FinalizeSpawnedBaseFixture(GameObject go)
+    {
         foreach (DestroyOnLoad dol in go.GetComponentsInChildren<DestroyOnLoad>(true))
         {
             if (dol != null)
@@ -169,6 +223,15 @@ public class ConfigurationManager : MonoBehaviour
         if (to == null) return false;
         string blob = (to.name ?? "") + " " + (to.GetComponent<Selectable>()?.MetaData?.Name ?? "");
         return blob.IndexOf("OR_Table", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static bool IsCeilingLightObject(TrackedObject to)
+    {
+        if (to == null) return false;
+        string blob = (to.name ?? "") + " " + (to.GetComponent<Selectable>()?.MetaData?.Name ?? "")
+                      + " " + (to.GetComponent<Selectable>()?.UIButtonName ?? "");
+        return blob.IndexOf("CeilingLight", StringComparison.OrdinalIgnoreCase) >= 0
+               || blob.IndexOf("Ceiling Light", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     private void HandleBackwardsCompatibility()
@@ -548,6 +611,11 @@ public class ConfigurationManager : MonoBehaviour
         string json = File.ReadAllText(file);
         _roomConfiguration = JsonConvert.DeserializeObject<RoomConfiguration>(json);
 
+        // Blank / incomplete saves omit base fixtures. Seed them into the load data so
+        // bed + ceiling lights come through the normal ProcessTrackedObjects path —
+        // same as any other saved selectable — instead of one-off scene spawners.
+        EnsureBaseRoomDefaultsInSaveData();
+
         Debug.Log("Clearing default room objects");
         List<TrackedObject> existingObjects = FindObjectsOfType<TrackedObject>().ToList();
 
@@ -575,6 +643,108 @@ public class ConfigurationManager : MonoBehaviour
 
         TryRestoreClientMetaData();
         LoadRoom();
+    }
+
+    /// <summary>
+    /// New/empty rooms are defined as surgical bed + 4 ceiling lights. If a save omits
+    /// either, add the default tracked rows so LoadRoom instantiates them normally.
+    /// </summary>
+    private void EnsureBaseRoomDefaultsInSaveData()
+    {
+        if (_roomConfiguration.collections == null)
+            _roomConfiguration.collections = new List<Tracker>();
+
+        bool hasLights = RoomSaveContainsNameToken("CeilingLight");
+        bool hasBed = RoomSaveContainsNameToken("OR_Table");
+        if (hasLights && hasBed)
+            return;
+
+        Tracker bucket = null;
+        foreach (Tracker t in _roomConfiguration.collections)
+        {
+            if (t?.objects != null)
+            {
+                bucket = t;
+                break;
+            }
+        }
+
+        if (bucket == null)
+        {
+            bucket = new Tracker { objects = new List<TrackedObject.Data>() };
+            _roomConfiguration.collections.Add(bucket);
+        }
+        else if (bucket.objects == null)
+        {
+            bucket.objects = new List<TrackedObject.Data>();
+        }
+
+        if (!hasLights)
+        {
+            Quaternion lightRot = new Quaternion(0.7071068f, 0f, 0f, 0.7071068f);
+            foreach (Vector3 pos in DefaultCeilingLightPositions)
+                bucket.objects.Add(MakeBaseRoomFixture("CeilingLightFixture", CeilingLightGuid, pos, lightRot));
+
+            Debug.Log("[LoadRoom] Save omitted ceiling lights — seeding 4 defaults into load data");
+        }
+
+        if (!hasBed)
+        {
+            bucket.objects.Add(MakeBaseRoomFixture(
+                "OR_Table_0",
+                OperatingTableGuid,
+                new Vector3(0f, 0.05715f, 0f),
+                new Quaternion(-0.5f, 0.5f, 0.5f, 0.5f),
+                keepRelativeFloor: true));
+
+            Debug.Log("[LoadRoom] Save omitted OR table — seeding default into load data");
+        }
+    }
+
+    private static TrackedObject.Data MakeBaseRoomFixture(
+        string objectName,
+        string globalGuid,
+        Vector3 localPosition,
+        Quaternion localRotation,
+        bool keepRelativeFloor = false)
+    {
+        return new TrackedObject.Data
+        {
+            objectName = objectName,
+            global_guid = globalGuid,
+            parentPath = "/Room1",
+            parent = "/Room1",
+            localPosition = localPosition,
+            worldPosition = localPosition,
+            localRotation = localRotation,
+            worldRotation = localRotation,
+            localScale = Vector3.one,
+            activeSelf = true,
+            keepRelativePositionParentName = keepRelativeFloor ? "RoomBoundary_Floor" : null,
+        };
+    }
+
+    private bool RoomSaveContainsNameToken(string token)
+    {
+        if (_roomConfiguration.collections == null || string.IsNullOrEmpty(token))
+            return false;
+
+        foreach (Tracker t in _roomConfiguration.collections)
+        {
+            if (t?.objects == null) continue;
+            foreach (TrackedObject.Data d in t.objects)
+            {
+                if ((!string.IsNullOrEmpty(d.objectName)
+                     && d.objectName.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0)
+                    || (!string.IsNullOrEmpty(d.UIButtonname)
+                        && d.UIButtonname.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private void TryRestoreClientMetaData()
@@ -1032,7 +1202,8 @@ public class ConfigurationManager : MonoBehaviour
 
     /// <summary>
     /// After transforms restore: apply the shared attach-chain scale contract, and repair
-    /// any non-tracked child that was crushed to (0,0,0) by inverse-scale math.
+    /// any child that was crushed to true (0,0,0). Note: Simeon light mesh roots are
+    /// intentionally ~0.001 (Blender units) — do not treat that as broken.
     /// </summary>
     private void FixLoadedNonUniformDropTubeScales()
     {
@@ -1056,8 +1227,9 @@ public class ConfigurationManager : MonoBehaviour
 
             foreach (Transform t in to.GetComponentsInChildren<Transform>(true))
             {
-                if (t == null || t.GetComponent<TrackedObject>() != null)
+                if (t == null)
                     continue;
+                // True zero only — 0.001 blender mesh roots must stay.
                 if (t.localScale.sqrMagnitude >= 1e-8f)
                     continue;
                 t.localScale = Vector3.one;
@@ -1147,7 +1319,9 @@ public class ConfigurationManager : MonoBehaviour
                     : "";
 
                 AssetPipelineDiagnostics.Log("RoomLoad.Scale",
-                    $"{phase}: {GetLoadComparablePath(t.gameObject)} localScale={t.localScale} lossyScale={t.lossyScale} localRot={t.localEulerAngles}{selectedScale}{saved}");
+                    $"{phase}: {GetLoadComparablePath(t.gameObject)} " +
+                    $"localScale={t.localScale.ToString("G4")} lossyScale={t.lossyScale.ToString("G4")} " +
+                    $"localRot={t.localEulerAngles.ToString("G4")}{selectedScale}{saved}");
             }
         }
     }

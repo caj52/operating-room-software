@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 /// <summary>
@@ -79,6 +80,9 @@ public class LightFactory : MonoBehaviour
     void BuildLights()
     {
         if (lightAttachPoint == null)
+            lightAttachPoint = FindLightAttachPoint();
+
+        if (lightAttachPoint == null)
         {
             Debug.LogWarning($"[LightFactory] {name}: lightAttachPoint is not assigned — skipping spot light.", this);
             return;
@@ -96,6 +100,31 @@ public class LightFactory : MonoBehaviour
         _light.spotAngle = outerAngle;
         _light.shadows = LightShadows.Soft;
         _light.enabled = on;
+    }
+
+    /// <summary>
+    /// Older bundles / duplicate factories sometimes leave lightAttachPoint unassigned.
+    /// Resolve by name under the owning selectable (or this transform).
+    /// </summary>
+    Transform FindLightAttachPoint()
+    {
+        Transform root = transform;
+        if (TryGetComponent(out Selectable selfSel))
+            root = selfSel.transform;
+        else
+        {
+            Selectable parentSel = GetComponentInParent<Selectable>();
+            if (parentSel != null)
+                root = parentSel.transform;
+        }
+
+        foreach (Transform t in root.GetComponentsInChildren<Transform>(true))
+        {
+            if (t != null && t.name.StartsWith("LightAttachPoint", StringComparison.OrdinalIgnoreCase))
+                return t;
+        }
+
+        return null;
     }
 
     /// <summary>
