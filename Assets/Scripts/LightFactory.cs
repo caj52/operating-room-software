@@ -1,4 +1,3 @@
-using Unity.VisualScripting;
 using UnityEngine;
 
 /// <summary>
@@ -79,18 +78,24 @@ public class LightFactory : MonoBehaviour
     /// </summary>
     void BuildLights()
     {
-        // We attach the light component to the attach point
-        _light = lightAttachPoint.AddComponent<Light>();
+        if (lightAttachPoint == null)
+        {
+            Debug.LogWarning($"[LightFactory] {name}: lightAttachPoint is not assigned — skipping spot light.", this);
+            return;
+        }
 
-        // Then we go through each setting and set them to the light
+        _light = lightAttachPoint.GetComponent<Light>();
+        if (_light == null)
+            _light = lightAttachPoint.gameObject.AddComponent<Light>();
+
         _light.type = LightType.Spot;
-        _light.useColorTemperature = true; // This switches it from "Color" to a realistic "Temperature" style
+        _light.useColorTemperature = true;
         _light.colorTemperature = tempature;
         _light.intensity = intensity;
         _light.innerSpotAngle = innerAngle;
         _light.spotAngle = outerAngle;
         _light.shadows = LightShadows.Soft;
-        _light.enabled = on; // As this runs on Start only, here we set the initial ON/OFF state
+        _light.enabled = on;
     }
 
     /// <summary>

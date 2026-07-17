@@ -1219,26 +1219,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   <Target>k__BackingField: {fileID: 9171851913702416055}
---- !u!114 &3821011873959533657
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 5171726488088100274}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: d4bfa600169491047becb9b94db72e97, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  on: 0
-  lightAttachPoint: {fileID: 0}
-  tempature: 4500
-  intensity: 5
-  innerAngle: 20
-  outerAngle: 20
-  emissiveObject: {fileID: 0}
-  emissionColor: {r: 0.7253471, g: 0.9433962, b: 0.9181535, a: 1}
 --- !u!114 &5936321892460740077
 MonoBehaviour:
   m_ObjectHideFlags: 0

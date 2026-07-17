@@ -26,6 +26,10 @@ public class TrackedObject : MonoBehaviour
         public Vector3 worldPosition;
         public Quaternion worldRotation;
         public Vector3 localScale;
+        // Legacy schema (pre local/world split). Read on load only — never written.
+        public Vector3 pos;
+        public Quaternion rot;
+        public Vector3 scale;
         // Add parent tracking
         public string parentGuid;
         public string parentPath;
@@ -44,6 +48,35 @@ public class TrackedObject : MonoBehaviour
         public List<SaveUtility.SerializedComponentState> componentStates;
         // New: full self path for reliable lookup post-instantiation
         public string selfPath; // NEW
+
+        public bool ShouldSerializepos() => false;
+        public bool ShouldSerializerot() => false;
+        public bool ShouldSerializescale() => false;
+
+        /// <summary>
+        /// Maps old pos/rot/scale into modern fields when a save predates the local/world split.
+        /// </summary>
+        public void ApplyLegacyFields()
+        {
+            if (!HasValidRotation(localRotation) && HasValidRotation(rot))
+            {
+                worldPosition = pos;
+                worldRotation = rot;
+            }
+
+            if (localScale.sqrMagnitude >= 1e-8f)
+                return;
+
+            if (scale.sqrMagnitude >= 1e-8f)
+                localScale = scale;
+            else if (scaleLevel != null && scaleLevel.ScaleZ > 1e-4f)
+                localScale = new Vector3(1f, 1f, scaleLevel.ScaleZ);
+            else
+                localScale = Vector3.one;
+        }
+
+        private static bool HasValidRotation(Quaternion q) =>
+            q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w > 1e-8f;
     }
 
     private void Awake()
@@ -152,6 +185,7 @@ public class TrackedObject : MonoBehaviour
 
     public void StoreValues(TrackedObject.Data d)
     {
+        d.ApplyLegacyFields();
         data = d;
         HasStoredValues = true;
         if (data.isAttachmentPoint && !_hasStoredOriginalTransform)
@@ -197,7 +231,14 @@ public class TrackedObject : MonoBehaviour
 
     public void RestoreTransform(bool isRoot = false)
     {
-        if (isRoot)
+        // Legacy saves only stored world pos/rot. Missing localRotation deserializes as
+        // (0,0,0,0); treat that as "use world" so old configs load without re-saving.
+        bool hasLocalRotation = data.localRotation.x * data.localRotation.x
+            + data.localRotation.y * data.localRotation.y
+            + data.localRotation.z * data.localRotation.z
+            + data.localRotation.w * data.localRotation.w > 1e-8f;
+
+        if (isRoot || !hasLocalRotation)
         {
             transform.position = data.worldPosition;
             transform.rotation = data.worldRotation;
@@ -207,7 +248,17 @@ public class TrackedObject : MonoBehaviour
             transform.localPosition = data.localPosition;
             transform.localRotation = data.localRotation;
         }
-        transform.localScale = data.localScale;
+        // Struct default / legacy JSON without localScale deserializes as (0,0,0).
+        // Never write that onto the hierarchy — it collapses meshes and attach chains.
+        Vector3 scale = data.localScale;
+        if (scale.sqrMagnitude < 1e-8f)
+        {
+            if (data.scaleLevel != null && data.scaleLevel.ScaleZ > 1e-4f)
+                scale = new Vector3(1f, 1f, data.scaleLevel.ScaleZ);
+            else
+                scale = Vector3.one;
+        }
+        transform.localScale = scale;
         if (data.isAttachmentPoint && gameObject.TryGetComponent<AttachmentPoint>(out var ap))
         {
             if (ap.MoveUpOnAttach && !ConfigurationManager.IsLoading)

@@ -294,6 +294,14 @@ public class ConfigurationManager : MonoBehaviour
                 attachmentPoint.SetToOriginalParent();
         }
 
+        // Persist the same attach-chain inverse Z that SetScaleLevel applies interactively,
+        // so light drop tubes (and any scaled selectable) round-trip without post-load patches.
+        foreach (TrackedObject obj in foundObjects)
+        {
+            if (obj != null && obj.TryGetComponent(out Selectable sel))
+                sel.EnsureAttachChainScaleCompensation();
+        }
+
         foreach (TrackedObject obj in foundObjects)
             _tracker.objects.Add(obj.GetData());
 
@@ -1023,9 +1031,8 @@ public class ConfigurationManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Boom drop tubes persist compensating AttachPoint.z (=1/tube.z). Light drop tubes
-    /// usually do not. Without that inverse, the whole arm inherits tube.lossyScale.z
-    /// and shears under rotation. Also repairs zeroed inner light mesh roots.
+    /// After transforms restore: apply the shared attach-chain scale contract, and repair
+    /// any non-tracked child that was crushed to (0,0,0) by inverse-scale math.
     /// </summary>
     private void FixLoadedNonUniformDropTubeScales()
     {
@@ -1037,58 +1044,25 @@ public class ConfigurationManager : MonoBehaviour
             if (to == null)
                 continue;
 
-            foreach (Transform t in to.GetComponentsInChildren<Transform>(true))
-            {
-                if (t == null)
-                    continue;
-
-                // Exact inner mesh container that logs showed stuck at (0,0,0).
-                if (t.name == "Simeon_Light_7000" && t.localScale.sqrMagnitude < 1e-8f)
-                {
-                    t.localScale = Vector3.one;
-                    AssetPipelineDiagnostics.Log("RoomLoad.Scale",
-                        $"Repaired zero localScale on {GetLoadComparablePath(t.gameObject)}");
-                }
-
-                if (t.name.IndexOf("DropTube.001", StringComparison.OrdinalIgnoreCase) < 0)
-                    continue;
-
-                float tubeZ = t.localScale.z;
-                if (tubeZ <= 0.0001f || Mathf.Abs(tubeZ - 1f) < 0.0001f)
-                    continue;
-
-                float inv = 1f / tubeZ;
-                for (int i = 0; i < t.childCount; i++)
-                {
-                    Transform child = t.GetChild(i);
-                    bool isAttach =
-                        child.GetComponent<AttachmentPoint>() != null
-                        || child.name.Equals("AttachmentPoint", StringComparison.OrdinalIgnoreCase)
-                        || child.name.Equals("AttachPoint", StringComparison.OrdinalIgnoreCase);
-                    if (!isAttach)
-                        continue;
-
-                    Vector3 cls = child.localScale;
-                    if (Mathf.Abs(cls.z * tubeZ - 1f) < 0.05f)
-                        continue;
-
-                    child.localScale = new Vector3(
-                        Mathf.Abs(cls.x) < 1e-6f ? 1f : cls.x,
-                        Mathf.Abs(cls.y) < 1e-6f ? 1f : cls.y,
-                        inv);
-                    AssetPipelineDiagnostics.Log("RoomLoad.Scale",
-                        $"Compensate {child.name} under {t.name}: localScale.z {cls.z:F3} -> {inv:F3} (tubeZ={tubeZ:F3})");
-                }
-            }
-
             foreach (Selectable sel in to.GetComponentsInChildren<Selectable>(true))
             {
                 if (sel == null) continue;
-                try { sel.ReapplyInverseChildScalingAfterLoad(); }
+                try { sel.EnsureAttachChainScaleCompensation(); }
                 catch (Exception ex)
                 {
                     Debug.LogWarning($"[FixLoadedNonUniformDropTubeScales] {sel.name}: {ex.Message}");
                 }
+            }
+
+            foreach (Transform t in to.GetComponentsInChildren<Transform>(true))
+            {
+                if (t == null || t.GetComponent<TrackedObject>() != null)
+                    continue;
+                if (t.localScale.sqrMagnitude >= 1e-8f)
+                    continue;
+                t.localScale = Vector3.one;
+                AssetPipelineDiagnostics.Log("RoomLoad.Scale",
+                    $"Repaired zero localScale on {GetLoadComparablePath(t.gameObject)}");
             }
         }
     }

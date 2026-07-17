@@ -840,13 +840,12 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     }
 
     /// <summary>
-    /// After RestoreTransform, Z-scaled drop tubes often lack the inverse child scale
-    /// that interactive SetScaleLevel applies (boom saves it on AttachPoint; light
-    /// AttachmentPoint usually does not). Rebuild that compensation from ModelDefault.
+    /// Attach-chain children need inverse Z of this selectable's tube scale.
+    /// SetScaleLevel does this live; boom saves usually persist it, light drop tubes often don't.
+    /// Call on save and after load so both paths share the same contract.
     /// </summary>
-    public void ReapplyInverseChildScalingAfterLoad()
+    public void EnsureAttachChainScaleCompensation()
     {
-        // Prefer CurrentScaleLevel.ScaleZ; fall back to the live local Z after restore.
         float targetZ = CurrentScaleLevel != null ? CurrentScaleLevel.ScaleZ : transform.localScale.z;
         if (targetZ <= 0.0001f || Mathf.Abs(targetZ - 1f) < 0.0001f)
             targetZ = transform.localScale.z;
@@ -858,14 +857,13 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             transform.localScale = new Vector3(ls.x, ls.y, targetZ);
 
         float inv = 1f / targetZ;
-        int fixedCount = 0;
         for (int i = 0; i < transform.childCount; i++)
         {
             Transform child = transform.GetChild(i);
-            // Only compensate the attachment chain — not mesh LODs / caps.
-            if (child.GetComponent<AttachmentPoint>() == null
-                && !child.name.Equals("AttachmentPoint", StringComparison.OrdinalIgnoreCase)
-                && !child.name.Equals("AttachPoint", StringComparison.OrdinalIgnoreCase))
+            bool isAttach = child.GetComponent<AttachmentPoint>() != null
+                || child.name.Equals("AttachmentPoint", StringComparison.OrdinalIgnoreCase)
+                || child.name.Equals("AttachPoint", StringComparison.OrdinalIgnoreCase);
+            if (!isAttach)
                 continue;
 
             Vector3 cls = child.localScale;
@@ -876,14 +874,6 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 Mathf.Abs(cls.x) < 1e-6f ? 1f : cls.x,
                 Mathf.Abs(cls.y) < 1e-6f ? 1f : cls.y,
                 inv);
-            fixedCount++;
-        }
-
-        if (fixedCount > 0)
-        {
-            Debug.Log(
-                $"[RoomLoad.Scale] ReapplyInverseChildScaling on {name}: " +
-                $"targetZ={targetZ:F3} fixedChildren={fixedCount}");
         }
     }
 
@@ -976,7 +966,12 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                             if (ignore.IgnoreY) y = child.transform.localScale.y;
                             if (ignore.IgnoreZ) z = child.transform.localScale.z;
                         }
-                        child.transform.localScale = new Vector3(x, y, z);
+                        Vector3 next = new Vector3(x, y, z);
+                        // InverseTransformVector on rotated mesh children can collapse to ~0;
+                        // never write that — keep prior scale instead.
+                        if (next.sqrMagnitude < 1e-8f)
+                            continue;
+                        child.transform.localScale = next;
                     }
                 }
             }
