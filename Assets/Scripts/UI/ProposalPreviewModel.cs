@@ -158,10 +158,12 @@ public sealed class ProposalPreviewModel
         else if (string.IsNullOrWhiteSpace(ConfigName))
             ConfigName = "Configuration";
 
+        // Collect once — config/pricing/totals used to each re-scan the scene + Excel.
+        var selectablePrices = CollectPricedSelectables();
         RebuildOptions();
-        RebuildConfigBlocks();
-        RebuildPricingLines();
-        RecalcTotals();
+        RebuildConfigBlocks(selectablePrices);
+        RebuildPricingLines(selectablePrices);
+        RecalcTotals(selectablePrices);
     }
 
     public void PersistEditableFields()
@@ -242,11 +244,10 @@ public sealed class ProposalPreviewModel
                 .Select(o => o.SelectedName));
     }
 
-    void RebuildConfigBlocks()
+    void RebuildConfigBlocks(SelectablePrice[] selectablePrices)
     {
         ConfigBlocks.Clear();
-        var selectablePrices = UnityEngine.Object.FindObjectsByType<SelectablePrice>(
-            FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        selectablePrices ??= Array.Empty<SelectablePrice>();
 
         var rootGroups = selectablePrices
             .Where(sp => sp != null && sp.objectPricingData != null)
@@ -261,13 +262,17 @@ public sealed class ProposalPreviewModel
                 continue;
 
             // Keep page-1 preview blocks aligned with ProposalPricingResolver / PDF page 1.
+            var boomRoot = group.Key != null ? group.Key.gameObject : null;
             var lightLines = ProposalPricingResolver.ResolveLightLines(lights);
-            var boomLine = ProposalPricingResolver.ResolveBoomLine(
-                group.Key != null ? group.Key.gameObject : null, booms);
+            var boomLine = ProposalPricingResolver.ResolveBoomLine(boomRoot, booms);
+            var boomExtras = ProposalPricingResolver.ResolveBoomExtraLines(boomRoot, booms);
             double subtotal = ProposalPricingResolver.SumEquipment(group);
 
             string lightText = BuildOptionsText(lights, false);
-            string boomText = BuildOptionsText(booms, true);
+            string boomText = boomExtras.Count > 0
+                ? string.Join(", ", boomExtras.Select(e =>
+                    e.Qty > 1 ? $"{e.Description} (x{e.Qty})" : e.Description))
+                : BuildOptionsText(booms, true);
 
             ConfigBlocks.Add(new ConfigBlock
             {
@@ -279,7 +284,7 @@ public sealed class ProposalPreviewModel
                     : "",
                 LightOptionsText = lightText,
                 LightLines = lightLines,
-                HasBooms = boomLine != null,
+                HasBooms = boomLine != null || boomExtras.Count > 0,
                 BoomQty = boomLine != null ? Math.Max(1, boomLine.Qty) : 0,
                 BoomDescription = boomLine?.Description ?? "",
                 BoomOptionsText = boomText,
@@ -301,15 +306,15 @@ public sealed class ProposalPreviewModel
         }
     }
 
-    void RebuildPricingLines()
+    void RebuildPricingLines(SelectablePrice[] selectablePrices)
     {
         PricingLines.Clear();
-        var selectablePrices = UnityEngine.Object.FindObjectsByType<SelectablePrice>(
-            FindObjectsInactive.Exclude, FindObjectsSortMode.None)
+        selectablePrices ??= Array.Empty<SelectablePrice>();
+        var priced = selectablePrices
             .Where(sp => sp != null && sp.objectPricingData != null)
             .ToList();
 
-        var rootConfigs = selectablePrices
+        var rootConfigs = priced
             .GroupBy(sp => sp.transform.root)
             .ToList();
 
@@ -322,9 +327,10 @@ public sealed class ProposalPreviewModel
             var first = configGroup.FirstOrDefault();
             var lights = configGroup.Where(sp => !sp.isBoomObject).ToList();
             var booms = configGroup.Where(sp => sp.isBoomObject).ToList();
+            var boomRoot = first != null ? first.transform.root.gameObject : null;
             var lightLines = ProposalPricingResolver.ResolveLightLines(lights);
-            var boomLine = ProposalPricingResolver.ResolveBoomLine(
-                first != null ? first.transform.root.gameObject : null, booms);
+            var boomLine = ProposalPricingResolver.ResolveBoomLine(boomRoot, booms);
+            var boomExtras = ProposalPricingResolver.ResolveBoomExtraLines(boomRoot, booms);
 
             PricingLines.Add(new LineItem
             {
@@ -391,18 +397,43 @@ public sealed class ProposalPreviewModel
                 subtotal += boomLine.ExtPrice;
             }
 
-            var boomOptions = emitOptions
-                ? OptionSelections.Where(o => o.IsBoom && !IsNoneOption(o.SelectedName) && o.Price > 0).ToList()
-                : new List<OptionSelection>();
-            if (boomOptions.Count > 0)
+            if (boomExtras.Count > 0)
             {
-                optionsEmitted = true;
                 PricingLines.Add(new LineItem
                 {
                     IsSectionHeader = true,
                     IsOptionHeader = true,
                     SectionTitle = "OPTION/ACCESSORY DESCRIPTION"
                 });
+                foreach (var extra in boomExtras)
+                {
+                    PricingLines.Add(new LineItem
+                    {
+                        PartNumber = string.IsNullOrEmpty(extra.PartNumber) ? "N/A" : extra.PartNumber,
+                        Description = extra.Description,
+                        Qty = extra.Qty,
+                        UnitPrice = extra.UnitPrice,
+                        ExtPrice = extra.ExtPrice
+                    });
+                    subtotal += extra.ExtPrice;
+                }
+            }
+
+            var boomOptions = emitOptions
+                ? OptionSelections.Where(o => o.IsBoom && !IsNoneOption(o.SelectedName) && o.Price > 0).ToList()
+                : new List<OptionSelection>();
+            if (boomOptions.Count > 0)
+            {
+                optionsEmitted = true;
+                if (boomExtras.Count == 0)
+                {
+                    PricingLines.Add(new LineItem
+                    {
+                        IsSectionHeader = true,
+                        IsOptionHeader = true,
+                        SectionTitle = "OPTION/ACCESSORY DESCRIPTION"
+                    });
+                }
                 foreach (var opt in boomOptions)
                 {
                     PricingLines.Add(new LineItem
@@ -417,7 +448,8 @@ public sealed class ProposalPreviewModel
                 }
             }
 
-            if (lightLines.Count > 0 || lightOptions.Count > 0 || boomLine != null || boomOptions.Count > 0)
+            if (lightLines.Count > 0 || lightOptions.Count > 0 || boomLine != null
+                || boomExtras.Count > 0 || boomOptions.Count > 0)
             {
                 PricingLines.Add(new LineItem
                 {
@@ -526,18 +558,58 @@ public sealed class ProposalPreviewModel
             ShippingCharge = 0;
     }
 
-    void RecalcTotals()
+    void RecalcTotals(SelectablePrice[] selectablePrices)
     {
-        var selectablePrices = UnityEngine.Object.FindObjectsByType<SelectablePrice>(
-            FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        selectablePrices ??= Array.Empty<SelectablePrice>();
+        // Same stack as PDF: lights + boom package + scene extras + quote dropdowns.
         double selectables = ProposalPricingResolver.SumEquipment(selectablePrices);
-        // Match page-3 / CalculateTotalPrice: skip None and $0 options.
-        double dropdownTotal = OptionSelections
-            .Where(o => !IsNoneOption(o.SelectedName) && o.Price > 0)
-            .Sum(o => o.Price);
-        Page1EquipmentTotal = selectables;
-        EquipmentTotal = selectables + dropdownTotal + InstallCharge + ShippingCharge;
+        double dropdownTotal = ProposalPricingResolver.SumPricedOptions();
+        Page1EquipmentTotal = selectables + dropdownTotal;
+        EquipmentTotal = Page1EquipmentTotal + InstallCharge + ShippingCharge;
         GrandTotal = EquipmentTotal - (EquipmentTotal * DiscountPercentage / 100.0);
+    }
+
+    static SelectablePrice[] CollectPricedSelectables()
+    {
+        var found = UnityEngine.Object.FindObjectsByType<SelectablePrice>(
+            FindObjectsInactive.Include, FindObjectsSortMode.None);
+
+        // Avoid full rebuild on every preview refresh — only when nothing is priced yet
+        // (e.g. legacy saves that never got SelectablePrice during load).
+        bool anyPriced = false;
+        if (found != null)
+        {
+            for (int i = 0; i < found.Length; i++)
+            {
+                if (found[i] != null && found[i].objectPricingData != null)
+                {
+                    anyPriced = true;
+                    break;
+                }
+            }
+        }
+
+        if (!anyPriced)
+            PricingManager.RebuildPricingFromTrackedObjects();
+
+        found = UnityEngine.Object.FindObjectsByType<SelectablePrice>(
+            FindObjectsInactive.Include, FindObjectsSortMode.None);
+        if (found == null || found.Length == 0)
+            return Array.Empty<SelectablePrice>();
+
+        // Only retry Excel for items that actually have pricing identity.
+        // Accessories without sheet/name used to force hundreds of full-sheet miss scans.
+        for (int i = 0; i < found.Length; i++)
+        {
+            var sp = found[i];
+            if (sp == null || sp.objectPricingData != null)
+                continue;
+            if (string.IsNullOrEmpty(sp.sheetName) || string.IsNullOrEmpty(sp.pricingObjectName))
+                continue;
+            sp.EnsurePricingDataLoaded(force: false);
+        }
+
+        return found;
     }
 
     static string BuildOptionsText(List<SelectablePrice> group, bool isBoom)

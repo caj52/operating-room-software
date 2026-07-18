@@ -42,6 +42,9 @@ public class TrackedObject : MonoBehaviour
         public string UIObjectName;
         public string size;
         public string priceObjectName;
+        public bool isBoomObject;
+        /// <summary>True when <see cref="isBoomObject"/> was written by a build that persists it.</summary>
+        public bool hasIsBoomObject;
         // New: lifecycle & components state
         public bool activeSelf;
         public List<SaveUtility.ComponentEnabledState> componentEnabledStates;
@@ -163,6 +166,8 @@ public class TrackedObject : MonoBehaviour
             data.UIObjectName = sp.UIObjectName;
             data.size = sp.Size;
             data.priceObjectName = sp.pricingObjectName;
+            data.isBoomObject = sp.isBoomObject;
+            data.hasIsBoomObject = true;
         }
         data.activeSelf = gameObject.activeSelf;
         try { data.componentEnabledStates = SaveUtility.CaptureEnabledStates(gameObject); }
@@ -194,13 +199,32 @@ public class TrackedObject : MonoBehaviour
             _originalLocalRotation = data.originalLocalRotation;
             _hasStoredOriginalTransform = true;
         }
-        if (!string.IsNullOrEmpty(d.sheetName) && gameObject.TryGetComponent(out SelectablePrice sp))
+        if (!string.IsNullOrEmpty(d.sheetName) && !string.IsNullOrEmpty(d.priceObjectName))
         {
-            sp.sheetName = d.sheetName; sp.UIObjectName = d.UIObjectName; sp.Size = d.size; sp.pricingObjectName = d.priceObjectName;
-            // SelectablePrice.Start() only fetches pricing once, before this restore runs, so
-            // objectPricingData would otherwise be stale (often null) for anything loaded from a save.
-            // Force a re-fetch now that the real sheet/object/size are in place.
-            sp.GetPricingDataFromExcel(d.sheetName);
+            bool isBoom = d.hasIsBoomObject
+                ? d.isBoomObject
+                : PricingManager.InferIsBoomObject(d.sheetName, d.priceObjectName, d.UIObjectName);
+
+            // Prefabs do not carry SelectablePrice — recreate from save identity on every load.
+            if (PricingManager.Instance != null)
+            {
+                PricingManager.Instance.EnsurePricingFromIdentity(
+                    gameObject,
+                    d.sheetName,
+                    d.priceObjectName,
+                    d.UIObjectName,
+                    d.size,
+                    isBoom);
+            }
+            else if (gameObject.TryGetComponent(out SelectablePrice sp))
+            {
+                sp.sheetName = d.sheetName;
+                sp.UIObjectName = d.UIObjectName;
+                sp.Size = d.size;
+                sp.pricingObjectName = d.priceObjectName;
+                sp.isBoomObject = isBoom;
+                sp.EnsurePricingDataLoaded(force: true);
+            }
         }
         // Restore scale levels for Selectable (including embedded selectables)
         if (gameObject.TryGetComponent(out Selectable selectable))

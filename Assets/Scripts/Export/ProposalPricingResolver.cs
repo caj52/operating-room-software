@@ -32,11 +32,15 @@ public static class ProposalPricingResolver
         {
             var lights = group.Where(sp => !sp.isBoomObject).ToList();
             var booms = group.Where(sp => sp.isBoomObject).ToList();
+            var boomRoot = group.Key != null ? group.Key.gameObject : null;
 
             lines.AddRange(ResolveLightLines(lights));
-            var boomLine = ResolveBoomLine(group.Key != null ? group.Key.gameObject : null, booms);
+            var boomLine = ResolveBoomLine(boomRoot, booms);
             if (boomLine != null)
                 lines.Add(boomLine);
+            // Extras (shelves, duplexes, gas, covers, …) sit on top of the bundled boom package —
+            // same stack Carlyn's Estimating Form puts in Configuration List Price.
+            lines.AddRange(ResolveBoomExtraLines(boomRoot, booms));
         }
 
         return lines;
@@ -64,8 +68,15 @@ public static class ProposalPricingResolver
         return install + ship;
     }
 
+    /// <summary>
+    /// Config list total matching Estimating Form style: equipment + priced quote options
+    /// (no install/shipping).
+    /// </summary>
+    public static double SumConfigListPrice(IEnumerable<SelectablePrice> allPrices)
+        => SumEquipment(allPrices) + SumPricedOptions();
+
     public static double CalculateGrandEquipmentTotal(IEnumerable<SelectablePrice> allPrices)
-        => SumEquipment(allPrices) + SumPricedOptions() + SumInstallAndShip();
+        => SumConfigListPrice(allPrices) + SumInstallAndShip();
 
     static bool IsNone(string name)
         => string.IsNullOrWhiteSpace(name)
@@ -117,17 +128,17 @@ public static class ProposalPricingResolver
             int take = 1;
             if (names.Count == 3)
             {
-                data = pm.GetCachedPricingData(sheet, string.Join(", ", names));
+                data = LookupLightCombo(pm, sheet, names);
                 if (data != null) take = 3;
             }
             if (data == null && names.Count >= 2)
             {
-                data = pm.GetCachedPricingData(sheet, string.Join(", ", names.Take(2)));
+                data = LookupLightCombo(pm, sheet, names.Take(2).ToList());
                 if (data != null) take = 2;
             }
             if (data == null)
             {
-                data = pm.GetCachedPricingData(sheet, names[0]);
+                data = LookupLightCombo(pm, sheet, names.Take(1).ToList());
                 take = 1;
             }
 
@@ -180,7 +191,8 @@ public static class ProposalPricingResolver
         var bundled = TryLookupBundledBoom(boomRoot, boomParts);
         if (bundled != null)
         {
-            // Bundled sheet quotes a full assembly — do not multiply by tandem head count.
+            // Bundled sheet quotes the structural assembly (arms / SH fingerprint).
+            // Covers, duplexes, gas, shelves, etc. are added via ResolveBoomExtraLines.
             return new Line
             {
                 PartNumber = string.IsNullOrEmpty(bundled.PartNumber) ? "N/A" : bundled.PartNumber,
@@ -194,10 +206,10 @@ public static class ProposalPricingResolver
             };
         }
 
-        // Fallback: sum individual boom parts (legacy) — log so we can spot missed fingerprints.
+        // Fallback: structural / base parts only — extras still come from ResolveBoomExtraLines.
         double sum = 0;
         bool simFlexOnce = false;
-        foreach (var sp in boomParts)
+        foreach (var sp in boomParts.Where(sp => sp != null && !IsBoomExtraPart(sp)))
         {
             var data = sp.objectPricingData;
             if (data == null) continue;
@@ -217,7 +229,10 @@ public static class ProposalPricingResolver
 
         Debug.LogWarning(
             $"[ProposalPricing] No bundled boom match for '{BuildBoomConfigKey(boomRoot, boomParts)}'. " +
-            $"Falling back to sum of individual parts ({sum:C}).");
+            $"Falling back to sum of base parts ({sum:C}); extras priced separately.");
+
+        if (sum <= 0)
+            return null;
 
         double list = qty == 2 ? sum / 2.0 : sum;
         return new Line
@@ -230,6 +245,376 @@ public static class ProposalPricingResolver
             ExtPrice = list * qty,
             IsBoom = true
         };
+    }
+
+    /// <summary>
+    /// Priced boom add-ons that Estimating Form includes in Configuration List Price
+    /// but that are NOT inside the bundled boom fingerprint row.
+    /// Electrical / med-gas are aggregated by outlet count (Imagine List package),
+    /// not multiplied as per-kit SelectablePrice rows. Shelves use Estimating package rows.
+    /// </summary>
+    public static List<Line> ResolveBoomExtraLines(GameObject boomRoot, List<SelectablePrice> boomParts)
+    {
+        var lines = new List<Line>();
+        if (boomParts == null || boomParts.Count == 0)
+            return lines;
+
+        var extras = boomParts
+            .Where(sp => sp != null && sp.objectPricingData != null && IsBoomExtraPart(sp))
+            .ToList();
+
+        // Estimating: duplexes / gas priced once from total outlet count on the boom.
+        var electricalLine = ResolveOutletPackageLine(boomRoot, extras, electrical: true);
+        if (electricalLine != null)
+            lines.Add(electricalLine);
+        var gasLine = ResolveOutletPackageLine(boomRoot, extras, electrical: false);
+        if (gasLine != null)
+            lines.Add(gasLine);
+
+        // Shelves: Estimating uses (N) 500mm / 750mm package rows, not per-SKU kit spam.
+        lines.AddRange(ResolveShelfPackageLines(extras));
+
+        var remaining = extras
+            .Where(sp => !IsElectricalExtra(sp) && !IsMedGasExtra(sp) && !IsShelfExtra(sp) && !IsRailExtra(sp))
+            .GroupBy(BoomExtraGroupKey)
+            .ToList();
+
+        foreach (var g in remaining)
+        {
+            var sample = g.First();
+            double unit = sample.UIRefPricingRowDataFill != null
+                ? sample.UIRefPricingRowDataFill.Price
+                : sample.objectPricingData.ListPrice;
+            if (unit <= 0)
+                continue;
+
+            int qty = g.Count();
+            string desc = sample.objectPricingData.ObjectName
+                          ?? sample.pricingObjectName
+                          ?? sample.UIObjectName
+                          ?? "Boom option";
+            if (!string.IsNullOrEmpty(sample.objectPricingData.ObjectSize)
+                && desc.IndexOf(sample.objectPricingData.ObjectSize, StringComparison.OrdinalIgnoreCase) < 0)
+                desc = $"{sample.objectPricingData.ObjectSize} {desc}".Trim();
+
+            lines.Add(new Line
+            {
+                PartNumber = string.IsNullOrEmpty(sample.objectPricingData.PartNumber)
+                    ? "N/A"
+                    : sample.objectPricingData.PartNumber,
+                Description = desc,
+                Qty = qty,
+                UnitPrice = unit,
+                ExtPrice = unit * qty,
+                IsBoom = true
+            });
+        }
+
+        return lines;
+    }
+
+    static Line ResolveOutletPackageLine(
+        GameObject boomRoot,
+        List<SelectablePrice> extras,
+        bool electrical)
+    {
+        var matches = extras.Where(sp => electrical ? IsElectricalExtra(sp) : IsMedGasExtra(sp)).ToList();
+        int count = electrical
+            ? CountDuplexOutletsOnBoom(boomRoot, matches)
+            : CountMedGasOutletsOnBoom(boomRoot, matches);
+
+        // Scene may have outlets even when SelectablePrice rows were never attached.
+        if (count <= 0 && matches.Count == 0)
+            return null;
+        if (count <= 0)
+            count = matches.Count;
+        if (count <= 0)
+            return null;
+
+        string packageName = electrical
+            ? $"Electrical ({count} Duplex)"
+            : $"Medical Gases ({count}x)";
+
+        var pm = PricingManager.Instance;
+        PriceExcelData packaged = pm?.GetCachedPricingData(DataFilePaths.sheetNameBoomIndividual, packageName);
+        if (packaged == null && electrical)
+            packaged = pm?.GetCachedPricingData(
+                DataFilePaths.sheetNameBoomIndividual, $"Electrical ({count} Duplexes)");
+
+        double unitEach = LookupUnitOutletRate(electrical);
+        double ext;
+        string part = "N/A";
+        string desc;
+        if (packaged != null && packaged.ListPrice > 0)
+        {
+            ext = packaged.ListPrice;
+            part = string.IsNullOrEmpty(packaged.PartNumber) ? "N/A" : packaged.PartNumber;
+            desc = string.IsNullOrEmpty(packaged.ObjectName) ? packageName : packaged.ObjectName;
+        }
+        else
+        {
+            ext = unitEach * count;
+            desc = packageName;
+        }
+
+        if (ext <= 0)
+            return null;
+
+        return new Line
+        {
+            PartNumber = part,
+            Description = desc,
+            Qty = 1,
+            UnitPrice = ext,
+            ExtPrice = ext,
+            IsBoom = true
+        };
+    }
+
+    static IEnumerable<Line> ResolveShelfPackageLines(List<SelectablePrice> extras)
+    {
+        var shelves = extras.Where(IsShelfExtra).ToList();
+        if (shelves.Count == 0)
+            yield break;
+
+        int count500 = shelves.Count(IsShelf500);
+        int count750 = shelves.Count(sp => !IsShelf500(sp));
+
+        if (count500 > 0)
+        {
+            var line = LookupShelfPackage(500, count500);
+            if (line != null)
+                yield return line;
+        }
+
+        if (count750 > 0)
+        {
+            var line = LookupShelfPackage(750, count750);
+            if (line != null)
+                yield return line;
+        }
+    }
+
+    static Line LookupShelfPackage(int mm, int count)
+    {
+        var pm = PricingManager.Instance;
+        // Sheet uses both "Shelf" and "Shelfs"
+        string[] keys =
+        {
+            $"({count}) {mm}mm Shelfs",
+            $"({count}) {mm}mm Shelves",
+            $"({count}) {mm}mm Shelf",
+        };
+
+        PriceExcelData packaged = null;
+        foreach (var key in keys)
+        {
+            packaged = pm?.GetCachedPricingData(DataFilePaths.sheetNameBoomIndividual, key);
+            if (packaged != null && packaged.ListPrice > 0)
+                break;
+        }
+
+        double unitFallback = mm >= 750 ? 1942.5417 : 1285.2667;
+        double ext = packaged != null && packaged.ListPrice > 0
+            ? packaged.ListPrice
+            : unitFallback * count;
+        if (ext <= 0)
+            return null;
+
+        return new Line
+        {
+            PartNumber = packaged != null && !string.IsNullOrEmpty(packaged.PartNumber)
+                ? packaged.PartNumber
+                : "N/A",
+            Description = packaged != null && !string.IsNullOrEmpty(packaged.ObjectName)
+                ? packaged.ObjectName
+                : $"({count}) {mm}mm Shelves",
+            Qty = 1,
+            UnitPrice = ext,
+            ExtPrice = ext,
+            IsBoom = true
+        };
+    }
+
+    static double LookupUnitOutletRate(bool electrical)
+    {
+        var pm = PricingManager.Instance;
+        if (pm == null)
+            return electrical ? 234.70 : 814.675;
+
+        if (electrical)
+        {
+            var one = pm.GetCachedPricingData(DataFilePaths.sheetNameBoomIndividual, "Electrical (1 Duplex)");
+            if (one != null && one.ListPrice > 0)
+                return one.ListPrice;
+            return 234.70;
+        }
+
+        var gas = pm.GetCachedPricingData(DataFilePaths.sheetNameBoomIndividual, "Medical Gases (1x)")
+                  ?? pm.GetCachedPricingData(DataFilePaths.sheetNameBoomIndividual, "Medical Gas");
+        if (gas != null && gas.ListPrice > 0)
+            return gas.ListPrice;
+        return 814.675;
+    }
+
+    static bool IsElectricalExtra(SelectablePrice sp)
+    {
+        string blob = ExtraBlob(sp);
+        return blob.Contains("duplex") || blob.Contains("electrical");
+    }
+
+    static bool IsMedGasExtra(SelectablePrice sp)
+    {
+        string blob = ExtraBlob(sp);
+        return blob.Contains("medical gas") || blob.Contains("gas outlet") || blob.Contains("med-gas")
+               || blob.Contains("medical gases");
+    }
+
+    static bool IsShelfExtra(SelectablePrice sp)
+    {
+        string blob = ExtraBlob(sp);
+        return blob.Contains("shelf") && !blob.Contains("drawer") && !blob.Contains("handle");
+    }
+
+    static bool IsShelf500(SelectablePrice sp)
+    {
+        string blob = ExtraBlob(sp);
+        string size = sp.objectPricingData?.ObjectSize ?? "";
+        if (blob.Contains("750") || size.Contains("750"))
+            return false;
+        return blob.Contains("500") || size.Contains("500") || !blob.Contains("750");
+    }
+
+    static bool IsRailExtra(SelectablePrice sp)
+    {
+        // Estimating Config sheets do not line-item SH rails; keep them off the money total.
+        string blob = ExtraBlob(sp);
+        return blob.Contains("rail") && !blob.Contains("shelf");
+    }
+
+    static string ExtraBlob(SelectablePrice sp)
+    {
+        return string.Join(" ",
+            sp.pricingObjectName ?? "",
+            sp.UIObjectName ?? "",
+            sp.objectPricingData?.ObjectName ?? "",
+            sp.gameObject != null ? sp.gameObject.name : "").ToLowerInvariant();
+    }
+
+    static int CountDuplexOutletsOnBoom(GameObject boomRoot, List<SelectablePrice> electricalPrices)
+    {
+        Transform root = boomRoot != null
+            ? boomRoot.transform
+            : (electricalPrices.Count > 0 ? electricalPrices[0].transform.root : null);
+        if (root == null)
+            return electricalPrices?.Count ?? 0;
+
+        var seen = new HashSet<int>();
+        int fromScene = 0;
+        foreach (var sel in root.GetComponentsInChildren<Selectable>(true))
+        {
+            if (sel == null) continue;
+            string meta = sel.MetaData.Name ?? "";
+            // Prefer the real outlet selectable — avoids double-counting parent/child duplex labels.
+            if (meta.IndexOf("HV Power Outlet", StringComparison.OrdinalIgnoreCase) < 0)
+                continue;
+            if (!seen.Add(sel.GetInstanceID()))
+                continue;
+            fromScene++;
+        }
+
+        if (fromScene > 0)
+            return fromScene;
+
+        return electricalPrices?.Count ?? 0;
+    }
+
+    static int CountMedGasOutletsOnBoom(GameObject boomRoot, List<SelectablePrice> gasPrices)
+    {
+        Transform root = boomRoot != null
+            ? boomRoot.transform
+            : (gasPrices.Count > 0 ? gasPrices[0].transform.root : null);
+        if (root == null)
+            return gasPrices?.Count ?? 0;
+
+        var seen = new HashSet<int>();
+        int fromScene = 0;
+        foreach (var sel in root.GetComponentsInChildren<Selectable>(true))
+        {
+            if (sel == null) continue;
+            string meta = sel.MetaData.Name ?? "";
+            string ui = sel.UIButtonName ?? "";
+            string blob = $"{meta} {ui} {sel.name}".ToLowerInvariant();
+            bool isGas = meta.StartsWith("Gas Outlet", StringComparison.OrdinalIgnoreCase)
+                         || ui.StartsWith("Gas Outlet", StringComparison.OrdinalIgnoreCase)
+                         || (blob.Contains("gas outlet"));
+            if (!isGas)
+                continue;
+            if (!seen.Add(sel.GetInstanceID()))
+                continue;
+            fromScene++;
+        }
+
+        if (fromScene > 0)
+            return fromScene;
+
+        return gasPrices?.Count ?? 0;
+    }
+
+    /// <summary>
+    /// True for add-ons Estimating stacks on top of the boom model (covers, power, gas,
+    /// shelves, rails, nitrogen, …). False for structural parts inside the bundled SKU.
+    /// </summary>
+    public static bool IsBoomExtraPart(SelectablePrice sp)
+    {
+        if (sp == null)
+            return false;
+
+        string blob = string.Join(" ",
+            sp.pricingObjectName ?? "",
+            sp.UIObjectName ?? "",
+            sp.objectPricingData?.ObjectName ?? "",
+            sp.gameObject != null ? sp.gameObject.name : "").ToLowerInvariant();
+
+        if (string.IsNullOrWhiteSpace(blob))
+            return false;
+
+        // Explicit add-ons (check before "arm" / "service head" base rules).
+        if (blob.Contains("shelf") || blob.Contains("drawer") || blob.Contains("rail")
+            || blob.Contains("duplex") || blob.Contains("electrical")
+            || blob.Contains("medical gas") || blob.Contains("gas outlet") || blob.Contains("med-gas")
+            || blob.Contains("nitrogen")
+            || blob.Contains("ceiling cover") || blob.Contains("tandem ceiling")
+            || blob.Contains("single square") || blob.Contains("mounting plate")
+            || blob.Contains("ceiling flange") // Estimating line-items non-zero flanges (e.g. 300mm)
+            || blob.Contains("blank plate") || blob.Contains("blank preparation")
+            || blob.Contains("data pass") || blob.Contains("accessory"))
+            return true;
+
+        // Structural / bundled-base parts.
+        if (blob.Contains("top arm") || blob.Contains("toparm")
+            || blob.Contains("bottom arm") || blob.Contains("bottomarm")
+            || blob.Contains("spring bottom") || blob.Contains("powered xl")
+            || blob.Contains("arm (powered") || blob.Contains("fixed bottom")
+            || blob.Contains("service head") || blob.Contains("servicehead") || blob.Contains("boomhead")
+            || blob.Contains("drop tube") || blob.Contains("column tube")
+            || blob.Contains("boomsegment") || blob.Contains("segment_1") || blob.Contains("segment_2"))
+            return false;
+
+        if (UINameToExcelKey.IsBoomBaseModelFromExcel(sp.pricingObjectName)
+            || UINameToExcelKey.IsBoomBaseModelFromExcel(sp.objectPricingData?.ObjectName))
+            return false;
+
+        // Unknown boom-priced part with money → treat as extra so we don't drop dollars.
+        return sp.objectPricingData.ListPrice > 0;
+    }
+
+    static string BoomExtraGroupKey(SelectablePrice sp)
+    {
+        string name = sp.objectPricingData?.ObjectName ?? sp.pricingObjectName ?? sp.UIObjectName ?? sp.name;
+        string size = sp.objectPricingData?.ObjectSize ?? "";
+        string part = sp.objectPricingData?.PartNumber ?? "";
+        return $"{name}\u001f{size}\u001f{part}".ToLowerInvariant();
     }
 
     static PriceExcelData TryLookupBundledBoom(GameObject boomRoot, List<SelectablePrice> boomParts)
@@ -262,52 +647,20 @@ public static class ProposalPricingResolver
         bool xlBottom = false;
         string family = "Powered Boom";
 
-        // Live scale levels beat serialized BoomConfigurationManager arm lengths
-        // (stale 1000mm defaults caused Spring/Anes lookups to miss the sheet).
+        // Live scale levels beat serialized BoomConfigurationManager arm lengths.
         InferSizesFromSelectables(boomRoot, ref topMm, ref bottomMm, ref shMm);
-        InferBoomFamilyFromParts(boomParts, ref family, ref xlTop);
-        InferBoomFamilyFromHierarchy(boomRoot, ref family, ref xlTop, ref xlBottom);
+
+        // Family from catalog UI / pricing identity only — never mesh GameObject names.
+        // (Mesh parts like "MCP - Large Monitor Boom" under Spring arms caused false families.)
+        bool sceneFamilyKnown = InferBoomFamilyFromCatalog(boomRoot, boomParts, ref family, ref xlTop, ref xlBottom);
 
         if (bcm != null)
         {
-            switch (bcm.CurrentBoomType)
-            {
-                case BoomConfigurationManager.BoomType.PoweredBoom:
-                    if (!family.StartsWith("Spring", StringComparison.OrdinalIgnoreCase)
-                        && !family.StartsWith("Fixed", StringComparison.OrdinalIgnoreCase)
-                        && !family.StartsWith("Large Monitor", StringComparison.OrdinalIgnoreCase))
-                        family = "Powered Boom";
-                    break;
-                case BoomConfigurationManager.BoomType.PoweredXLBoom:
-                    family = "Powered Boom";
-                    xlTop = true;
-                    break;
-                case BoomConfigurationManager.BoomType.SpringBoom:
-                    family = "Spring Boom";
-                    break;
-                case BoomConfigurationManager.BoomType.SpringXLBoom:
-                    family = "Spring Boom";
-                    xlTop = true;
-                    break;
-                case BoomConfigurationManager.BoomType.FixedBoom:
-                    family = "Fixed Boom";
-                    break;
-                case BoomConfigurationManager.BoomType.FixedXLBoom:
-                    family = "Fixed Boom";
-                    xlTop = true;
-                    break;
-                case BoomConfigurationManager.BoomType.FixedXXLBoom:
-                    family = "Fixed Boom";
-                    xlTop = true;
-                    xlBottom = true;
-                    break;
-                case BoomConfigurationManager.BoomType.ServiceHead:
-                    if (family == "Powered Boom")
-                        family = "Powered Boom";
-                    break;
-            }
+            if (!sceneFamilyKnown)
+                ApplyBoomConfigurationManager(bcm, ref family, ref xlTop, ref xlBottom);
+            else if (TryMapFamilyToBoomType(family, xlTop, xlBottom, out var mappedType))
+                bcm.SyncBoomTypeIdentity(mappedType);
 
-            // Only fill gaps — never overwrite live scale lengths with prefab defaults.
             if (topMm <= 0 && bcm.TopArmLength > 0)
                 topMm = bcm.TopArmLength;
             if (bottomMm <= 0 && bcm.BottomArmLength > 0)
@@ -336,77 +689,195 @@ public static class ProposalPricingResolver
         return $"{family}, {armLabel} {topMm}mm, SH {shMm}mm";
     }
 
-    static void InferBoomFamilyFromHierarchy(
-        GameObject boomRoot, ref string family, ref bool xlTop, ref bool xlBottom)
+    static void ApplyBoomConfigurationManager(
+        BoomConfigurationManager bcm, ref string family, ref bool xlTop, ref bool xlBottom)
     {
-        if (boomRoot == null)
-            return;
-
-        string blob = boomRoot.name ?? "";
-        foreach (var sel in boomRoot.GetComponentsInChildren<Selectable>(true))
+        // BCM is authoritative for family/XL when the prefab declares a real boom type.
+        switch (bcm.CurrentBoomType)
         {
-            if (sel == null) continue;
-            blob += " " + (sel.UIButtonName ?? "") + " " + (sel.name ?? "") + " " + (sel.gameObject.name ?? "");
-        }
-
-        blob = blob.ToLowerInvariant();
-        bool xl = blob.Contains("xl");
-        if (blob.Contains("spring"))
-        {
-            family = "Spring Boom";
-            xlTop = xl || xlTop;
-            return;
-        }
-        if (blob.Contains("large monitor") || blob.Contains("cemor"))
-        {
-            family = "Large Monitor Boom";
-            xlTop = xl || xlTop;
-            return;
-        }
-        if (blob.Contains("fixed") && !blob.Contains("powered"))
-        {
-            family = "Fixed Boom";
-            xlTop = xl || xlTop;
-            xlBottom = blob.Contains("xxl") || xlBottom;
-            return;
-        }
-        if (blob.Contains("powered"))
-        {
-            family = "Powered Boom";
-            xlTop = xl || xlTop;
+            case BoomConfigurationManager.BoomType.PoweredBoom:
+                family = "Powered Boom";
+                break;
+            case BoomConfigurationManager.BoomType.PoweredXLBoom:
+                family = "Powered Boom";
+                xlTop = true;
+                break;
+            case BoomConfigurationManager.BoomType.SpringBoom:
+                family = "Spring Boom";
+                break;
+            case BoomConfigurationManager.BoomType.SpringXLBoom:
+                family = "Spring Boom";
+                xlTop = true;
+                break;
+            case BoomConfigurationManager.BoomType.FixedBoom:
+                family = "Fixed Boom";
+                break;
+            case BoomConfigurationManager.BoomType.FixedXLBoom:
+                family = "Fixed Boom";
+                xlTop = true;
+                break;
+            case BoomConfigurationManager.BoomType.FixedXXLBoom:
+                family = "Fixed Boom";
+                xlTop = true;
+                xlBottom = true;
+                break;
+            case BoomConfigurationManager.BoomType.ServiceHead:
+                // Leave family from bottom-arm inference (SH-only prefabs).
+                break;
         }
     }
 
-    static void InferBoomFamilyFromParts(List<SelectablePrice> parts, ref string family, ref bool xlTop)
+    /// <summary>
+    /// Map catalog-resolved family to BCM enum. Large Monitor has no BCM type — skip sync.
+    /// </summary>
+    static bool TryMapFamilyToBoomType(
+        string family, bool xlTop, bool xlBottom, out BoomConfigurationManager.BoomType boomType)
     {
-        foreach (var sp in parts)
+        boomType = BoomConfigurationManager.BoomType.PoweredBoom;
+        if (string.IsNullOrEmpty(family)
+            || family.StartsWith("Large Monitor", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (family.StartsWith("Spring", StringComparison.OrdinalIgnoreCase))
         {
-            string n = (sp.UIObjectName ?? sp.pricingObjectName ?? "").ToLowerInvariant();
-            if (n.Contains("spring"))
+            boomType = xlTop
+                ? BoomConfigurationManager.BoomType.SpringXLBoom
+                : BoomConfigurationManager.BoomType.SpringBoom;
+            return true;
+        }
+
+        if (family.StartsWith("Fixed", StringComparison.OrdinalIgnoreCase))
+        {
+            if (xlBottom)
+                boomType = BoomConfigurationManager.BoomType.FixedXXLBoom;
+            else if (xlTop)
+                boomType = BoomConfigurationManager.BoomType.FixedXLBoom;
+            else
+                boomType = BoomConfigurationManager.BoomType.FixedBoom;
+            return true;
+        }
+
+        if (family.StartsWith("Powered", StringComparison.OrdinalIgnoreCase))
+        {
+            boomType = xlTop
+                ? BoomConfigurationManager.BoomType.PoweredXLBoom
+                : BoomConfigurationManager.BoomType.PoweredBoom;
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Resolve boom family from catalog labels only (UIButtonName / pricingObjectName / UIObjectName).
+    /// Never reads mesh GameObject names — those are geometry labels and caused false
+    /// Large-Monitor / Spring / Powered classifications.
+    /// </summary>
+    static bool InferBoomFamilyFromCatalog(
+        GameObject boomRoot,
+        List<SelectablePrice> boomParts,
+        ref string family,
+        ref bool xlTop,
+        ref bool xlBottom)
+    {
+        int powered = 0, spring = 0, fixedBottom = 0, largeMonitor = 0;
+        bool topArmXl = false;
+        bool poweredXlBottom = false;
+
+        void ConsiderCatalogLabel(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return;
+
+            string n = raw.Trim().ToLowerInvariant();
+
+            // Top-arm catalog SKUs: XL flag only.
+            if (n.Contains("top arm") || n.Contains("toparm"))
             {
-                family = "Spring Boom";
-                xlTop = n.Contains("xl");
+                if (n.Contains("(xl)") || n.EndsWith(" xl") || n.Contains(" xl "))
+                    topArmXl = true;
                 return;
             }
-            if (n.Contains("fixed"))
+
+            // Explicit Large Monitor boom catalog entry (not C-Arm Monitor, not MCP mesh parts).
+            if (n.Contains("large monitor mount")
+                || n.Equals("large monitor boom", StringComparison.Ordinal)
+                || n.StartsWith("large monitor boom,", StringComparison.Ordinal))
             {
-                family = "Fixed Boom";
-                xlTop = n.Contains("xl");
+                largeMonitor++;
                 return;
             }
-            if (n.Contains("large monitor"))
+
+            // Bottom / articulating arm catalog SKUs — these define family.
+            if (n.Contains("spring bottom")
+                || n.Contains("bottom arm - spring")
+                || n.Contains("bottom arm – spring")
+                || (n.Contains("spring") && n.Contains("bottom arm")))
             {
-                family = "Large Monitor Boom";
-                xlTop = n.Contains("xl");
+                spring++;
                 return;
             }
-            if (n.Contains("powered"))
+
+            if (n.Contains("arm (powered")
+                || n.Contains("powered bottom")
+                || n.Contains("bottom arm - powered")
+                || n.Contains("bottom arm – powered")
+                || (n.Contains("powered") && n.Contains("bottom arm")))
             {
-                family = "Powered Boom";
-                xlTop = n.Contains("xl");
+                powered++;
+                if (n.Contains("xl"))
+                    poweredXlBottom = true;
+                return;
+            }
+
+            if (n.Contains("fixed bottom")
+                || n.Contains("bottom arm - fixed")
+                || n.Contains("bottom arm – fixed")
+                || (n.Contains("fixed") && n.Contains("bottom arm")))
+            {
+                fixedBottom++;
                 return;
             }
         }
+
+        if (boomParts != null)
+        {
+            foreach (var sp in boomParts)
+            {
+                if (sp == null) continue;
+                ConsiderCatalogLabel(sp.UIObjectName);
+                ConsiderCatalogLabel(sp.pricingObjectName);
+            }
+        }
+
+        if (boomRoot != null)
+        {
+            foreach (var sel in boomRoot.GetComponentsInChildren<Selectable>(true))
+            {
+                if (sel == null) continue;
+                ConsiderCatalogLabel(sel.UIButtonName);
+            }
+        }
+
+        if (spring > 0 && spring >= powered && spring >= fixedBottom)
+            family = "Spring Boom";
+        else if (powered > 0 && powered >= spring && powered >= fixedBottom)
+        {
+            family = "Powered Boom";
+            if (poweredXlBottom)
+                xlTop = true; // Powered XL articulating arm implies XL package
+        }
+        else if (fixedBottom > 0)
+            family = "Fixed Boom";
+        else if (largeMonitor > 0)
+            family = "Large Monitor Boom";
+        else
+            return false;
+
+        if (topArmXl)
+            xlTop = true;
+
+        return true;
     }
 
     static void InferSizesFromSelectables(GameObject root, ref int topMm, ref int bottomMm, ref int shMm)
@@ -418,8 +889,9 @@ public static class ProposalPricingResolver
             if (sel == null)
                 continue;
 
-            string name = ((sel.UIButtonName ?? "") + " " + (sel.name ?? "") + " " + (sel.gameObject.name ?? ""))
-                .ToLowerInvariant();
+            // Role from catalog UIButtonName first; mesh names only as last-resort length hints.
+            string ui = (sel.UIButtonName ?? "").ToLowerInvariant();
+            string mesh = (sel.gameObject.name ?? "").ToLowerInvariant();
             float size = sel.CurrentScaleLevel?.Size
                          ?? sel.CurrentPreviewScaleLevel?.Size
                          ?? 0f;
@@ -427,17 +899,18 @@ public static class ProposalPricingResolver
             if (mm <= 0)
                 continue;
 
-            bool isTop = name.Contains("toparm") || name.Contains("top_arm") || name.Contains("top arm")
-                         || name.Contains("boomsegment_1") || name.Contains("segment_1");
-            bool isBottom = name.Contains("bottomarm") || name.Contains("bottom_arm") || name.Contains("bottom arm")
-                            || name.Contains("boomsegment_2") || name.Contains("segment_2");
+            bool isTop = ui.Contains("top arm") || ui.Contains("toparm")
+                         || (!ui.Contains("bottom") && (mesh.Contains("boomsegment_1") || mesh.Contains("segment_1")));
+            bool isBottom = ui.Contains("bottom arm") || ui.Contains("bottomarm") || ui.Contains("arm (powered")
+                            || ui.Contains("spring bottom")
+                            || (!ui.Contains("top") && (mesh.Contains("boomsegment_2") || mesh.Contains("segment_2")));
 
             if (isTop)
                 topMm = mm;
             else if (isBottom)
                 bottomMm = mm;
             else if (sel.GetComponent<BoomHeadScaleHandler>() != null
-                     || name.Contains("service head") || name.Contains("servicehead") || name.Contains("boomhead"))
+                     || ui.Contains("service head") || ui.Contains("servicehead"))
                 shMm = mm;
         }
     }
@@ -477,6 +950,136 @@ public static class ProposalPricingResolver
             result.Add(name);
         }
         return result;
+    }
+
+    /// <summary>
+    /// Sheet column-2 strings are inconsistent (spaces, "U|002 LC" vs "U | 002 (Low Ceiling)").
+    /// Try a few aliases so combo rows hit instead of summing individuals.
+    /// </summary>
+    static PriceExcelData LookupLightCombo(PricingManager pm, string sheet, List<string> names)
+    {
+        if (pm == null || names == null || names.Count == 0)
+            return null;
+
+        foreach (var variant in BuildLightComboKeyVariants(names))
+        {
+            var data = pm.GetCachedPricingData(sheet, variant);
+            if (data != null)
+                return data;
+        }
+
+        return null;
+    }
+
+    static IEnumerable<string> BuildLightComboKeyVariants(List<string> names)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var keys = new List<string>();
+        void Add(string key)
+        {
+            if (string.IsNullOrWhiteSpace(key) || !seen.Add(key))
+                return;
+            keys.Add(key);
+        }
+
+        var aliasSets = names.Select(LightNameAliases).Select(a => a.ToList()).ToList();
+
+        Add(string.Join(", ", names));
+        Add(string.Join(",", names));
+        Add(string.Join(", ", names.Select(NormalizeLightToken)));
+        Add(string.Join(",", names.Select(NormalizeLightToken)));
+
+        var lcNames = names.Select(ToLowCeilingShortForm).ToList();
+        Add(string.Join(", ", lcNames));
+        Add(string.Join(",", lcNames));
+
+        if (names.Count == 2)
+        {
+            Add(string.Join(", ", names[1], names[0]));
+            Add(string.Join(",", names[1], names[0]));
+            Add(string.Join(", ", lcNames[1], lcNames[0]));
+            Add(string.Join(",", lcNames[1], lcNames[0]));
+        }
+
+        if (aliasSets.Count >= 1)
+        {
+            foreach (var a in aliasSets[0])
+            {
+                if (names.Count == 1)
+                {
+                    Add(a);
+                    continue;
+                }
+
+                if (aliasSets.Count < 2)
+                    continue;
+
+                foreach (var b in aliasSets[1])
+                {
+                    Add(string.Join(", ", a, b));
+                    Add(string.Join(",", a, b));
+                    if (names.Count >= 3 && aliasSets.Count >= 3)
+                    {
+                        foreach (var c in aliasSets[2])
+                        {
+                            Add(string.Join(", ", a, b, c));
+                            Add(string.Join(",", a, b, c));
+                        }
+                    }
+                }
+            }
+        }
+
+        return keys;
+    }
+
+    static IEnumerable<string> LightNameAliases(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            yield break;
+
+        string n = name.Trim();
+        yield return n;
+        yield return NormalizeLightToken(n);
+        yield return ToLowCeilingShortForm(n);
+
+        string compact = NormalizeLightToken(n)
+            .Replace("Lights - ", "", StringComparison.OrdinalIgnoreCase)
+            .Trim();
+        if (!string.IsNullOrEmpty(compact))
+            yield return compact;
+
+        // Sheet sometimes drops the "Lights - " prefix on the second item only.
+        if (n.StartsWith("Lights - ", StringComparison.OrdinalIgnoreCase))
+            yield return n.Substring("Lights - ".Length).Trim();
+    }
+
+    static string ToLowCeilingShortForm(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return name;
+        string n = NormalizeLightToken(name);
+        n = System.Text.RegularExpressions.Regex.Replace(
+            n,
+            @"U\s*\|\s*002\s*\(\s*Low\s*Ceiling\s*\)",
+            "U|002 LC",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        n = System.Text.RegularExpressions.Regex.Replace(
+            n,
+            @"U\s*\|\s*002\s+Low\s+Ceiling",
+            "U|002 LC",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return n;
+    }
+
+    static string NormalizeLightToken(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return name;
+        string n = name.Trim();
+        n = System.Text.RegularExpressions.Regex.Replace(n, @"\s+", " ");
+        n = System.Text.RegularExpressions.Regex.Replace(n, @"U\s*\|\s*", "U|");
+        return n;
     }
 
     static (string Part, string Name, double Unit) IndividualLightKey(SelectablePrice sp)

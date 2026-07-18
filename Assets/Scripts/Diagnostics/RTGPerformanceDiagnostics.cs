@@ -13,7 +13,7 @@ using RTG;
 /// </summary>
 public static class RTGPerformanceDiagnostics
 {
-    public static bool Enabled { get; set; } = true;
+    public static bool Enabled { get; set; } = false;
 
     /// <summary>
     /// Set for A/B runs. UnityColliders = run 2. null = use prefab value.

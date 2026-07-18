@@ -564,7 +564,6 @@ public class ConfigurationManager : MonoBehaviour
 
     public async Task<GameObject> LoadArmAssembly(string file)
     {
-        Debug.Log($"Loading config file at {file}");
         _coldStartFixturesSuppressed = true;
         IsLoading = true;
         AssetPipelineDiagnostics.RoomLoadQuietMode = true;
@@ -605,6 +604,8 @@ public class ConfigurationManager : MonoBehaviour
                 SettleLoadedBoomAssembly();
                 FixLoadedNonUniformDropTubeScales();
 
+                PricingManager.RebuildPricingFromTrackedObjects();
+
                 if (_newObjects == null || _newObjects.Count == 0)
                 {
                     UI_DialogPrompt.Open(
@@ -640,11 +641,12 @@ public class ConfigurationManager : MonoBehaviour
 
     public void LoadRoom(string file)
     {
+        AssetPipelineDiagnostics.RoomLoadQuietMode = true;
         AssetPipelineDiagnostics.Log("RoomLoad", $"LoadRoom file='{file}' exists={File.Exists(file)}");
-        Debug.Log($"Loading Room at {file}");
 
         if (!File.Exists(file))
         {
+            AssetPipelineDiagnostics.RoomLoadQuietMode = false;
             UI_DialogPrompt.Open(
                 "This room save file no longer exists.\n"
                 + "Room saves must live under the AppData Saved folder to reopen.",
@@ -666,7 +668,6 @@ public class ConfigurationManager : MonoBehaviour
         // same as any other saved selectable — instead of one-off scene spawners.
         EnsureBaseRoomDefaultsInSaveData();
 
-        Debug.Log("Clearing default room objects");
         List<TrackedObject> existingObjects = FindObjectsOfType<TrackedObject>().ToList();
         Transform roomRoot = GetCurrentRoomTransform();
         string roomName = roomRoot != null ? roomRoot.name : "Room1";
@@ -737,7 +738,7 @@ public class ConfigurationManager : MonoBehaviour
             foreach (Vector3 pos in DefaultCeilingLightPositions)
                 bucket.objects.Add(MakeBaseRoomFixture("CeilingLightFixture", CeilingLightGuid, pos, lightRot));
 
-            Debug.Log("[LoadRoom] Save omitted ceiling lights — seeding 4 defaults into load data");
+            Debug.LogWarning("[LoadRoom] Save omitted ceiling lights — seeding 4 defaults into load data");
         }
 
         if (!hasBed)
@@ -749,7 +750,7 @@ public class ConfigurationManager : MonoBehaviour
                 new Quaternion(-0.5f, 0.5f, 0.5f, 0.5f),
                 keepRelativeFloor: true));
 
-            Debug.Log("[LoadRoom] Save omitted OR table — seeding default into load data");
+            Debug.LogWarning("[LoadRoom] Save omitted OR table — seeding default into load data");
         }
     }
 
@@ -957,6 +958,12 @@ public class ConfigurationManager : MonoBehaviour
                 SettleLoadedBoomAssembly();
                 FixLoadedNonUniformDropTubeScales();
                 LogLoadedArmScaleSnapshot("after SettleLoadedBoomAssembly");
+
+                var pricingTimer = Stopwatch.StartNew();
+                int pricedCount = PricingManager.RebuildPricingFromTrackedObjects();
+                pricingTimer.Stop();
+                AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "rebuildPricing", pricingTimer.ElapsedMilliseconds,
+                    $"{pricedCount} priced SelectablePrice(s)");
 
                 progression += progressionTicks;
                 token.SetProgress(progression);
@@ -1335,7 +1342,7 @@ public class ConfigurationManager : MonoBehaviour
 
     private void LogLoadedArmScaleSnapshot(string phase)
     {
-        if (_newObjects == null)
+        if (AssetPipelineDiagnostics.RoomLoadQuietMode || _newObjects == null)
             return;
 
         foreach (TrackedObject root in _newObjects)

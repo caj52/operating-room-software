@@ -87,6 +87,10 @@ public class BoomConfigurationManager : MonoBehaviour
             // Gather component references
             GatherComponentReferences();
 
+            // Catalog UIButtonName is source of truth for family; prefab _boomType can be stale
+            // (e.g. Powered default with a Spring bottom arm installed from the menu).
+            ReconcileBoomTypeFromCatalog();
+
             // Apply valid arm length options based on boom type
             ApplyValidArmLengthOptions();
 
@@ -122,17 +126,36 @@ public class BoomConfigurationManager : MonoBehaviour
         return nameHints.Any(h => goName.IndexOf(h, System.StringComparison.OrdinalIgnoreCase) >= 0);
     }
 
+    private static bool IsCatalogBottomArm(Selectable s)
+    {
+        if (s == null || string.IsNullOrEmpty(s.UIButtonName))
+            return false;
+
+        string n = s.UIButtonName.ToLowerInvariant();
+        if (n.Contains("top arm") || n.Contains("toparm"))
+            return false;
+
+        // Catalog SKUs for articulating / bottom arms.
+        return n.Contains("bottom arm")
+               || n.Contains("bottomarm")
+               || n.Contains("arm (powered")
+               || n.Contains("spring bottom")
+               || n.Contains("fixed bottom");
+    }
+
     private void GatherComponentReferences()
     {
         _allSelectables = GetComponentsInChildren<Selectable>(true).ToList();
 
-        // Find top arm selectable
+        // Find top arm selectable — catalog UIButtonName first.
         _topArmSelectable = _allSelectables.FirstOrDefault(s =>
             MatchesArmRole(s, "Top Arm", "TopArm", "BoomSegment_1", "Segment_1", "UpperArm", "Upper_Arm"));
 
-        // Find bottom arm selectable
-        _bottomArmSelectable = _allSelectables.FirstOrDefault(s =>
-            MatchesArmRole(s, "Bottom Arm", "BottomArm", "BoomArm", "LowerArm", "Lower_Arm"));
+        // Bottom / articulating arm: catalog labels first (includes "Boom - Arm (Powered XL)"),
+        // then mesh hints. Do not match bare "BoomArm" before catalog — that hits MCP geometry.
+        _bottomArmSelectable = _allSelectables.FirstOrDefault(IsCatalogBottomArm)
+            ?? _allSelectables.FirstOrDefault(s =>
+                MatchesArmRole(s, "Bottom Arm", "BottomArm", "LowerArm", "Lower_Arm", "BoomSegment_2", "Segment_2"));
 
         if (_topArmSelectable == null)
         {
@@ -143,8 +166,40 @@ public class BoomConfigurationManager : MonoBehaviour
         {
             Debug.LogWarning("Could not find Bottom Arm selectable", this);
         }
+    }
 
-        Debug.Log($"Found top arm: {_topArmSelectable != null}, bottom arm: {_bottomArmSelectable != null}", this);
+    /// <summary>
+    /// Align serialized _boomType with the installed bottom-arm catalog SKU.
+    /// Pricing and length rules must follow what was actually placed, not the prefab default.
+    /// </summary>
+    private void ReconcileBoomTypeFromCatalog()
+    {
+        if (_bottomArmSelectable == null || string.IsNullOrEmpty(_bottomArmSelectable.UIButtonName))
+            return;
+
+        string n = _bottomArmSelectable.UIButtonName.ToLowerInvariant();
+        bool topXl = _topArmSelectable != null
+                     && !string.IsNullOrEmpty(_topArmSelectable.UIButtonName)
+                     && _topArmSelectable.UIButtonName.IndexOf("xl", System.StringComparison.OrdinalIgnoreCase) >= 0;
+
+        BoomType? fromCatalog = null;
+        if (n.Contains("spring"))
+        {
+            fromCatalog = topXl ? BoomType.SpringXLBoom : BoomType.SpringBoom;
+        }
+        else if (n.Contains("powered") || n.Contains("arm (powered"))
+        {
+            bool bottomXl = n.Contains("xl");
+            fromCatalog = (topXl || bottomXl) ? BoomType.PoweredXLBoom : BoomType.PoweredBoom;
+        }
+        else if (n.Contains("fixed"))
+        {
+            // XXL is uncommon; keep FixedXL when either arm is XL.
+            fromCatalog = topXl ? BoomType.FixedXLBoom : BoomType.FixedBoom;
+        }
+
+        if (fromCatalog.HasValue && fromCatalog.Value != _boomType)
+            _boomType = fromCatalog.Value;
     }
 
     private void ApplyValidArmLengthOptions()
@@ -181,7 +236,7 @@ public class BoomConfigurationManager : MonoBehaviour
         try
         {
             // Log before filtering
-            Debug.Log($"Before filtering: {selectable.name} has {selectable.ScaleLevels.Count} scale levels", this);
+            // Debug.Log($"Before filtering: {selectable.name} has {selectable.ScaleLevels.Count} scale levels", this);
 
             // Filter scale levels to only include valid lengths
             // Assuming the Size property of scale levels corresponds to arm length in mm
@@ -193,8 +248,8 @@ public class BoomConfigurationManager : MonoBehaviour
             selectable.ScaleLevels = filteredScales;
 
             // Log after filtering
-            Debug.Log($"After filtering: {selectable.name} has {selectable.ScaleLevels.Count} scale levels", this);
-            Debug.Log($"Applied scale filter to {selectable.name} - Allowed lengths: {string.Join(", ", validLengths)}", this);
+            // Debug.Log($"After filtering: {selectable.name} has {selectable.ScaleLevels.Count} scale levels", this);
+            // Debug.Log($"Applied scale filter to {selectable.name} - Allowed lengths: {string.Join(", ", validLengths)}", this);
 
             if (selectable.ScaleLevels.Count == 0)
             {
@@ -308,6 +363,18 @@ public class BoomConfigurationManager : MonoBehaviour
         ValidateFixedBoomArmLengths();
     }
 
+    /// <summary>
+    /// Updates serialized boom identity only. Does not mutate arm length options —
+    /// used when catalog UIButtonName disagrees with a stale prefab _boomType
+    /// (e.g. Spring bottom arm under a Powered BCM default).
+    /// </summary>
+    public void SyncBoomTypeIdentity(BoomType boomType)
+    {
+        if (_boomType == boomType)
+            return;
+        _boomType = boomType;
+    }
+
     // Public method to update arm lengths
     public void SetArmLengths(int topLength, int bottomLength)
     {
@@ -320,17 +387,17 @@ public class BoomConfigurationManager : MonoBehaviour
 
     private void LogConfigurationDetails()
     {
-        Debug.Log($"Boom Configuration Summary for {gameObject.name}:", this);
-        Debug.Log($"- Boom Type: {_boomType}", this);
-        Debug.Log($"- Top Arm Length: {_topArmLength}mm", this);
-        Debug.Log($"- Bottom Arm Length: {_bottomArmLength}mm", this);
-        Debug.Log($"- Ceiling Tube Length: {_ceilingTubeLength}mm", this);
-        Debug.Log($"- Has Tandem Light: {_hasTandemLight}", this);
+        // Debug.Log($"Boom Configuration Summary for {gameObject.name}:", this);
+        // Debug.Log($"- Boom Type: {_boomType}", this);
+        // Debug.Log($"- Top Arm Length: {_topArmLength}mm", this);
+        // Debug.Log($"- Bottom Arm Length: {_bottomArmLength}mm", this);
+        // Debug.Log($"- Ceiling Tube Length: {_ceilingTubeLength}mm", this);
+        // Debug.Log($"- Has Tandem Light: {_hasTandemLight}", this);
 
         if (_hasTandemLight)
         {
-            Debug.Log($"- Light Ceiling Tube Length: {_lightCeilingTubeLength}mm", this);
-            Debug.Log($"- Light Has Multiple Arms: {_hasMultipleArmsOnLight}", this);
+            // Debug.Log($"- Light Ceiling Tube Length: {_lightCeilingTubeLength}mm", this);
+            // Debug.Log($"- Light Has Multiple Arms: {_hasMultipleArmsOnLight}", this);
         }
     }
 }
@@ -364,6 +431,6 @@ public class UIAlertManager : MonoBehaviour
     public void ShowAlert(string message, UIAlertType alertType)
     {
         // Implementation would show the alert in the UI
-        Debug.Log($"UI ALERT [{alertType}]: {message}");
+        // Debug.Log($"UI ALERT [{alertType}]: {message}");
     }
 }

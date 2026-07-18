@@ -9,7 +9,7 @@ using UnityEngine.SceneManagement;
 /// </summary>
 public static class SelectionDiagnostics
 {
-    public static bool Enabled { get; set; } = true;
+    public static bool Enabled { get; set; } = false;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Bootstrap()

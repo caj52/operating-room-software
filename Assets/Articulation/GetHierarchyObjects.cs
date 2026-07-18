@@ -146,7 +146,7 @@ public class GetHierarchyObjects : MonoBehaviour
         if (axis == Axis.Y) { selectedObject = yRotate; }
         if (axis == Axis.Z) { selectedObject = zRotate; }
 
-        Debug.Log("UpdateTransformRotation 1");
+        // Debug.Log("UpdateTransformRotation 1");
 
         if (selectedObject == null)
         {
@@ -172,7 +172,7 @@ public class GetHierarchyObjects : MonoBehaviour
         if (axis == Axis.Y) { selectedObject = yRotate; }
         if (axis == Axis.Z) { selectedObject = zRotate; }
 
-        Debug.Log("UpdateTransformRotation 1");
+        // Debug.Log("UpdateTransformRotation 1");
 
         if (selectedObject == null)
         {
@@ -180,7 +180,7 @@ public class GetHierarchyObjects : MonoBehaviour
             return;
         }
 
-        Debug.Log("UpdateTransformRotation 2 " + selectedObject.name);
+        // Debug.Log("UpdateTransformRotation 2 " + selectedObject.name);
         Vector3 _rotation;
         if (selectedObject.name.Equals(SelectedRootObject.name))
         {
@@ -198,12 +198,12 @@ public class GetHierarchyObjects : MonoBehaviour
         }
         if (selectedObject.name.Equals(SelectedRootObject.name))
         {
-            Debug.Log($"Updated world rotation for {selectedObject.name}: {_rotation}");
+            // Debug.Log($"Updated world rotation for {selectedObject.name}: {_rotation}");
             selectedObject.rotation = Quaternion.Euler(_rotation); 
         }
         else
         {
-            Debug.Log($"Updated rotation for {selectedObject.name}: {_rotation}");
+            // Debug.Log($"Updated rotation for {selectedObject.name}: {_rotation}");
             selectedObject.localEulerAngles = _rotation;
         }
 
@@ -301,16 +301,16 @@ public class GetHierarchyObjects : MonoBehaviour
 
     public void SelectObject(Transform obj)
     {
-        Debug.Log("SelectObject 1");
+        // Debug.Log("SelectObject 1");
         toggleSliderPanelAndClearList(false);
         if (obj.root.name.Contains("Room") || obj.root.name.Equals("Room"))
         {
-            Debug.Log("SelectObject 2");
+            // Debug.Log("SelectObject 2");
             return;
         }
         else
         {
-            Debug.Log("SelectObject 3");
+            // Debug.Log("SelectObject 3");
             toggleSliderPanelAndClearList(true);
             targetObject = obj;
 
@@ -341,8 +341,8 @@ public class GetHierarchyObjects : MonoBehaviour
                     }
                 }
                 AssignTransformReferences(allChildren);
-                Debug.Log("Unique Children: " + string.Join(", ", allChildren));
-                Debug.Log(obj.name, gameObject);
+                // Debug.Log("Unique Children: " + string.Join(", ", allChildren));
+                // Debug.Log(obj.name, gameObject);
                 EventManager.OnCompareProximatryAlertWithOR_Table.Invoke(obj.gameObject, 1, 1.5f);
             }
         }
@@ -350,7 +350,7 @@ public class GetHierarchyObjects : MonoBehaviour
 
     void GetAllChildren(Transform parent)
     {
-        Debug.Log("Attached Point GameObject found in object or any of its children!");
+        // Debug.Log("Attached Point GameObject found in object or any of its children!");
        
         foreach (Transform child in parent)
         {
@@ -374,7 +374,7 @@ public class GetHierarchyObjects : MonoBehaviour
 
         if (attachedPoint != null)
         {
-            Debug.Log("Attached Point GameObject found in parent object");
+            // Debug.Log("Attached Point GameObject found in parent object");
             ObjectHaveNotAttechedPoint = false;
             Transform parent = child.parent;
             while (parent != null)
@@ -395,7 +395,7 @@ public class GetHierarchyObjects : MonoBehaviour
         }
         else
         {
-            Debug.Log("Attached Point GameObject not found in object or any of its children!");
+            // Debug.Log("Attached Point GameObject not found in object or any of its children!");
             ObjectHaveNotAttechedPoint = true;
             ifObjectDontHaveAttachedPoint(child);
         }
@@ -419,7 +419,7 @@ public class GetHierarchyObjects : MonoBehaviour
 
     void ifObjectDontHaveAttachedPoint(Transform obj)
     {
-        Debug.Log("Attached Point GameObject not found in object or any of its children!");
+        // Debug.Log("Attached Point GameObject not found in object or any of its children!");
         targetObjectMainParent = obj;
         if (obj.GetComponent<GizmoHandler>() != null)
         {
@@ -498,7 +498,7 @@ public class GetHierarchyObjects : MonoBehaviour
             return; // Prevent null reference errors
         }
 
-        Debug.Log("SetSliderRangesFromGizmoData: Called for object -> " + obj.name);
+        // Debug.Log("SetSliderRangesFromGizmoData: Called for object -> " + obj.name);
 
         Selectable selectable = obj.GetComponent<Selectable>();
 
@@ -514,7 +514,7 @@ public class GetHierarchyObjects : MonoBehaviour
             return; // Prevent errors if the list is null or empty
         }
 
-        Debug.Log("SetSliderRangesFromGizmoData: Processing GizmoSettingsList with count -> " + selectable.GizmoSettingsList.Count);
+        // Debug.Log("SetSliderRangesFromGizmoData: Processing GizmoSettingsList with count -> " + selectable.GizmoSettingsList.Count);
 
         // Default min/max values
         float minValue = 0f;
@@ -524,14 +524,14 @@ public class GetHierarchyObjects : MonoBehaviour
         for (int i = 0; i < selectable.GizmoSettingsList.Count; i++) // Fixed: `i < Count`
         {
             var settings = selectable.GizmoSettingsList[i];
-            Debug.Log($"Checking GizmoSettings {i}: Axis -> {settings.Axis}, GizmoType -> {settings.GizmoType}");
+            // Debug.Log($"Checking GizmoSettings {i}: Axis -> {settings.Axis}, GizmoType -> {settings.GizmoType}");
 
             if (slider == rotationXSlider && settings.Axis == Axis.X && settings.GizmoType == GizmoType.Rotate)
             {
                 minValue = settings.MinValue;
                 maxValue = settings.MaxValue;
                 foundSetting = true;
-                Debug.Log($"Matched rotationXSlider: minValue = {minValue}, maxValue = {maxValue}");
+                // Debug.Log($"Matched rotationXSlider: minValue = {minValue}, maxValue = {maxValue}");
                 break; // Stop looping once found
             }
             else if (slider == rotationYSlider && settings.Axis == Axis.Y && settings.GizmoType == GizmoType.Rotate)
@@ -539,7 +539,7 @@ public class GetHierarchyObjects : MonoBehaviour
                 minValue = settings.MinValue;
                 maxValue = settings.MaxValue;
                 foundSetting = true;
-                Debug.Log($"Matched rotationYSlider: minValue = {minValue}, maxValue = {maxValue}");
+                // Debug.Log($"Matched rotationYSlider: minValue = {minValue}, maxValue = {maxValue}");
                 break;
             }
             else if (slider == rotationZSlider && settings.Axis == Axis.Z && settings.GizmoType == GizmoType.Rotate)
@@ -547,7 +547,7 @@ public class GetHierarchyObjects : MonoBehaviour
                 minValue = settings.MinValue;
                 maxValue = settings.MaxValue;
                 foundSetting = true;
-                Debug.Log($"Matched rotationZSlider: minValue = {minValue}, maxValue = {maxValue}");
+                // Debug.Log($"Matched rotationZSlider: minValue = {minValue}, maxValue = {maxValue}");
                 break;
             }
         }
@@ -564,12 +564,12 @@ public class GetHierarchyObjects : MonoBehaviour
         // Apply min/max to slider
         slider.minValue = minValue;
         slider.maxValue = maxValue;
-        Debug.Log($"SetSliderRangesFromGizmoData: Slider {slider.name} minValue set to {slider.minValue}, maxValue set to {slider.maxValue}");
+        // Debug.Log($"SetSliderRangesFromGizmoData: Slider {slider.name} minValue set to {slider.minValue}, maxValue set to {slider.maxValue}");
     }
 
     private void SetSliderRangesFromGizmoData(Transform obj, Slider _slider, float min, float max)
     {
-        Debug.Log("SetSliderRangesFromGizmoData != null >> 1 ");
+        // Debug.Log("SetSliderRangesFromGizmoData != null >> 1 ");
         if (_slider != null)
         {
             if (min == 0 && max == 0)
@@ -621,7 +621,7 @@ public class GetHierarchyObjects : MonoBehaviour
     //toggle UI panel with respect to object select or not
     public void toggleSliderPanelAndClearList(bool _bool)
     {
-        Debug.Log("toggleSliderPanelAndClearList  >>  1");
+        // Debug.Log("toggleSliderPanelAndClearList  >>  1");
         allChildren.Clear();
         RemoveAllListeners();
         ResetAllSliderSetting();

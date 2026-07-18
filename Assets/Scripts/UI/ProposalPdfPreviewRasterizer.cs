@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -15,6 +16,9 @@ public static class ProposalPdfPreviewRasterizer
     /// ~200 DPI keeps body text sharp at fit and ~1.7× click-zoom (A4 ≈ 1654×2339).
     /// </summary>
     public const int DefaultDpi = 200;
+
+    /// <summary>Lower DPI for interactive preview so page images don't stall the main thread.</summary>
+    public const int PreviewDpi = 144;
 
     public static List<Texture2D> RasterizePages(string pdfPath, int dpi = DefaultDpi)
     {
@@ -41,6 +45,34 @@ public static class ProposalPdfPreviewRasterizer
         }
 
         return pages;
+    }
+
+    /// <summary>
+    /// Rasterize one page per frame so the proposal workspace loading overlay keeps animating.
+    /// </summary>
+    public static IEnumerator RasterizePagesRoutine(
+        string pdfPath,
+        List<Texture2D> destination,
+        int dpi = PreviewDpi)
+    {
+        if (destination == null)
+            throw new ArgumentNullException(nameof(destination));
+        destination.Clear();
+
+        if (string.IsNullOrWhiteSpace(pdfPath) || !File.Exists(pdfPath))
+            throw new FileNotFoundException("Preview PDF not found.", pdfPath);
+
+        byte[] bytes = File.ReadAllBytes(pdfPath);
+        yield return null;
+
+        var options = new RenderOptions(dpi);
+        int pageCount = Conversion.GetPageCount(bytes);
+        for (int i = 0; i < pageCount; i++)
+        {
+            using SKBitmap bitmap = Conversion.ToImage(bytes, i, null, options);
+            destination.Add(ToTexture(bitmap));
+            yield return null;
+        }
     }
 
     static Texture2D ToTexture(SKBitmap bitmap)

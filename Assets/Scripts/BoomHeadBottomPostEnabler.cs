@@ -20,7 +20,6 @@ public class BoomHeadBottomPostEnabler : MonoBehaviour
             gameObject.SetActive(false);
            // return;
         }
-        Debug.LogError("EnableGameObject");
         bool onlyNitrogen = selectable.Length == 1 && selectable[0].name.Contains("NitrogenRegulator");
 
         if (onlyNitrogen)

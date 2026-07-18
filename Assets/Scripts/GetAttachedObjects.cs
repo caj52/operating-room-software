@@ -142,16 +142,13 @@ public class GetAttachedObjects : MonoBehaviour
         // Get all price components
         _prices = ArmSegmentParent.GetComponentsInChildren<SelectablePrice>();
 
-        Debug.Log($"Found {_allZScales?.Length ?? 0} ZScale components and {_prices?.Length ?? 0} price components", this);
+        // Debug.Log($"Found {_allZScales?.Length ?? 0} ZScale components and {_prices?.Length ?? 0} price components", this);
     }
 
     private void CountAttachedComponents()
     {
         if (_prices == null || _prices.Length == 0)
-        {
-            Debug.LogWarning("No SelectablePrice components found in children", this);
             return;
-        }
 
         try
         {
@@ -168,7 +165,7 @@ public class GetAttachedObjects : MonoBehaviour
                 x.pricingObjectName != null &&
                 x.pricingObjectName.Contains("Flat Panel Arm"));
 
-            Debug.Log($"Found {_lightCount} lights and {_flatPanelCount} flat panels", this);
+            // Debug.Log($"Found {_lightCount} lights and {_flatPanelCount} flat panels", this);
         }
         catch (System.Exception e)
         {
@@ -187,7 +184,7 @@ public class GetAttachedObjects : MonoBehaviour
                             configKey.Equals("2_1_FP_TOP") ||
                             configKey.Equals("1_2");
 
-        Debug.Log($"Turning cover requirement determined: {_needsTurningCover}", this);
+        // Debug.Log($"Turning cover requirement determined: {_needsTurningCover}", this);
     }
 
     private void ApplyScaleFiltersBasedOnConfiguration()
@@ -203,7 +200,7 @@ public class GetAttachedObjects : MonoBehaviour
             // Determine configuration key based on component counts and positions
             string configKey = DetermineConfigurationKey();
 
-            Debug.Log($"Configuration key determined: {configKey}", this);
+            // Debug.Log($"Configuration key determined: {configKey}", this);
 
             // Apply scale filters based on configuration
             if (_configurationScales.ContainsKey(configKey))
@@ -277,7 +274,7 @@ public class GetAttachedObjects : MonoBehaviour
             
             ApplyScaleFilter(allowedScales, selectable,_allZSelectables.ToList());
 
-            Debug.Log($"Applied scales {string.Join(", ", allowedScales)} to component at position {i} ", this);
+            // Debug.Log($"Applied scales {string.Join(", ", allowedScales)} to component at position {i} ", this);
         }
     }
 
@@ -334,9 +331,6 @@ public class GetAttachedObjects : MonoBehaviour
                 var topComponent = sortedComponents[0];
                 IsLightAtTop = topComponent.isLight;
                 IsPanelAtTop = topComponent.isPanel;
-
-                Debug.Log($"Top component detected: " +
-                        (IsLightAtTop ? "Light" : (IsPanelAtTop ? "Panel" : "Unknown")), this);
             }
         }
         catch (System.Exception e)
@@ -370,10 +364,10 @@ public class GetAttachedObjects : MonoBehaviour
             {
                 globalReferenceSize = GetMostCommonModelDefaultSize(allSelectables);
                 referenceSizeCalculated = true;
-                Debug.Log($"[ScaleFilter] Using global reference size: {globalReferenceSize}", this);
+                // Debug.Log($"[ScaleFilter] Using global reference size: {globalReferenceSize}", this);
             }
 
-            Debug.Log($"Before filtering: {selectable.name} has {selectable.ScaleLevels.Count} levels: {string.Join(", ", selectable.ScaleLevels.Select(l => l.Size))}", this);
+            // Debug.Log($"Before filtering: {selectable.name} has {selectable.ScaleLevels.Count} levels: {string.Join(", ", selectable.ScaleLevels.Select(l => l.Size))}", this);
 
             // 🧹 Remove unwanted sizes
             selectable.ScaleLevels.RemoveAll(level => level == null || !allowedScales.Contains(level.Size));
@@ -415,8 +409,8 @@ public class GetAttachedObjects : MonoBehaviour
             // 🔤 Sort by Size
             selectable.ScaleLevels = selectable.ScaleLevels.OrderBy(level => level.Size).ToList();
 
-            Debug.Log($"After filtering: {selectable.name} has {selectable.ScaleLevels.Count} levels: {string.Join(", ", selectable.ScaleLevels.Select(l => l.Size))}", this);
-            Debug.Log($"Applied scale filter to {selectable.name} - Allowed: {string.Join(", ", allowedScales)}", this);
+            // Debug.Log($"After filtering: {selectable.name} has {selectable.ScaleLevels.Count} levels: {string.Join(", ", selectable.ScaleLevels.Select(l => l.Size))}", this);
+            // Debug.Log($"Applied scale filter to {selectable.name} - Allowed: {string.Join(", ", allowedScales)}", this);
 
             if (selectable.ScaleLevels.Count == 0)
             {
@@ -445,19 +439,19 @@ public class GetAttachedObjects : MonoBehaviour
 
     private void LogConfigurationDetails()
     {
-        Debug.Log($"Configuration Summary for {gameObject.name}:", this);
-        Debug.Log($"- Component Counts: {_lightCount} LED lights, {_flatPanelCount} Flat Panels", this);
-        Debug.Log($"- Total Components: {_totalComponentCount}", this);
-        Debug.Log($"- Component Positions: LED at top: {IsLightAtTop}, Panel at top: {IsPanelAtTop}", this);
-        Debug.Log($"- Turning Cover Required: {_needsTurningCover}", this);
-        Debug.Log($"- Found {_allZScales?.Length ?? 0} ZScale components", this);
+        // Debug.Log($"Configuration Summary for {gameObject.name}:", this);
+        // Debug.Log($"- Component Counts: {_lightCount} LED lights, {_flatPanelCount} Flat Panels", this);
+        // Debug.Log($"- Total Components: {_totalComponentCount}", this);
+        // Debug.Log($"- Component Positions: LED at top: {IsLightAtTop}, Panel at top: {IsPanelAtTop}", this);
+        // Debug.Log($"- Turning Cover Required: {_needsTurningCover}", this);
+        // Debug.Log($"- Found {_allZScales?.Length ?? 0} ZScale components", this);
 
         // Log the configuration key
         string configKey = DetermineConfigurationKey();
-        Debug.Log($"- Configuration Key: {configKey}", this);
+        // Debug.Log($"- Configuration Key: {configKey}", this);
 
         // Log whether this configuration is supported
-        Debug.Log($"- Has Predefined Configuration: {_configurationScales.ContainsKey(configKey)}", this);
+        // Debug.Log($"- Has Predefined Configuration: {_configurationScales.ContainsKey(configKey)}", this);
     }
 
    

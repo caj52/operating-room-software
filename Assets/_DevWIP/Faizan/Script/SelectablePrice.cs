@@ -1,5 +1,4 @@
-﻿using System.Threading.Tasks;
-using System;
+﻿using System;
 using UnityEngine;
 using System.Linq;
 
@@ -74,11 +73,13 @@ public class SelectablePrice : MonoBehaviour
 
     private void Start()
     {
-        // If this component was added via scene loading or not yet initialized through PricingManager, initialize it now
-        if (!_isInitialized && !string.IsNullOrEmpty(sheetName))
-        {
+        // During room/config load, TrackedObject.StoreValues + post-load rebuild own pricing.
+        // Starting an async fetch with prefab/empty identity races restore and used to destroy components.
+        if (ConfigurationManager.IsLoading)
+            return;
+
+        if (!_isInitialized && !string.IsNullOrEmpty(sheetName) && !string.IsNullOrEmpty(pricingObjectName))
             InitializePricing();
-        }
     }
 
     private void OnDestroy()
@@ -95,12 +96,8 @@ public class SelectablePrice : MonoBehaviour
             return;
         }
 
-        // Register this price component with the PricingManager for tracking and UI updates
         PricingManager.Instance.RegisterExistingPricingComponent(this);
-
-        // Begin fetching pricing data from Excel (async)
-        GetPricingDataFromExcel(sheetName);
-        _isInitialized = true;
+        _isInitialized = EnsurePricingDataLoaded(force: true);
     }
 
     /// <summary>
@@ -123,63 +120,46 @@ public class SelectablePrice : MonoBehaviour
     }
 
     /// <summary>
-    /// Fetch pricing data from Excel via the PricingManager (async).
+    /// Fetch pricing data from Excel via the PricingManager.
     /// </summary>
-    public async void GetPricingDataFromExcel(string sheet)
+    public void GetPricingDataFromExcel(string sheet)
     {
+        if (!string.IsNullOrEmpty(sheet))
+            sheetName = sheet;
+        EnsurePricingDataLoaded(force: true);
+    }
+
+    /// <summary>
+    /// Synchronously ensure <see cref="objectPricingData"/> is populated.
+    /// Does not destroy the component on miss.
+    /// </summary>
+    /// <param name="force">When true, re-fetch even if data already exists (identity/size may have changed).</param>
+    public bool EnsurePricingDataLoaded(bool force = false)
+    {
+        if (!force && objectPricingData != null)
+            return true;
+        if (string.IsNullOrEmpty(sheetName) || string.IsNullOrEmpty(pricingObjectName))
+            return false;
         if (PricingManager.Instance == null)
-        {
-            Debug.LogError("PricingManager is not available – cannot retrieve pricing data.");
-            return;
-        }
+            return false;
 
-        sheetName = sheet;
-        try
-        {
-            // If this is a boom object with no size determined yet, attempt to find size on main thread
-            if (isBoomObject && string.IsNullOrEmpty(cachedSize))
-            {
-                // Try to find the current selectable's size (this runs on the main thread)
-                cachedSize = await FindSelectableWithSizeAsync();
-            }
+        if (string.IsNullOrEmpty(cachedSize))
+            cachedSize = FindSelectableWithSize();
 
-            // Fetch data from PricingManager’s cache/Excel (runs in background thread)
-            PriceExcelData data = await Task.Run(() =>
-                PricingManager.Instance.GetCachedPricingData(sheetName, pricingObjectName, cachedSize)
-            );
+        PriceExcelData data = PricingManager.Instance.GetCachedPricingData(
+            sheetName, pricingObjectName, cachedSize);
+        if (data == null)
+            return false;
 
-            if (data == null)
-            {
-                // Handle case where no pricing data is found for the given object (and size)
-                HandlePricingDataNotFound();
-            }
-            else
-            {
-                ApplyPricingData(data);
-            }
-        }
-        catch (Exception e)
-        {
-            Debug.LogError($"Failed to load pricing data for {pricingObjectName}: {e.Message}");
-            HandlePricingDataNotFound();
-        }
+        ApplyPricingData(data);
+        _isInitialized = true;
+        PricingManager.Instance.RegisterExistingPricingComponent(this);
+        return true;
     }
 
     // Determine pricing data with and without size (logic now handled by PricingManager.GetCachedPricingData)
 
     #region Size Handling
-    private Task<string> FindSelectableWithSizeAsync()
-    {
-        // Ensure we query the Selectable’s size on the main thread
-        var tcs = new TaskCompletionSource<string>();
-        MainThreadDispatcher.Enqueue(() =>
-        {
-            string size = FindSelectableWithSize();  // Synchronous check on main thread
-            tcs.SetResult(size);
-        });
-        return tcs.Task;
-    }
-
     private string FindSelectableWithSize()
     {
         // Only consider the Selectable on *this* GameObject
@@ -224,17 +204,14 @@ public class SelectablePrice : MonoBehaviour
         }
     }
 
-    private async void UpdatePricingDataForSize(string newSize)
+    private void UpdatePricingDataForSize(string newSize)
     {
-        // Get updated pricing for the new size (async)
-        PriceExcelData updatedData = await Task.Run(() =>
-            PricingManager.Instance.GetCachedPricingData(sheetName, pricingObjectName, newSize)
-        );
+        if (PricingManager.Instance == null)
+            return;
+        PriceExcelData updatedData = PricingManager.Instance.GetCachedPricingData(
+            sheetName, pricingObjectName, newSize);
         if (updatedData != null)
-        {
             ApplyPricingData(updatedData);
-        }
-        // (If no data found for this size, we keep the last known price; alternatively, could HandlePricingDataNotFound)
     }
 
     private string FormatSize(float size)
@@ -259,18 +236,14 @@ public class SelectablePrice : MonoBehaviour
         }
         cachedPrice = totalPrice.ToString("F2");
 
-        Debug.Log($"✅ Pricing found for '{pricingObjectName}' – Total Price: ${cachedPrice}");
-
         // Notify through PricingManager that this price data has been updated (UI will handle update)
         PricingManager.Instance.OnPriceUpdated?.Invoke(this);
         PricingManager.Instance.OnTotalPriceChanged?.Invoke();
     }
 
-    private void HandlePricingDataNotFound()
+    private void HandlePricingDataNotFound(string objectName = null, string sheet = null)
     {
-        Debug.LogError($"❌ Excel pricing entry not found for \"{pricingObjectName}\" (sheet: {sheetName})");
-        // Remove this component since it has no valid price data
-        PricingManager.Instance.RemovePricingComponent(this);
+        // Miss is expected for accessories without sheet rows — keep the component for retry.
     }
 
     /// <summary>
@@ -304,7 +277,6 @@ public class SelectablePrice : MonoBehaviour
         {
             UIRefPricingRowDataFill.DestroyRow();  // safe: DestroyRow() uses a guard flag
         }
-        Debug.Log($"SelectablePrice component on {gameObject.name} destroyed.");
     }
     #endregion
 }

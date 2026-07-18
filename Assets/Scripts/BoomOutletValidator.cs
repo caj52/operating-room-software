@@ -1,4 +1,4 @@
-﻿using RTG;
+using RTG;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -76,7 +76,7 @@ public class BoomOutletValidator : MonoBehaviour
         // Store electrical counts for this panel for pair validation
         outletCounts[parent] = electricalCount;
 
-        Debug.Log($"[{parent.name}] Electrical Count: {electricalCount}, Gas Count: {gasCount}, Data Count: {dataCount}");
+        // Debug.Log($"[{parent.name}] Electrical Count: {electricalCount}, Gas Count: {gasCount}, Data Count: {dataCount}");
 
         // Check electrical and gas incompatibilities
         ValidateAdjacentPanelCompatibility(parent, electricalCount, gasCount, adjacentFrontPanelMapping);
@@ -92,7 +92,7 @@ public class BoomOutletValidator : MonoBehaviour
 
     private int CountComponentsOnPanel(GameObject panel, string componentName)
     {
-        Debug.Log($"Counting components on panel: {panel.name} for component: {componentName}");
+        // Debug.Log($"Counting components on panel: {panel.name} for component: {componentName}");
         return panel.GetComponentsInChildren<Selectable>()
                    .Count(s => s.MetaData.Name == componentName);
     }
@@ -234,7 +234,7 @@ public class BoomOutletValidator : MonoBehaviour
         }
       
 
-        Debug.Log($"✅ Match! Front has {frontCount} and back has {backCount} electrical outlets.");
+        // Debug.Log($"✅ Match! Front has {frontCount} and back has {backCount} electrical outlets.");
         return true;
     }
 

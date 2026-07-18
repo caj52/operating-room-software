@@ -106,6 +106,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
 
     int _previewGenerationId;
     Coroutine _previewDebounce;
+    Coroutine _previewBuildRoutine;
     bool _pendingForceVisuals;
 
     /// <summary>1 = fit page in viewport; higher values zoom in.</summary>
@@ -143,15 +144,15 @@ public class UI_ProposalWorkspace : MonoBehaviour
             DropdownPopulator.RestoreAllPersistedSelections();
             // Don't carry a config title from a previous room/session into this open.
             ProposalPreviewModel.ConfigNameOverride = null;
-            Instance._model = ProposalPreviewModel.Capture();
+
+            // Show UI + loading first — defer Capture()/PDF bake so they don't freeze the frame.
+            Instance._model ??= new ProposalPreviewModel();
             Instance.gameObject.SetActive(true);
             Instance.EnsureBlocksRaycasts();
             Instance._pageIndex = 0;
             Instance._pageZoom = 1f;
             Instance.ClosePopover();
 
-            // Reuse ceiling/elevation stills when the room layout hasn't changed.
-            // "Refresh visuals" still forces a full re-capture.
             bool forceVisuals = ProposalPDFGenerator.PreviewVisualsStale;
             Instance.SetPreviewLoading(true, forceVisuals
                 ? "Generating proposal preview…"
@@ -174,16 +175,9 @@ public class UI_ProposalWorkspace : MonoBehaviour
 
     static void HideLegacyPricingPanel()
     {
-        var transforms = UnityEngine.Object.FindObjectsByType<Transform>(
-            FindObjectsInactive.Include, FindObjectsSortMode.None);
-        for (int i = 0; i < transforms.Length; i++)
-        {
-            var t = transforms[i];
-            if (t == null || t.name != "Panel_PricingQuote")
-                continue;
-            if (t.gameObject.activeSelf)
-                t.gameObject.SetActive(false);
-        }
+        var panel = FindPricingQuotePanel();
+        if (panel != null && panel.activeSelf)
+            panel.SetActive(false);
     }
 
     public static void Close()
@@ -269,14 +263,22 @@ public class UI_ProposalWorkspace : MonoBehaviour
         DropdownPopulator.RestoreAllPersistedSelections();
     }
 
+    static GameObject _cachedPricingQuotePanel;
+
     static GameObject FindPricingQuotePanel()
     {
+        if (_cachedPricingQuotePanel != null)
+            return _cachedPricingQuotePanel;
+
         var all = UnityEngine.Object.FindObjectsByType<Transform>(
             FindObjectsInactive.Include, FindObjectsSortMode.None);
         foreach (var t in all)
         {
             if (t != null && t.name == "Panel_PricingQuote")
-                return t.gameObject;
+            {
+                _cachedPricingQuotePanel = t.gameObject;
+                return _cachedPricingQuotePanel;
+            }
         }
         return null;
     }
@@ -683,6 +685,11 @@ public class UI_ProposalWorkspace : MonoBehaviour
             StopCoroutine(_previewDebounce);
             _previewDebounce = null;
         }
+        if (_previewBuildRoutine != null)
+        {
+            StopCoroutine(_previewBuildRoutine);
+            _previewBuildRoutine = null;
+        }
         _previewGenerationId++;
         _pendingForceVisuals = false;
         SetPreviewLoading(false);
@@ -696,63 +703,151 @@ public class UI_ProposalWorkspace : MonoBehaviour
         if (!isActiveAndEnabled)
             return;
 
+        if (_previewBuildRoutine != null)
+        {
+            StopCoroutine(_previewBuildRoutine);
+            _previewBuildRoutine = null;
+        }
+
+        _previewBuildRoutine = StartCoroutine(BeginPreviewGenerationRoutine(forceVisuals));
+    }
+
+    IEnumerator BeginPreviewGenerationRoutine(bool forceVisuals)
+    {
         int generationId = ++_previewGenerationId;
         bool firstLoad = _pageSprites.Count == 0;
         SetPreviewLoading(true, firstLoad
             ? "Generating proposal preview…"
             : "Updating preview…");
 
+        // Let the loading overlay paint before heavy Capture / PDF work.
+        yield return null;
+        if (generationId != _previewGenerationId || !isActiveAndEnabled)
+            yield break;
+
         if (_model == null)
             _model = ProposalPreviewModel.Capture();
         else
             _model.RefreshLive();
+
+        yield return null;
+        if (generationId != _previewGenerationId || !isActiveAndEnabled)
+            yield break;
 
         _model.PersistEditableFields();
 
         var generator = FindAnyObjectByType<ProposalPDFGenerator>(FindObjectsInactive.Include);
         if (generator == null)
         {
-            if (generationId != _previewGenerationId)
-                return;
             SetPreviewLoading(false);
             SetStatus("Sales proposal generator is missing from the scene.");
-            return;
+            _previewBuildRoutine = null;
+            yield break;
         }
 
         bool reuseVisuals = !forceVisuals;
+        bool completed = false;
+        bool okResult = false;
+        string pathResult = null;
+        string errResult = null;
+
         generator.GeneratePreviewPdf((ok, path, err) =>
         {
+            completed = true;
+            okResult = ok;
+            pathResult = path;
+            errResult = err;
+        }, reuseVisuals);
+
+        while (!completed)
+        {
             if (generationId != _previewGenerationId || !isActiveAndEnabled)
-                return;
-
-            if (!ok || string.IsNullOrEmpty(path))
             {
-                SetPreviewLoading(false);
-                if (!string.Equals(err, "cancelled", StringComparison.OrdinalIgnoreCase))
-                    SetStatus(string.IsNullOrWhiteSpace(err) ? "Preview failed." : err);
-                return;
+                generator.CancelPreview();
+                _previewBuildRoutine = null;
+                yield break;
             }
+            yield return null;
+        }
 
+        if (generationId != _previewGenerationId || !isActiveAndEnabled)
+        {
+            _previewBuildRoutine = null;
+            yield break;
+        }
+
+        if (!okResult || string.IsNullOrEmpty(pathResult))
+        {
+            SetPreviewLoading(false);
+            if (!string.Equals(errResult, "cancelled", StringComparison.OrdinalIgnoreCase))
+                SetStatus(string.IsNullOrWhiteSpace(errResult) ? "Preview failed." : errResult);
+            _previewBuildRoutine = null;
+            yield break;
+        }
+
+        SetPreviewLoading(true, "Preparing page images…");
+        yield return null;
+
+        var textures = new List<Texture2D>();
+        Exception rasterError = null;
+        var raster = ProposalPdfPreviewRasterizer.RasterizePagesRoutine(
+            pathResult, textures, ProposalPdfPreviewRasterizer.PreviewDpi);
+        while (true)
+        {
+            object current;
             try
             {
-                SetPreviewLoading(true, "Preparing page images…");
-                var textures = ProposalPdfPreviewRasterizer.RasterizePages(path);
-                _hotspots.Clear();
-                if (_model != null)
-                    _hotspots.AddRange(ProposalPdfPreviewHotspotFinder.Find(path, _model));
-                ApplyPageTextures(textures);
-                SetPreviewLoading(false);
-                SetStatus(_hotspots.Count > 0
-                    ? "Preview up to date — click highlighted fields to edit"
-                    : "Preview up to date");
+                if (!raster.MoveNext())
+                    break;
+                current = raster.Current;
             }
             catch (Exception e)
             {
-                Debug.LogWarning($"Proposal preview rasterize failed: {e.Message}");
-                SetPreviewLoading(false);
-                SetStatus("Could not rasterize preview: " + e.Message);
+                rasterError = e;
+                break;
             }
-        }, reuseVisuals);
+            yield return current;
+        }
+
+        if (generationId != _previewGenerationId || !isActiveAndEnabled)
+        {
+            for (int i = 0; i < textures.Count; i++)
+            {
+                if (textures[i] != null)
+                    Destroy(textures[i]);
+            }
+            _previewBuildRoutine = null;
+            yield break;
+        }
+
+        if (rasterError != null)
+        {
+            Debug.LogWarning($"Proposal preview rasterize failed: {rasterError.Message}");
+            SetPreviewLoading(false);
+            SetStatus("Could not rasterize preview: " + rasterError.Message);
+            _previewBuildRoutine = null;
+            yield break;
+        }
+
+        try
+        {
+            _hotspots.Clear();
+            if (_model != null)
+                _hotspots.AddRange(ProposalPdfPreviewHotspotFinder.Find(pathResult, _model));
+            ApplyPageTextures(textures);
+            SetPreviewLoading(false);
+            SetStatus(_hotspots.Count > 0
+                ? "Preview up to date — click highlighted fields to edit"
+                : "Preview up to date");
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"Proposal preview apply failed: {e.Message}");
+            SetPreviewLoading(false);
+            SetStatus("Could not apply preview: " + e.Message);
+        }
+
+        _previewBuildRoutine = null;
     }
 
     void ApplyPageTextures(List<Texture2D> textures)

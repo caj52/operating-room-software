@@ -371,6 +371,20 @@ public class ExportOrchestrator : MonoBehaviour
 
     private IEnumerator ExportProposal()
     {
+        // Elevations deactivate non-assembly selectables during capture. Restore before pricing scan.
+        if (Selectable.ActiveSelectables != null)
+        {
+            foreach (var selectable in Selectable.ActiveSelectables)
+            {
+                if (selectable != null && selectable.gameObject != null && !selectable.gameObject.activeSelf)
+                    selectable.gameObject.SetActive(true);
+            }
+        }
+
+        // Safety net: recreate any SelectablePrice wiped by load races / domain reload.
+        PricingManager.RebuildPricingFromTrackedObjects();
+        yield return null;
+
         var generator = FindAnyObjectByType<ProposalPDFGenerator>(FindObjectsInactive.Include);
         if (generator == null)
         {

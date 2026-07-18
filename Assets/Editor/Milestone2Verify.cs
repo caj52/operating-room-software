@@ -172,13 +172,25 @@ public static class Milestone2Verify
             mustNotContain: new[] { "Sales Rep:" });
 
         ExpectSource(checks, "SRC-BOOM-KEY",
-            "Boom pricing key uses live scales + hierarchy inference",
+            "Boom pricing key uses live scales + bottom-arm/BCM family (not Fixed Top Arm / XXL mesh XL)",
             "Assets/Scripts/Export/ProposalPricingResolver.cs",
             mustContain: new[]
             {
                 "InferSizesFromSelectables",
-                "InferBoomFamilyFromHierarchy",
+                "InferBoomFamily",
+                "ApplyBoomConfigurationManager",
                 "never overwrite live scale"
+            },
+            mustNotContain: null);
+
+        ExpectSource(checks, "SRC-BOOM-EXTRAS",
+            "Boom extras (covers/duplex/gas/shelves) priced on top of bundled boom package",
+            "Assets/Scripts/Export/ProposalPricingResolver.cs",
+            mustContain: new[]
+            {
+                "ResolveBoomExtraLines",
+                "IsBoomExtraPart",
+                "SumConfigListPrice"
             },
             mustNotContain: null);
 

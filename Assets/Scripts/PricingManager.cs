@@ -26,7 +26,9 @@ public class PricingManager : MonoBehaviour
     private readonly Dictionary<string, List<SelectablePrice>> _pricesByCategory = new Dictionary<string, List<SelectablePrice>>();
     private ExcelReader _excelReader;
     private readonly Dictionary<string, PriceExcelData> _priceCache = new Dictionary<string, PriceExcelData>();
-    private const int MaxCacheEntries = 200;
+    private readonly HashSet<string> _missCache = new HashSet<string>();
+    private readonly object _excelLock = new object();
+    private const int MaxCacheEntries = 500;
 
     private void Awake()
     {
@@ -66,32 +68,177 @@ public class PricingManager : MonoBehaviour
         string fixedPrice = null,
         string objectSize = null)
     {
+        if (targetObject == null)
+            return null;
+
         var existingPrice = targetObject.GetComponent<SelectablePrice>();
         if (existingPrice != null)
         {
-            Debug.LogWarning($"SelectablePrice already exists on {targetObject.name}");
+            // Update identity + ensure Excel data (do not bare-return a hollow component).
+            ApplyIdentity(existingPrice, isBoomObject, objectName, uiButtonName, excelSheetName, parentName, objectSize);
+            existingPrice.EnsurePricingDataLoaded(force: true);
+            if (!string.IsNullOrEmpty(fixedPrice) && existingPrice.objectPricingData == null)
+                existingPrice.Price = fixedPrice;
+            RegisterExistingPricingComponent(existingPrice);
             return existingPrice;
         }
 
-        var selectablePrice = CreateSelectablePrice(targetObject, isBoomObject, objectName, uiButtonName, excelSheetName, parentName, objectSize);
+        var selectablePrice = CreateSelectablePrice(
+            targetObject, isBoomObject, objectName, uiButtonName, excelSheetName, parentName, objectSize);
 
         RegisterPrice(selectablePrice);
 
-        if (!string.IsNullOrEmpty(fixedPrice))
-        {
+        // Always try Excel first so objectPricingData is populated for proposals.
+        // fixedPrice only fills the display cache when Excel misses — never skips the lookup.
+        bool loaded = await LoadPricingDataForComponent(selectablePrice);
+        if (!loaded && !string.IsNullOrEmpty(fixedPrice))
             selectablePrice.Price = fixedPrice;
-        }
-        else
+
+        // Keep the component even on Excel miss so restore/export can retry.
+        return selectablePrice;
+    }
+
+    /// <summary>
+    /// Create or refresh a <see cref="SelectablePrice"/> from saved identity and sync-load Excel.
+    /// Used by room/config load — never destroys on miss.
+    /// </summary>
+    public SelectablePrice EnsurePricingFromIdentity(
+        GameObject targetObject,
+        string sheetName,
+        string pricingObjectName,
+        string uiObjectName,
+        string size,
+        bool isBoomObject)
+    {
+        if (targetObject == null
+            || string.IsNullOrEmpty(sheetName)
+            || string.IsNullOrEmpty(pricingObjectName))
+            return null;
+
+        var price = targetObject.GetComponent<SelectablePrice>();
+        if (price == null)
         {
-            var success = await LoadPricingDataForComponent(selectablePrice);
-            if (!success)
-            {
-                RemovePricingComponent(selectablePrice);
-                return null;
-            }
+            price = CreateSelectablePrice(
+                targetObject, isBoomObject, pricingObjectName, uiObjectName, sheetName, null, size);
+            RegisterExistingPricingComponent(price);
+            price.EnsurePricingDataLoaded(force: true);
+            return price;
         }
 
-        return selectablePrice;
+        bool identityChanged =
+            !string.Equals(price.sheetName, sheetName, StringComparison.Ordinal)
+            || !string.Equals(price.pricingObjectName, pricingObjectName, StringComparison.Ordinal)
+            || (!string.IsNullOrEmpty(size) && !string.Equals(price.Size, size, StringComparison.Ordinal))
+            || price.isBoomObject != isBoomObject;
+        ApplyIdentity(price, isBoomObject, pricingObjectName, uiObjectName, sheetName, price.rootParentName, size);
+        RegisterExistingPricingComponent(price);
+        price.EnsurePricingDataLoaded(force: identityChanged || price.objectPricingData == null);
+        return price;
+    }
+
+    /// <summary>
+    /// Walk every TrackedObject and recreate/load SelectablePrice from saved identity
+    /// and/or catalog UI button names (legacy saves often omit sheet/price fields).
+    /// Call after room/config load (and before proposal export as a safety net).
+    /// </summary>
+    public static int RebuildPricingFromTrackedObjects()
+    {
+        if (Instance == null)
+            return 0;
+
+        var tracked = UnityEngine.Object.FindObjectsByType<TrackedObject>(
+            FindObjectsInactive.Include, FindObjectsSortMode.None);
+        int ensured = 0;
+        foreach (var to in tracked)
+        {
+            if (to == null)
+                continue;
+            var d = to.data;
+
+            if (!string.IsNullOrEmpty(d.sheetName) && !string.IsNullOrEmpty(d.priceObjectName))
+            {
+                bool isBoom = d.hasIsBoomObject
+                    ? d.isBoomObject
+                    : InferIsBoomObject(d.sheetName, d.priceObjectName, d.UIObjectName);
+
+                var price = Instance.EnsurePricingFromIdentity(
+                    to.gameObject,
+                    d.sheetName,
+                    d.priceObjectName,
+                    d.UIObjectName,
+                    d.size,
+                    isBoom);
+                if (price != null && price.objectPricingData != null)
+                    ensured++;
+                continue;
+            }
+
+            // Legacy / Carlyn-style saves: pricing identity was never serialized — only UIButtonname.
+            string uiBtn = d.UIButtonname;
+            if (string.IsNullOrEmpty(uiBtn) && to.TryGetComponent(out Selectable sel))
+                uiBtn = sel.UIButtonName;
+
+            if (string.IsNullOrEmpty(uiBtn))
+                continue;
+
+            if (ObjectMenu.Instance != null)
+                ObjectMenu.Instance.EnsureCatalogPricing(to.gameObject, uiBtn);
+
+            if (to.TryGetComponent(out SelectablePrice attached) && attached.objectPricingData != null)
+                ensured++;
+        }
+
+        // Refresh any SelectablePrice still missing Excel data.
+        var orphans = UnityEngine.Object.FindObjectsByType<SelectablePrice>(
+            FindObjectsInactive.Include, FindObjectsSortMode.None);
+        foreach (var sp in orphans)
+        {
+            if (sp == null || sp.objectPricingData != null)
+                continue;
+            if (sp.EnsurePricingDataLoaded(force: true) && sp.objectPricingData != null)
+                ensured++;
+        }
+
+        return ensured;
+    }
+
+    public static bool InferIsBoomObject(string sheetName, string pricingObjectName, string uiObjectName)
+    {
+        if (!string.IsNullOrEmpty(sheetName))
+        {
+            if (string.Equals(sheetName, DataFilePaths.sheetNameBoomIndividual, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(sheetName, DataFilePaths.sheetNameBoomCombined, StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (string.Equals(sheetName, DataFilePaths.sheetNameLight, StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+
+        string blob = $"{pricingObjectName} {uiObjectName}".ToLowerInvariant();
+        return blob.Contains("boom") || blob.Contains("service head") || blob.Contains("ceiling flange")
+               || blob.Contains("duplex") || blob.Contains("outlet");
+    }
+
+    static void ApplyIdentity(
+        SelectablePrice price,
+        bool isBoomObject,
+        string objectName,
+        string uiButtonName,
+        string excelSheetName,
+        string parentName,
+        string objectSize)
+    {
+        price.isBoomObject = isBoomObject;
+        price.pricingObjectName = objectName;
+        price.UIObjectName = uiButtonName;
+        price.sheetName = excelSheetName;
+        if (!string.IsNullOrEmpty(parentName))
+            price.rootParentName = parentName;
+        if (price.selectable == null)
+            price.selectable = price.GetComponent<Selectable>();
+        if (!string.IsNullOrEmpty(objectSize))
+            price.Size = objectSize;
+        else
+            Instance?.DetermineSizeForPricing(price, price.gameObject, null);
     }
 
     private SelectablePrice CreateSelectablePrice(GameObject targetObject, bool isBoomObject, string objectName,
@@ -138,22 +285,14 @@ public class PricingManager : MonoBehaviour
 
     private async Task<bool> LoadPricingDataForComponent(SelectablePrice selectablePrice)
     {
-        PriceExcelData data;
-
-        if (enableAsyncPricing)
-        {
-            data = await Task.Run(() => GetCachedPricingData(selectablePrice.sheetName, selectablePrice.pricingObjectName, selectablePrice.Size));
-        }
-        else
-        {
-            data = GetCachedPricingData(selectablePrice.sheetName, selectablePrice.pricingObjectName, selectablePrice.Size);
-        }
+        // Prefer sync Excel lookup (locked). Keep a yield so callers can remain async
+        // without flooding the frame when many components are added.
+        await Task.Yield();
+        PriceExcelData data = GetCachedPricingData(
+            selectablePrice.sheetName, selectablePrice.pricingObjectName, selectablePrice.Size);
 
         if (data == null)
-        {
-            Debug.LogError($"Pricing not found for \"{selectablePrice.pricingObjectName}\" in sheet \"{selectablePrice.sheetName}\"!");
             return false;
-        }
 
         ApplyPricingData(selectablePrice, data);
         return true;
@@ -197,30 +336,51 @@ public class PricingManager : MonoBehaviour
     {
         string cacheKey = GenerateCacheKey(sheetName, objectName, size);
 
-        if (_priceCache.TryGetValue(cacheKey, out var cachedData))
-            return cachedData;
-
-        PriceExcelData data = null;
-
-        if (!string.IsNullOrEmpty(size))
+        lock (_excelLock)
         {
-            data = _excelReader?.FetchPricingDataFromExcel(sheetName, objectName, size);
-            if (data != null) data.ObjectSize = size;
-        }
+            if (_priceCache.TryGetValue(cacheKey, out var cachedData))
+                return cachedData;
 
-        if (data == null)
-        {
-            data = _excelReader?.FetchPricingDataFromExcel(sheetName, objectName);
-            if (data != null) data.ObjectSize = null;
-        }
+            if (_missCache.Contains(cacheKey))
+                return null;
 
-        if (data != null)
-        {
-            string finalKey = GenerateCacheKey(sheetName, objectName, data.ObjectSize);
-            CachePricingData(finalKey, data);
-        }
+            PriceExcelData data = null;
 
-        return data;
+            if (!string.IsNullOrEmpty(size))
+            {
+                data = _excelReader?.FetchPricingDataFromExcel(sheetName, objectName, size);
+                if (data != null) data.ObjectSize = size;
+            }
+
+            if (data == null)
+            {
+                string noSizeKey = GenerateCacheKey(sheetName, objectName, null);
+                if (!string.IsNullOrEmpty(size) && _missCache.Contains(noSizeKey))
+                {
+                    _missCache.Add(cacheKey);
+                    return null;
+                }
+
+                data = _excelReader?.FetchPricingDataFromExcel(sheetName, objectName);
+                if (data != null) data.ObjectSize = null;
+            }
+
+            if (data != null)
+            {
+                string finalKey = GenerateCacheKey(sheetName, objectName, data.ObjectSize);
+                CachePricingData(finalKey, data);
+                if (!string.Equals(finalKey, cacheKey, StringComparison.Ordinal))
+                    CachePricingData(cacheKey, data);
+            }
+            else
+            {
+                _missCache.Add(cacheKey);
+                if (!string.IsNullOrEmpty(size))
+                    _missCache.Add(GenerateCacheKey(sheetName, objectName, null));
+            }
+
+            return data;
+        }
     }
 
     private void RegisterPrice(SelectablePrice price)
@@ -284,41 +444,26 @@ public class PricingManager : MonoBehaviour
 
     public async Task BatchUpdatePrices(IEnumerable<SelectablePrice> prices)
     {
-        var semaphore = new System.Threading.SemaphoreSlim(maxConcurrentPricingOperations);
-        var tasks = prices.Where(p => p != null).Select(async price =>
+        // Keep Excel I/O on the main thread — FileStream + Unity objects are not thread-safe.
+        foreach (var price in prices.Where(p => p != null))
         {
-            await semaphore.WaitAsync();
-            try
-            {
-                await LoadPricingDataAsync(price);
-            }
-            finally
-            {
-                semaphore.Release();
-            }
-        });
-
-        await Task.WhenAll(tasks);
+            price.EnsurePricingDataLoaded(force: true);
+            await Task.Yield();
+        }
     }
 
     private async Task LoadPricingDataAsync(SelectablePrice price)
     {
-        if (_excelReader == null || price == null) return;
-
-        await Task.Run(() =>
-        {
-            try
-            {
-                price.GetPricingDataFromExcel(price.sheetName);
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"Failed to load pricing data for {price.pricingObjectName}: {e.Message}");
-            }
-        });
+        if (price == null) return;
+        await Task.Yield();
+        price.EnsurePricingDataLoaded(force: true);
     }
 
-    public void ClearCache() => _priceCache.Clear();
+    public void ClearCache()
+    {
+        _priceCache.Clear();
+        _missCache.Clear();
+    }
 
     public string ExportPricingDataToCSV()
     {

@@ -550,32 +550,53 @@ public class ObjectMenu : MonoBehaviour
 
     // Replace the HandleOutletAndPricing method in ObjectMenu.cs with this optimized version:
 
-    public async void HandleOutletAndPricing(GameObject obj, string uiBtnName, TrackedObject.Data? trackedObject = null)
+    public void HandleOutletAndPricing(GameObject obj, string uiBtnName, TrackedObject.Data? trackedObject = null)
     {
         if (ConfigurationManager.IsLoading)
             return;
 
+        EnsureCatalogPricing(obj, uiBtnName);
+    }
+
+    /// <summary>
+    /// Sync attach/refresh of SelectablePrice from a catalog UI button name.
+    /// Safe during room load — does not early-out on <see cref="ConfigurationManager.IsLoading"/>.
+    /// </summary>
+    public void EnsureCatalogPricing(GameObject obj, string uiBtnName)
+    {
+        if (obj == null || string.IsNullOrWhiteSpace(uiBtnName))
+            return;
+
+        uiBtnName = uiBtnName.Trim();
+
         string name = obj.name;
-        // If this object is an outlet on a boom, validate its configuration first
         if (IsOutlet(name))
-        {
             ValidateOutletConfiguration(obj);
-        }
 
-        // Determine pricing configuration for this object
         var pricingConfig = GetPricingConfiguration(obj, name, uiBtnName);
+        if (!pricingConfig.ShouldAddPrice)
+            return;
 
-        if (pricingConfig.ShouldAddPrice)
+        if (pricingConfig.ShouldRemoveExistingPrice && pricingConfig.OutletParent != null)
         {
-            // Use PricingManager to add pricing component (centralized handling)
-            await AddPricingComponent(obj, pricingConfig);
-
-            // If this outlet requires a duplex watcher (e.g., HV outlet combos), add it
-            if (pricingConfig.RequiresDuplexWatcher)
-            {
-                AddDuplexWatcher(obj, uiBtnName);
-            }
+            var existingPrice = pricingConfig.OutletParent.GetComponentInChildren<SelectablePrice>();
+            if (existingPrice != null)
+                Destroy(existingPrice);
         }
+
+        if (PricingManager.Instance != null)
+        {
+            PricingManager.Instance.EnsurePricingFromIdentity(
+                obj,
+                pricingConfig.ExcelFileName,
+                pricingConfig.PricingObjectName,
+                pricingConfig.UIButtonName,
+                size: null,
+                isBoomObject: pricingConfig.IsBoomObject);
+        }
+
+        if (pricingConfig.RequiresDuplexWatcher)
+            AddDuplexWatcher(obj, uiBtnName);
     }
     // Helper methods to support the optimized HandleOutletAndPricing:
 
@@ -608,7 +629,11 @@ public class ObjectMenu : MonoBehaviour
             UIButtonName = uiBtnName,
             PricingObjectName = uiBtnName,
             IsBoomObject = uiBtnName.StartsWith("Boom", StringComparison.OrdinalIgnoreCase),
-            ShouldAddPrice = true
+            // Only catalog boom/light (and outlet) rows map to the pricing workbook.
+            ShouldAddPrice = uiBtnName.StartsWith("Boom", StringComparison.OrdinalIgnoreCase)
+                             || uiBtnName.StartsWith("Lights", StringComparison.OrdinalIgnoreCase)
+                             || uiBtnName.StartsWith("Light", StringComparison.OrdinalIgnoreCase)
+                             || IsOutlet(objName)
         };
 
         // Special handling for boom objects

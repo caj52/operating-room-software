@@ -256,7 +256,8 @@ public class UI_Button_DuplicateObject : MonoBehaviour
                 originalPrice.UIObjectName,
                 originalPrice.sheetName,
                 originalPrice.rootParentName,
-                originalPrice.Price
+                fixedPrice: null,
+                objectSize: originalPrice.Size
             );
 
             SetupSizeReference(originalPrice, newPrice, original, duplicate);
