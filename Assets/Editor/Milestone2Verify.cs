@@ -166,10 +166,10 @@ public static class Milestone2Verify
             mustNotContain: new[] { "877 789 8106" });
 
         ExpectSource(checks, "SRC-SALES-REP",
-            "Proposal prints Sales Rep beside Project",
+            "Proposal header prints sales rep name/phone/email",
             "Assets/_DevWIP/Faizan/PDF/Scripts/ProposalPDFGenerator.cs",
-            mustContain: new[] { "Sales Rep:", "salesRepName", "salesRepPhone" },
-            mustNotContain: null);
+            mustContain: new[] { "salesRepName", "salesRepPhone", "salesRepEmail" },
+            mustNotContain: new[] { "Sales Rep:" });
 
         ExpectSource(checks, "SRC-BOOM-KEY",
             "Boom pricing key uses live scales + hierarchy inference",
@@ -197,7 +197,7 @@ public static class Milestone2Verify
         ExpectSource(checks, "SRC-CLIENT-DATA",
             "Client Data suppresses auto-popup / duplicate DDOL",
             "Assets/Scripts/UI/UI_ClientMetaData.cs",
-            mustContain: new[] { "_userRequestedOpen", "Destroy(gameObject)" },
+            mustContain: new[] { "_open", "Destroy(gameObject)", "sceneLoaded" },
             mustNotContain: null);
 
         ExpectSource(checks, "SRC-DOOR-FLUSH",
@@ -483,8 +483,8 @@ Paste updates into chat or re-run verify after exports so ART-* flips PASS.
 
 --- Sales Proposal ---
 [ ] Header phone = 214.987.0404
-[ ] Sales rep name/phone/email present when set in Client Data (beside Project)
-[ ] Sales rep fields editable from Client Data and from proposal preview click
+[ ] Sales rep name/phone/email present in header when set
+[ ] Sales rep editable from proposal preview (header hotspot / side rail) — not a second Project-line label
 [ ] Config1 list ≈ $106,151.40 (± small % vs Estimating Form)
 [ ] Config2 list ≈ $38,190.13 (Spring boom — not Powered 1000mm)
 [ ] Config3 list ≈ $74,115.64

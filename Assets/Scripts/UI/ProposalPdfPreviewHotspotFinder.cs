@@ -53,12 +53,16 @@ public static class ProposalPdfPreviewHotspotFinder
                     continue;
 
                 int pageIndex = page - 1;
+                // Page 2+ repeats the company header (sales rep / submitted to / project / config).
+                // Keep those clickable on every page — not just page 1.
                 AddLabelRegion(results, glyphs, pageIndex, pageW, pageH,
                     ProposalPreviewEditKind.ClientData, "Submitted to / client",
-                    g => StartsWithIgnoreCase(g.Text, "Submitted To"), preferTop: true);
+                    g => StartsWithIgnoreCase(g.Text, "Submitted To"), preferTop: true,
+                    expandRightToContent: true, minHeightPts: 22f);
                 AddProject(results, glyphs, pageIndex, pageW, pageH);
                 AddSalesRep(results, glyphs, pageIndex, pageW, pageH, salesName, salesPhone, salesEmail);
                 AddConfigTitle(results, glyphs, pageIndex, pageW, pageH, configName);
+                AddPageEventProjectInfo(results, glyphs, pageIndex, pageW, pageH);
                 AddOptions(results, glyphs, pageIndex, pageW, pageH);
                 AddDiscount(results, glyphs, pageIndex, pageW, pageH);
                 AddNotes(results, glyphs, pageIndex, pageW, pageH);
@@ -80,6 +84,10 @@ public static class ProposalPdfPreviewHotspotFinder
         return listener.Glyphs;
     }
 
+    /// <summary>
+    /// Click target is the original header block under "Proposal" (name/phone/email).
+    /// Present on every proposal page that repeats the company header (page 2+ included).
+    /// </summary>
     static void AddSalesRep(
         List<ProposalPreviewHotspot> results,
         List<Glyph> glyphs,
@@ -92,32 +100,6 @@ public static class ProposalPdfPreviewHotspotFinder
     {
         var lines = BuildLines(glyphs);
 
-        // 1) Generous strip on the Project line covering "Sales Rep:" + values.
-        foreach (var line in lines)
-        {
-            int idx = line.Text.IndexOf("Sales Rep", StringComparison.OrdinalIgnoreCase);
-            if (idx < 0)
-                continue;
-
-            float labelFrac = idx / Math.Max(1f, line.Text.Length);
-            float cutX = line.X0 + (line.X1 - line.X0) * Mathf.Clamp01(labelFrac - 0.05f);
-            // Keep a wide clickable zone even when the label is short / empty.
-            cutX = Mathf.Min(cutX, pageW * 0.52f);
-            float y0 = line.Y0 - 14f;
-            float y1 = line.Y1 + 14f;
-            if (y1 - y0 < 36f)
-            {
-                float mid = (y0 + y1) * 0.5f;
-                y0 = mid - 18f;
-                y1 = mid + 18f;
-            }
-
-            EmitSalesRepSpot(results, pageIndex, pageW, pageH,
-                cutX - PadX, y0, Mathf.Max(pageW - 10f, cutX + 160f), y1);
-            break;
-        }
-
-        // 2) Header block under "Proposal" for name / phone / email (and empty click target).
         TextLine proposalLine = default;
         bool hasProposal = false;
         foreach (var line in lines)
@@ -129,7 +111,7 @@ public static class ProposalPdfPreviewHotspotFinder
             break;
         }
 
-        if (!hasProposal || pageIndex != 0)
+        if (!hasProposal)
             return;
 
         var headerHits = new List<Glyph>();
@@ -173,6 +155,7 @@ public static class ProposalPdfPreviewHotspotFinder
         }
         else
         {
+            // Empty placeholder under "Proposal" so the field stays editable.
             yTop = proposalLine.Y0 - 2f;
             yBot = proposalLine.Y0 - 78f;
         }
@@ -229,26 +212,53 @@ public static class ProposalPdfPreviewHotspotFinder
             return;
 
         var list = new List<Glyph>(hit.Glyphs);
-        int salesIdx = hit.Text.IndexOf("Sales Rep", StringComparison.OrdinalIgnoreCase);
-        if (salesIdx >= 0)
-        {
-            float labelFrac = salesIdx / Math.Max(1f, hit.Text.Length);
-            float cutX = hit.X0 + (hit.X1 - hit.X0) * Mathf.Clamp01(labelFrac - 0.05f);
-            cutX = Mathf.Min(cutX, pageW * 0.52f);
-            list = list.Where(g => g.X1 <= cutX + 2f).ToList();
-            if (list.Count == 0)
-                return;
-        }
-        else
-        {
-            list.AddRange(glyphs.Where(g =>
-                Mathf.Abs(g.MidY - hit.MidY) < 6f
-                && g.X0 >= hit.X0 - 1f));
-        }
+        list.AddRange(glyphs.Where(g =>
+            Mathf.Abs(g.MidY - hit.MidY) < 6f
+            && g.X0 >= hit.X0 - 1f));
 
         EmitUnion(results, list, pageIndex, pageW, pageH,
             ProposalPreviewEditKind.Project, "Project",
-            fullContentWidth: salesIdx < 0, minHeightPts: 18f);
+            fullContentWidth: true, minHeightPts: 22f);
+    }
+
+    /// <summary>
+    /// Page 2+ page-event stamp: "Configuration 1: {name}" (and any extra Project /
+    /// Submitted lines that survived footer filtering). Maps to the same editors as the header.
+    /// </summary>
+    static void AddPageEventProjectInfo(
+        List<ProposalPreviewHotspot> results,
+        List<Glyph> glyphs,
+        int pageIndex,
+        float pageW,
+        float pageH)
+    {
+        if (pageIndex <= 0)
+            return;
+
+        var lines = BuildLines(glyphs);
+        foreach (var line in lines)
+        {
+            string t = line.Text.Trim();
+            if (StartsWithIgnoreCase(t, "Configuration 1:"))
+            {
+                EmitUnion(results, line.Glyphs, pageIndex, pageW, pageH,
+                    ProposalPreviewEditKind.ConfigTitle, "Configuration title",
+                    fullContentWidth: true, minHeightPts: 20f);
+            }
+            else if (StartsWithIgnoreCase(t, "Project:") && line.MidY < pageH * 0.35f)
+            {
+                // Lower-page stamp only (header Project is already covered).
+                EmitUnion(results, line.Glyphs, pageIndex, pageW, pageH,
+                    ProposalPreviewEditKind.Project, "Project",
+                    fullContentWidth: true, minHeightPts: 20f);
+            }
+            else if (StartsWithIgnoreCase(t, "Submitted To") && line.MidY < pageH * 0.35f)
+            {
+                EmitUnion(results, line.Glyphs, pageIndex, pageW, pageH,
+                    ProposalPreviewEditKind.ClientData, "Submitted to / client",
+                    fullContentWidth: true, minHeightPts: 20f);
+            }
+        }
     }
 
     static void AddConfigTitle(
@@ -268,7 +278,7 @@ public static class ProposalPdfPreviewHotspotFinder
             {
                 string t = l.Text.Trim().TrimStart('\t');
                 if (StartsWithIgnoreCase(t, "Configuration 1:"))
-                    return false;
+                    return true;
                 return string.Equals(t, configName, StringComparison.OrdinalIgnoreCase)
                        || t.EndsWith(configName, StringComparison.OrdinalIgnoreCase);
             })
@@ -565,7 +575,7 @@ public static class ProposalPdfPreviewHotspotFinder
             float y0 = Min4(bl[Vector.I2], br[Vector.I2], tl[Vector.I2], tr[Vector.I2]);
             float y1 = Max4(bl[Vector.I2], br[Vector.I2], tl[Vector.I2], tr[Vector.I2]);
 
-            if (y1 < _minY)
+            if (y1 < _minY && !IsEditableLabel(text))
                 return;
 
             Glyphs.Add(new Glyph
@@ -576,6 +586,16 @@ public static class ProposalPdfPreviewHotspotFinder
                 X1 = x1,
                 Y1 = y1
             });
+        }
+
+        static bool IsEditableLabel(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+            string t = text.TrimStart();
+            return t.StartsWith("Project:", StringComparison.OrdinalIgnoreCase)
+                   || t.StartsWith("Submitted To", StringComparison.OrdinalIgnoreCase)
+                   || t.StartsWith("Configuration 1:", StringComparison.OrdinalIgnoreCase);
         }
 
         static float Min4(float a, float b, float c, float d) => Mathf.Min(Mathf.Min(a, b), Mathf.Min(c, d));

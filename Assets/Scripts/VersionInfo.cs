@@ -31,7 +31,7 @@ public class VersionInfo : MonoBehaviour
 /// </summary>
 public static class AppVersion
 {
-    public const string Number = "1.5.0";
+    public const string Number = "1.5.1";
 
     public static string DisplayLabel => "OR Software V " + Number;
 }

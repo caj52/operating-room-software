@@ -1484,26 +1484,8 @@ public class ProposalPDFGenerator : MonoBehaviour
         clientTable.AddCell(new PdfPCell(new Phrase($"Submitted To: {clientName}", boldFont)) { BackgroundColor = BaseColor.LIGHT_GRAY, Border = Rectangle.NO_BORDER, Padding = 5 });
         document.Add(clientTable);
         document.Add(new Paragraph("\n", normalFont));
-        // Always print Sales Rep beside Project so the label is editable even when empty.
-        string projectLine = string.IsNullOrWhiteSpace(projectName) ? "Project:" : $"Project: {projectName}";
-        string repBits = BuildSalesRepBits(salesRepName, salesRepPhone, salesRepEmail);
-        projectLine = string.IsNullOrWhiteSpace(repBits)
-            ? $"{projectLine}     Sales Rep:"
-            : $"{projectLine}     Sales Rep: {repBits}";
-        document.Add(new Paragraph(projectLine, new Font(titleFont.BaseFont, titleFont.Size, Font.UNDERLINE)));
+        document.Add(new Paragraph($"Project: {projectName}", new Font(titleFont.BaseFont, titleFont.Size, Font.UNDERLINE)));
         document.Add(new Paragraph("\n", normalFont));
-    }
-
-    private static string BuildSalesRepBits(string name, string phone, string email)
-    {
-        var parts = new List<string>();
-        if (!string.IsNullOrWhiteSpace(name))
-            parts.Add(name.Trim());
-        if (!string.IsNullOrWhiteSpace(phone))
-            parts.Add(phone.Trim());
-        if (!string.IsNullOrWhiteSpace(email))
-            parts.Add(email.Trim());
-        return parts.Count == 0 ? "" : string.Join("  |  ", parts);
     }
 
     private void AddTableTitle(Document doc, string text)
