@@ -880,12 +880,14 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     /// Attach-chain children need inverse Z of this selectable's tube scale.
     /// SetScaleLevel does this live; boom saves usually persist it, light drop tubes often don't.
     /// Call on save and after load so both paths share the same contract.
+    ///
+    /// If the AP inverse was missing, Unity parenting often bakes that same inverse onto
+    /// attached selectables (e.g. BoomDropTube local Z = 1/coverZ). Writing the AP inverse
+    /// without undoing that bake double-compensates and stretches the whole arm on save/load.
     /// </summary>
     public void EnsureAttachChainScaleCompensation()
     {
-        float targetZ = CurrentScaleLevel != null ? CurrentScaleLevel.ScaleZ : transform.localScale.z;
-        if (targetZ <= 0.0001f || Mathf.Abs(targetZ - 1f) < 0.0001f)
-            targetZ = transform.localScale.z;
+        float targetZ = ResolveAttachChainTargetZ();
         if (targetZ <= 0.0001f || Mathf.Abs(targetZ - 1f) < 0.0001f)
         {
             ScaleAuditLog.Event("Sel.EnsureAttachChain",
@@ -919,6 +921,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             {
                 ScaleAuditLog.Event("Sel.EnsureAttachChain.child",
                     $"skip-ok child={child.name} local={cls} lossy={child.lossyScale} z*targetZ={product:G6}");
+                // AP is correct, but a prior bake may still leave inverse Z on attached kids.
+                StripAbsorbedAttachInverseFromChildren(child, targetZ, inv);
                 continue;
             }
 
@@ -927,9 +931,160 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 Mathf.Abs(cls.y) < 1e-6f ? 1f : cls.y,
                 inv);
             child.localScale = next;
+            // Only strip kids that absorbed the inverse — do not rescale spheres/meshes
+            // (that would permanently bake the pre-compensation squash into their locals).
+            StripAbsorbedAttachInverseFromChildren(child, targetZ, inv);
             ScaleAuditLog.Warn("Sel.EnsureAttachChain.child",
                 $"WRITE child={child.name} before={cls} after={next} " +
                 $"lossyAfter={child.lossyScale} z*targetZWas={product:G6}");
+        }
+
+        // Same contract as interactive SetScaleLevel for untracked mesh children (BoomSegment_1-3).
+        RepairUntrackedChildInversesAfterLoad();
+    }
+
+    /// <summary>
+    /// Prefer an intentional ScaleLevel Z. Fall back to local Z only for free-scale objects
+    /// (no positive discrete levels). Never treat a parenting bake (e.g. arm local Z=1.25 under
+    /// drop-tube 0.8) as a discrete length when ScaleLevels exist but CurrentScaleLevel is unset.
+    /// </summary>
+    private float ResolveAttachChainTargetZ()
+    {
+        float localZ = transform.localScale.z;
+        float levelZ = CurrentScaleLevel != null ? CurrentScaleLevel.ScaleZ : 0f;
+
+        bool hasPositiveLevels = false;
+        if (ScaleLevels != null)
+        {
+            for (int i = 0; i < ScaleLevels.Count; i++)
+            {
+                ScaleLevel level = ScaleLevels[i];
+                if (level != null && level.ScaleZ > 0.0001f)
+                {
+                    hasPositiveLevels = true;
+                    break;
+                }
+            }
+        }
+
+        if (levelZ > 0.0001f)
+            return levelZ;
+
+        if (!hasPositiveLevels)
+            return localZ;
+
+        // Discrete-scale object with unset CurrentScaleLevel: only trust local Z if it matches a level.
+        for (int i = 0; i < ScaleLevels.Count; i++)
+        {
+            ScaleLevel level = ScaleLevels[i];
+            if (level != null && level.ScaleZ > 0.0001f && Mathf.Abs(level.ScaleZ - localZ) < 0.05f)
+                return level.ScaleZ;
+        }
+
+        return 0f;
+    }
+
+    /// <summary>
+    /// After load, tracked locals are restored but untracked mesh children (e.g. BoomSegment_1-3)
+    /// keep prefab scale. Interactive SetScaleLevel had inverse-scaled them; re-apply that when
+    /// the child is still ~1 under a non-1 parent Z.
+    /// </summary>
+    public void RepairUntrackedChildInversesAfterLoad()
+    {
+        // Only discrete length scales (SetScaleLevel) inverse untracked mesh children.
+        // Free-scale covers / parenting-bake locals must not rewrite mesh kids here.
+        float levelZ = CurrentScaleLevel != null ? CurrentScaleLevel.ScaleZ : 0f;
+        if (levelZ <= 0.0001f)
+            return;
+
+        float targetZ = transform.localScale.z;
+        if (targetZ <= 0.0001f || Mathf.Abs(targetZ - 1f) < 0.001f)
+            return;
+        if (Mathf.Abs(targetZ - levelZ) > 0.05f)
+            targetZ = levelZ;
+
+        float inv = 1f / targetZ;
+        for (int i = 0; i < transform.childCount; i++)
+        {
+            Transform child = transform.GetChild(i);
+            if (child == null) continue;
+            if (child.GetComponent<AttachmentPoint>() != null)
+                continue;
+            if (child.GetComponent<TrackedObject>() != null)
+                continue;
+
+            Vector3 cls = child.localScale;
+            if (Mathf.Abs(cls.z - 1f) > 0.05f)
+                continue;
+            if (Mathf.Abs(cls.z * targetZ - 1f) < 0.05f)
+                continue;
+
+            Vector3 next = new Vector3(cls.x, cls.y, cls.z * inv);
+            child.localScale = next;
+            ScaleAuditLog.Warn("Sel.RepairUntrackedChildInverse",
+                $"parent={name} child={child.name} before={cls} after={next} parentZ={targetZ:G6}");
+        }
+    }
+
+    /// <summary>
+    /// Before parenting a new object under an attach point, make sure the owning selectable's
+    /// APs already have inverse-Z compensation. Otherwise Unity rebakes 1/parentZ into the
+    /// new child's local scale and the assembly looks stretched/squashed immediately on place.
+    /// </summary>
+    public static void EnsureAttachChainForAttachmentPoint(AttachmentPoint ap)
+    {
+        if (ap == null) return;
+        Transform p = ap.transform != null ? ap.transform.parent : null;
+        while (p != null)
+        {
+            if (p.TryGetComponent(out Selectable sel))
+            {
+                sel.EnsureAttachChainScaleCompensation();
+                return;
+            }
+            p = p.parent;
+        }
+    }
+
+    /// <summary>
+    /// If an attached object carries the same inverse Z as the AP (parentTargetZ * localZ ≈ 1),
+    /// that inverse was baked onto the child instead of (or in addition to) the AP. Reset to 1.
+    /// Real length scales (0.2, 0.6, …) do not satisfy localZ ≈ 1/parentTargetZ.
+    /// </summary>
+    private static void StripAbsorbedAttachInverseFromChildren(Transform ap, float parentTargetZ, float inv)
+    {
+        if (ap == null) return;
+
+        for (int c = 0; c < ap.childCount; c++)
+        {
+            Transform attached = ap.GetChild(c);
+            if (attached == null) continue;
+
+            Vector3 als = attached.localScale;
+            if (Mathf.Abs(als.z - 1f) < 0.05f)
+                continue;
+            // Same canceling role as AP inverse: childZ * parentZ ≈ 1 and childZ ≈ inv.
+            if (Mathf.Abs(als.z * parentTargetZ - 1f) > 0.05f)
+                continue;
+            if (Mathf.Abs(als.z - inv) > 0.05f)
+                continue;
+
+            // Don't strip a selectable whose active ScaleLevel intentionally is this Z
+            // (discrete length). Outer BoomDropTube often has ScaleZ=0 / unset — strip those.
+            if (attached.TryGetComponent(out Selectable sel) && sel.CurrentScaleLevel != null)
+            {
+                float sz = sel.CurrentScaleLevel.ScaleZ;
+                float size = sel.CurrentScaleLevel.Size;
+                if (sz > 0.0001f && size > 0.0001f && Mathf.Abs(sz - als.z) < 0.05f
+                    && Mathf.Abs(sz - inv) > 0.05f)
+                    continue;
+            }
+
+            Vector3 fixedScale = new Vector3(als.x, als.y, 1f);
+            attached.localScale = fixedScale;
+            ScaleAuditLog.Warn("Sel.EnsureAttachChain.stripAbsorbed",
+                $"ap={ap.name} child={attached.name} before={als} after={fixedScale} " +
+                $"parentTargetZ={parentTargetZ:G6} inv={inv:G6}");
         }
     }
 
@@ -1079,7 +1234,20 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
     public void UpdateZScaling(bool setSelected)
     {
-        if (ScaleLevels.Count == 0) return;
+        if (ScaleLevels == null || ScaleLevels.Count == 0) return;
+
+        // Broken / free-scale lists (all ScaleZ ≈ 0): do not snap to a zero level.
+        bool anyPositive = false;
+        for (int i = 0; i < ScaleLevels.Count; i++)
+        {
+            if (ScaleLevels[i] != null && ScaleLevels[i].ScaleZ > 0.0001f)
+            {
+                anyPositive = true;
+                break;
+            }
+        }
+        if (!anyPositive) return;
+
         //get closest scale in list
         ScaleLevel closest = ScaleLevels.OrderBy(item => Math.Abs(_gizmoHandler.CurrentScaleDrag.z - item.ScaleZ)).First();
 

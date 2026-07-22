@@ -1459,7 +1459,11 @@ public class ConfigurationManager : MonoBehaviour
             foreach (Selectable sel in to.GetComponentsInChildren<Selectable>(true))
             {
                 if (sel == null) continue;
-                try { sel.EnsureAttachChainScaleCompensation(); }
+                try
+                {
+                    sel.EnsureAttachChainScaleCompensation();
+                    sel.RepairUntrackedChildInversesAfterLoad();
+                }
                 catch (Exception ex)
                 {
                     Debug.LogWarning($"[FixLoadedNonUniformDropTubeScales] {sel.name}: {ex.Message}");

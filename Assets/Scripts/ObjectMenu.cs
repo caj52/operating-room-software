@@ -511,10 +511,17 @@ public class ObjectMenu : MonoBehaviour
     {
         if (_attachmentPoint != null)
         {
+            // Compensate the parent selectable's APs before parenting so Unity does not
+            // bake 1/coverZ into the new object's local scale.
+            Selectable.EnsureAttachChainForAttachmentPoint(_attachmentPoint);
+
             _attachmentPoint.SetAttachedSelectable(selectable);
             selectable.ParentAttachmentPoint = _attachmentPoint;
             obj.transform.SetPositionAndRotation(_attachmentPoint.transform.position, _attachmentPoint.transform.rotation);
-            obj.transform.parent = _attachmentPoint.transform;
+            obj.transform.SetParent(_attachmentPoint.transform, true);
+
+            // If anything still baked an inverse onto the new root, strip it now that it is a child.
+            Selectable.EnsureAttachChainForAttachmentPoint(_attachmentPoint);
 
             PlacementLoadOptimizer.FinalizeInstanceColliders(obj);
             PlacementLoadOptimizer.RestoreInstanceCollidersAfterLoad(obj);

@@ -678,6 +678,8 @@ private IEnumerator Start()
                     return;
                 }
 
+                if (NeedsAttachChainEnsureAfterDirectScale(_selectable))
+                    _selectable.EnsureAttachChainScaleCompensation();
                 return;
             }
 
@@ -686,6 +688,11 @@ private IEnumerator Start()
         }
 
         _selectable.transform.localScale = new Vector3(xScale, yScale, zScale);
+
+        // Discrete ScaleLevels path uses UpdateZScaling → SetScaleLevel (inverse-scales APs).
+        // Free-scale / broken ScaleZ=0 lists write localScale directly — still need AP inverse.
+        if (NeedsAttachChainEnsureAfterDirectScale(_selectable))
+            _selectable.EnsureAttachChainScaleCompensation();
 
         if (_selectable.ParentSelectable != null)
         {
@@ -704,7 +711,7 @@ private IEnumerator Start()
     private float CalculateZScale(Gizmo gizmo)
     {
         float zScale = _localScaleBeforeStartDrag.z;
-        if (_selectable.ScaleLevels.Count == 0)
+        if (UsesFreeZScale(_selectable))
         {
             if (_selectable.IsGizmoSettingAllowed(GizmoType.Scale, Axis.Z))
             {
@@ -738,10 +745,36 @@ private IEnumerator Start()
             yScale = Selectable.RoundToNearestHalfInch(yScale);
         }
 
-        if (_selectable.ScaleLevels.Count == 0 && zScale != _localScaleBeforeStartDrag.z)
+        if (UsesFreeZScale(_selectable) && zScale != _localScaleBeforeStartDrag.z)
         {
             zScale = Selectable.RoundToNearestHalfInch(zScale);
         }
+    }
+
+    /// <summary>
+    /// True when gizmo writes Z directly (no discrete ScaleLevels, or all ScaleZ are 0/broken).
+    /// Those objects need EnsureAttachChain after the write; SetScaleLevel will not run.
+    /// </summary>
+    private static bool NeedsAttachChainEnsureAfterDirectScale(Selectable selectable)
+    {
+        return UsesFreeZScale(selectable);
+    }
+
+    private static bool UsesFreeZScale(Selectable selectable)
+    {
+        if (selectable == null)
+            return true;
+        if (selectable.ScaleLevels == null || selectable.ScaleLevels.Count == 0)
+            return true;
+
+        for (int i = 0; i < selectable.ScaleLevels.Count; i++)
+        {
+            Selectable.ScaleLevel level = selectable.ScaleLevels[i];
+            if (level != null && level.ScaleZ > 0.0001f)
+                return false;
+        }
+
+        return true;
     }
 
     // Additional methods for handling specific parts of the gizmo handling logic would go here.
