@@ -106,6 +106,9 @@ public class ConfigurationManager : MonoBehaviour
 
     private const string OperatingTableGuid = "gameobject_839a064b625fb724ab496f21e46986e7";
     private const string CeilingLightGuid = "gameobject_ada2137b3a434a54fbc11fd0fb37f568";
+    /// <summary>Scene name of the ceiling RoomBoundary (VirtualParent for ceiling fixtures).</summary>
+    private const string CeilingBoundaryName = "RoomBoundary_Ceil";
+    private const string FloorBoundaryName = "RoomBoundary_Floor";
 
     private static readonly Vector3[] DefaultCeilingLightPositions =
     {
@@ -181,6 +184,15 @@ public class ConfigurationManager : MonoBehaviour
         if (!ShouldSeedColdStartFixtures() || prefab == null)
             return;
 
+        // Match scene fixtures: virtual-parent to the ceiling so height changes and
+        // Show Ceiling Objects work. Place on the *current* ceiling underside first —
+        // if we bake relative offset while the ceiling is still at the scene default
+        // (~1.4m) and room size is applied later, lights jump above the slab and vanish.
+        Transform ceiling = FindBoundaryTransform(CeilingBoundaryName);
+        float ceilingY = ceiling != null
+            ? ceiling.position.y - (RoomBoundary.DefaultWallThickness * 0.5f)
+            : DefaultCeilingLightPositions[0].y;
+
         Quaternion rot = new Quaternion(0.7071068f, 0f, 0f, 0.7071068f);
         for (int i = 0; i < DefaultCeilingLightPositions.Length; i++)
         {
@@ -190,9 +202,13 @@ public class ConfigurationManager : MonoBehaviour
             go.name = i == 0 ? "CeilingLightFixture" : $"CeilingLightFixture ({i})";
             if (room != null)
                 go.transform.SetParent(room, false);
-            go.transform.localPosition = DefaultCeilingLightPositions[i];
+
+            Vector3 xz = DefaultCeilingLightPositions[i];
+            go.transform.position = new Vector3(xz.x, ceilingY, xz.z);
             go.transform.localRotation = rot;
             go.transform.localScale = Vector3.one;
+
+            AttachKeepRelativeToBoundary(go, CeilingBoundaryName);
             FinalizeSpawnedBaseFixture(go);
         }
     }
@@ -218,11 +234,46 @@ public class ConfigurationManager : MonoBehaviour
         go.transform.localRotation = new Quaternion(-0.5f, 0.5f, 0.5f, 0.5f);
         go.transform.localScale = Vector3.one;
 
-        GameObject floor = GameObject.Find("RoomBoundary_Floor");
-        if (floor != null && go.TryGetComponent<KeepRelativePosition>(out var keepRel))
-            keepRel.VirtualParentChanged(floor.transform);
-
+        AttachKeepRelativeToBoundary(go, FloorBoundaryName);
         FinalizeSpawnedBaseFixture(go);
+    }
+
+    /// <summary>
+    /// Wire <see cref="KeepRelativePosition"/> like Selectable placement does after a
+    /// raycast drop: VirtualParent + relative offset. Ceiling fixtures need this for
+    /// room-height follow and Show Ceiling Objects hide.
+    /// </summary>
+    private static void AttachKeepRelativeToBoundary(GameObject go, string boundaryObjectName)
+    {
+        if (go == null || string.IsNullOrEmpty(boundaryObjectName))
+            return;
+
+        Transform surface = FindBoundaryTransform(boundaryObjectName);
+        if (surface == null || !go.TryGetComponent<KeepRelativePosition>(out var keepRel))
+            return;
+
+        keepRel.VirtualParentChanged(surface);
+        keepRel.SelectablePositionChanged();
+    }
+
+    private static Transform FindBoundaryTransform(string boundaryObjectName)
+    {
+        RoomBoundaryType? want = null;
+        if (boundaryObjectName == CeilingBoundaryName)
+            want = RoomBoundaryType.Ceiling;
+        else if (boundaryObjectName == FloorBoundaryName)
+            want = RoomBoundaryType.Floor;
+
+        if (want.HasValue)
+        {
+            foreach (RoomBoundary rb in RoomBoundary.Instances)
+            {
+                if (rb != null && rb.RoomBoundaryType == want.Value)
+                    return rb.transform;
+            }
+        }
+
+        return GameObject.Find(boundaryObjectName)?.transform;
     }
 
     private static void FinalizeSpawnedBaseFixture(GameObject go)
@@ -736,7 +787,14 @@ public class ConfigurationManager : MonoBehaviour
         {
             Quaternion lightRot = new Quaternion(0.7071068f, 0f, 0f, 0.7071068f);
             foreach (Vector3 pos in DefaultCeilingLightPositions)
-                bucket.objects.Add(MakeBaseRoomFixture("CeilingLightFixture", CeilingLightGuid, pos, lightRot));
+            {
+                bucket.objects.Add(MakeBaseRoomFixture(
+                    "CeilingLightFixture",
+                    CeilingLightGuid,
+                    pos,
+                    lightRot,
+                    keepRelativeParentName: CeilingBoundaryName));
+            }
 
             Debug.LogWarning("[LoadRoom] Save omitted ceiling lights — seeding 4 defaults into load data");
         }
@@ -748,7 +806,7 @@ public class ConfigurationManager : MonoBehaviour
                 OperatingTableGuid,
                 new Vector3(0f, 0.05715f, 0f),
                 new Quaternion(-0.5f, 0.5f, 0.5f, 0.5f),
-                keepRelativeFloor: true));
+                keepRelativeParentName: FloorBoundaryName));
 
             Debug.LogWarning("[LoadRoom] Save omitted OR table — seeding default into load data");
         }
@@ -759,7 +817,7 @@ public class ConfigurationManager : MonoBehaviour
         string globalGuid,
         Vector3 localPosition,
         Quaternion localRotation,
-        bool keepRelativeFloor = false)
+        string keepRelativeParentName = null)
     {
         return new TrackedObject.Data
         {
@@ -773,7 +831,7 @@ public class ConfigurationManager : MonoBehaviour
             worldRotation = localRotation,
             localScale = Vector3.one,
             activeSelf = true,
-            keepRelativePositionParentName = keepRelativeFloor ? "RoomBoundary_Floor" : null,
+            keepRelativePositionParentName = keepRelativeParentName,
         };
     }
 

@@ -65,6 +65,8 @@ public class KeepRelativePosition : MonoBehaviour
             UI_ToggleShowCeilingObjects
                 .CeilingObjectVisibilityToggled
                 .RemoveListener(CheckHideStatus);
+
+            CameraManager.CameraChanged.RemoveListener(CheckHideStatus);
         }
     }
     #endregion
@@ -95,7 +97,10 @@ public class KeepRelativePosition : MonoBehaviour
                 .CeilingObjectVisibilityToggled
                 .AddListener(CheckHideStatus);
 
+            CameraManager.CameraChanged.AddListener(CheckHideStatus);
+
             _subscribedVisibilityChanged = true;
+            CheckHideStatus();
         }
     }
 
@@ -130,15 +135,33 @@ public class KeepRelativePosition : MonoBehaviour
 
     public void CheckHideStatus()
     {
-        if (_roomBoundary != null && HideIfSurfaceIsHidden)
+        if (_roomBoundary == null || !HideIfSurfaceIsHidden)
+            return;
+
+        bool enabled;
+        if (_roomBoundary.RoomBoundaryType == RoomBoundaryType.Ceiling)
         {
-            bool enabled = _roomBoundary.MeshRenderer.enabled || (_roomBoundary.RoomBoundaryType == RoomBoundaryType.Ceiling && UI_ToggleShowCeilingObjects.ShowCeilingObjects);
-            if (_light != null) 
+            // Show Ceiling Objects only applies in ortho ceiling view (where the ceiling
+            // mesh is hidden). In free look / other cams, keep fixtures visible.
+            bool ceilingCamActive = false;
+            if (CameraManager.ActiveCamera != null)
             {
-                _light.transform.parent = enabled ? _originalLightParent : null;
+                var orCam = CameraManager.ActiveCamera.GetComponent<OperatingRoomCamera>();
+                ceilingCamActive = orCam != null
+                    && orCam.CameraType == OperatingRoomCameraType.OrthoCeiling;
             }
-            gameObject.SetActive(enabled);
+
+            enabled = !ceilingCamActive || UI_ToggleShowCeilingObjects.ShowCeilingObjects;
         }
+        else
+        {
+            enabled = _roomBoundary.MeshRenderer != null && _roomBoundary.MeshRenderer.enabled;
+        }
+
+        if (_light != null)
+            _light.transform.parent = enabled ? _originalLightParent : null;
+
+        gameObject.SetActive(enabled);
     }
 
     public void SelectablePositionChanged()
