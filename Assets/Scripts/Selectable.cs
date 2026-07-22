@@ -440,6 +440,47 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         if (ScaleLevels.Count > 0)
         {
+            // Duplicate Instantiate already copied the live hierarchy (tube Z + attach-chain
+            // inverses). Fresh-prefab SetScaleLevel treats ModelDefault (ScaleZ forced to 1)
+            // as baseline while the transform is already at the real length — then
+            // InverseTransformVector rewrites AP locals (e.g. 5 → 3.5) and skews the boom.
+            if (isDuplicated)
+            {
+                ScaleAuditLog.Event("Sel.Init.dupSkipSetScale",
+                    $"name={name} local={transform.localScale} " +
+                    $"selectedScaleZ={(ScaleLevels.FirstOrDefault(s => s.Selected)?.ScaleZ.ToString("G6") ?? "none")}");
+
+                CurrentScaleLevel = ScaleLevels.FirstOrDefault(item => item.Selected)
+                    ?? ScaleLevels.First(item => item.ModelDefault);
+                CurrentPreviewScaleLevel = CurrentScaleLevel;
+                StoreChildScales();
+
+                OriginalLocalPosition = transform.localPosition;
+                Started = true;
+                ToggleMeasurableActiveStates(true);
+                Measurers.AddRange(Measurables
+                        .SelectMany(m => m.Measurements)
+                        .Where(measurement => measurement.Measurer != null)
+                        .Select(measurement => measurement.Measurer)
+                );
+
+                if (IsGizmoSettingAllowed(GizmoType.Scale, Axis.Z))
+                {
+                    _gizmoHandler.GizmoDragEnded.AddListener(() =>
+                    {
+                        if (GizmoSelector.CurrentGizmoMode == GizmoMode.Scale)
+                            UpdateZScaling(true);
+                    });
+
+                    _gizmoHandler.GizmoDragPostUpdate.AddListener(() =>
+                    {
+                        if (GizmoSelector.CurrentGizmoMode == GizmoMode.Scale)
+                            UpdateZScaling(false);
+                    });
+                }
+                return;
+            }
+
             CurrentScaleLevel = ScaleLevels.First(item => item.ModelDefault);
             CurrentPreviewScaleLevel = CurrentScaleLevel;
             CurrentScaleLevel.ScaleZ = transform.localScale.z;
@@ -463,10 +504,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
                     float perc = item.Size / CurrentScaleLevel.Size;
 
-                    if (!isDuplicated)
-                    {
-                        item.ScaleZ = CurrentScaleLevel.ScaleZ * perc;
-                    }
+                    item.ScaleZ = CurrentScaleLevel.ScaleZ * perc;
 
                     //  Debug.Log($"Updated ScaleZ for ScaleLevel {i}: {item.ScaleZ}");
                 }
@@ -475,7 +513,6 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                     item.ScaleZ = 1;
                 }
             }
-
 
 
 
@@ -850,13 +887,22 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         if (targetZ <= 0.0001f || Mathf.Abs(targetZ - 1f) < 0.0001f)
             targetZ = transform.localScale.z;
         if (targetZ <= 0.0001f || Mathf.Abs(targetZ - 1f) < 0.0001f)
+        {
+            ScaleAuditLog.Event("Sel.EnsureAttachChain",
+                $"skip near-1 path={name} local={transform.localScale} currentScaleZ={(CurrentScaleLevel != null ? CurrentScaleLevel.ScaleZ.ToString("G6") : "null")}");
             return;
+        }
 
-        Vector3 ls = transform.localScale;
-        if (Mathf.Abs(ls.z - targetZ) > 0.001f)
-            transform.localScale = new Vector3(ls.x, ls.y, targetZ);
+        Vector3 lsBefore = transform.localScale;
+        if (Mathf.Abs(lsBefore.z - targetZ) > 0.001f)
+            transform.localScale = new Vector3(lsBefore.x, lsBefore.y, targetZ);
 
         float inv = 1f / targetZ;
+        ScaleAuditLog.Event("Sel.EnsureAttachChain",
+            $"begin path={name} targetZ={targetZ:G6} inv={inv:G6} " +
+            $"tubeLocalBefore={lsBefore} tubeLocalAfter={transform.localScale} " +
+            $"tubeLossy={transform.lossyScale} childCount={transform.childCount}");
+
         for (int i = 0; i < transform.childCount; i++)
         {
             Transform child = transform.GetChild(i);
@@ -867,13 +913,23 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 continue;
 
             Vector3 cls = child.localScale;
-            if (Mathf.Abs(cls.z * targetZ - 1f) < 0.05f)
+            float product = cls.z * targetZ;
+            bool alreadyOk = Mathf.Abs(product - 1f) < 0.05f;
+            if (alreadyOk)
+            {
+                ScaleAuditLog.Event("Sel.EnsureAttachChain.child",
+                    $"skip-ok child={child.name} local={cls} lossy={child.lossyScale} z*targetZ={product:G6}");
                 continue;
+            }
 
-            child.localScale = new Vector3(
+            Vector3 next = new Vector3(
                 Mathf.Abs(cls.x) < 1e-6f ? 1f : cls.x,
                 Mathf.Abs(cls.y) < 1e-6f ? 1f : cls.y,
                 inv);
+            child.localScale = next;
+            ScaleAuditLog.Warn("Sel.EnsureAttachChain.child",
+                $"WRITE child={child.name} before={cls} after={next} " +
+                $"lossyAfter={child.lossyScale} z*targetZWas={product:G6}");
         }
     }
 
@@ -886,6 +942,13 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         //    oldParent = transform.parent;
         //    transform.SetParent(null);
         //}
+
+        ScaleAuditLog.Event("Sel.SetScaleLevel.begin",
+            $"name={name} setSelected={setSelected} fireEvent={fireEvent} " +
+            $"requestedScaleZ={(scaleLevel != null ? scaleLevel.ScaleZ.ToString("G6") : "null")} " +
+            $"size={(scaleLevel != null ? scaleLevel.Size.ToString() : "null")} " +
+            $"beforeLocal={transform.localScale} beforeLossy={transform.lossyScale} " +
+            $"currentScaleZ={(CurrentScaleLevel != null ? CurrentScaleLevel.ScaleZ.ToString("G6") : "null")}");
  
         CurrentPreviewScaleLevel = scaleLevel;
 
@@ -938,14 +1001,21 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                     Vector3 localDiff = child.transform.InverseTransformVector(diffVector);
                     // Debug.Log($"{child.name} Current Scale is ({child.transform.localScale.x}, {child.transform.localScale.y}, {child.transform.localScale.z})");
                     // Debug.Log($"Local Diff after InverseTransformVector for {child.name} is ({localDiff.x}, {localDiff.y}, {localDiff.z})");
+
+                    // APs often have no Selectable — still must use axis-aligned inverse, not
+                    // InverseTransformVector (non-uniform parent scale corrupts AP Z, e.g. 5→3.5).
+                    bool isAttachChain = child.GetComponent<AttachmentPoint>() != null
+                        || child.name.Equals("AttachmentPoint", StringComparison.OrdinalIgnoreCase)
+                        || child.name.Equals("AttachPoint", StringComparison.OrdinalIgnoreCase);
+                    if (isAttachChain)
+                    {
+                        child.transform.localScale = Vector3.Scale(child.transform.localScale, diffVector);
+                        continue;
+                    }
+
                     if (child.TryGetComponent(out Selectable selectable))
                     {
-                        // Attachment-chain children must always inverse-scale even when
-                        // they lack a Scale-Z gizmo (light drop-tube AttachmentPoint).
-                        bool isAttachChain = child.GetComponent<AttachmentPoint>() != null
-                            || child.name.Equals("AttachmentPoint", StringComparison.OrdinalIgnoreCase)
-                            || child.name.Equals("AttachPoint", StringComparison.OrdinalIgnoreCase);
-                        if (isAttachChain || selectable.IsGizmoSettingAllowed(GizmoType.Scale, Axis.Z))
+                        if (selectable.IsGizmoSettingAllowed(GizmoType.Scale, Axis.Z))
                         {
                             child.transform.localScale = Vector3.Scale(child.transform.localScale, diffVector);
                         }
@@ -997,6 +1067,9 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         }
 
         transform.rotation = storedRotation;
+
+        ScaleAuditLog.Hierarchy("Sel.SetScaleLevel.after", transform,
+            $"name={name} scaleZ={(scaleLevel != null ? scaleLevel.ScaleZ.ToString("G6") : "null")} setSelected={setSelected}");
 
         //if (TryGetComponent(out ScaleGroup _))
         //{

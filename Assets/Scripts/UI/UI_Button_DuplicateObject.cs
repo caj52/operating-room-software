@@ -69,83 +69,52 @@ public class UI_Button_DuplicateObject : MonoBehaviour
 
         try
         {
-            // Step 1: Get original object components and states
-            var originalSelectables = obj.GetComponentsInChildren<Selectable>(true);
-            var originalCCDIKs = obj.GetComponentsInChildren<CCDIK>(true);
-            var originalAPs = obj.GetComponentsInChildren<AttachmentPoint>(true);
-            
-            // Store original transforms and states
-            var selectableTransforms = new Dictionary<Selectable, (Vector3 pos, Quaternion rot, Vector3 scale)>();
-            foreach (var sel in originalSelectables)
-            {
-                selectableTransforms[sel] = (sel.transform.localPosition, sel.transform.localRotation, sel.transform.localScale);
-            }
+            ScaleAuditLog.Event("Dup.begin", $"source={obj.name}");
+            ScaleAuditLog.Hierarchy("Dup.source", obj.transform, "pre-instantiate source");
 
-            // Step 2: Create duplicate with proper positioning
+            // Instantiate keeps the live MoveUp hierarchy and scales. Do NOT call
+            // SetToOriginalParent / rewrite AP localScale — that stuffed APs back under
+            // Z-scaled tubes without inverse compensation and skewed the clone.
             GameObject duplicatedObj = CreateDuplicate(obj);
+            ScaleAuditLog.Hierarchy("Dup.clone.raw", duplicatedObj.transform, "right after Instantiate");
+            ScaleAuditLog.CompareHierarchies("Dup.compare.raw", obj.transform, duplicatedObj.transform, "source", "clone");
+
             MarkDuplicateStateAndResetBaselines(duplicatedObj);
 
-            // Step 3: Handle Selectables in duplicate
             var duplicatedSelectables = duplicatedObj.GetComponentsInChildren<Selectable>(true);
             foreach (var sel in duplicatedSelectables)
             {
                 sel.isDuplicated = true;
-                
-                // Store original transform data
                 sel.OriginalLocalPosition = sel.transform.localPosition;
-                
-                // Reset any cached rotations/scales
+
                 if (sel.ScaleLevels.Count > 0)
-                {
                     sel.StoreChildScales();
-                }
             }
 
-            // Step 4: Handle Attachment Points in duplicate
-            var duplicatedAPs = duplicatedObj.GetComponentsInChildren<AttachmentPoint>(true);
-            foreach (var ap in duplicatedAPs)
-            {
-                // Reset normalized parent state for fresh initialization
-                var oldParent = ap.transform.parent;
-                ap.transform.localScale = new Vector3(1, 1, ap.transform.localScale.z);
-                
-                // Force attachment point to reinitialize
-                if (ap.gameObject.activeSelf)
-                {
-                    ap.gameObject.SetActive(false);
-                    ap.gameObject.SetActive(true);
-                }
-                
-                // Ensure proper parent is set
-                ap.SetToOriginalParent();
-                await Task.Delay(1); // Give Unity a frame to process parent changes
-            }
-
-            // Step 5: Handle CCDIK components in duplicate
+            // Refresh IK only — leave attachment-point parents/scales alone.
             var duplicatedCCDIKs = duplicatedObj.GetComponentsInChildren<CCDIK>(true);
             foreach (var ik in duplicatedCCDIKs)
             {
-                if (ik != null)
-                {
-                    // Force CCDIK to reinitialize
-                    ik.enabled = false;
-                    await Task.Delay(1); // Give Unity a frame to process
-                    ik.enabled = true;
-                    
-                    // Make sure target is properly recentered
-                    ik.RecenterTarget();
-                }
+                if (ik == null) continue;
+                ik.enabled = false;
+                await Task.Delay(1);
+                ik.enabled = true;
+                ik.RecenterTarget();
             }
 
-            // Step 6: Handle other components
             DisableHighlighting(duplicatedObj);
             await DuplicatePricingComponentsAsync(obj, duplicatedObj);
             NotifyDuplication(duplicatedObj);
+
+            ScaleAuditLog.Hierarchy("Dup.clone.final", duplicatedObj.transform, "after pricing/IK/notify");
+            ScaleAuditLog.CompareHierarchies("Dup.compare.final", obj.transform, duplicatedObj.transform, "source", "clone");
+            ScaleAuditLog.Event("Dup.end", $"Successfully duplicated {obj.name} -> {duplicatedObj.name}");
 
             Debug.Log($"Successfully duplicated {obj.name}");
         }
         catch (Exception e)
         {
+            ScaleAuditLog.Warn("Dup.error", e.ToString());
             Debug.LogError($"Error duplicating object: {e.Message}");
         }
     }
@@ -153,8 +122,20 @@ public class UI_Button_DuplicateObject : MonoBehaviour
     private GameObject CreateDuplicate(GameObject original)
     {
         Vector3 position = original.transform.position + Vector3.right * 2f;
+        Vector3 sourceLocal = original.transform.localScale;
+        Vector3 sourceLossy = original.transform.lossyScale;
         GameObject duplicate = Instantiate(original, position, original.transform.rotation);
+        // Mark before any await / Start so InitializeAfterStart skips SetScaleLevel.
+        foreach (var sel in duplicate.GetComponentsInChildren<Selectable>(true))
+            sel.isDuplicated = true;
+        ScaleAuditLog.Event("Dup.CreateDuplicate",
+            $"Instantiate done; before localScale assign " +
+            $"srcLocal={sourceLocal} srcLossy={sourceLossy} " +
+            $"dupLocal={duplicate.transform.localScale} dupLossy={duplicate.transform.lossyScale} " +
+            $"dupParent={(duplicate.transform.parent != null ? duplicate.transform.parent.name : "null")}");
         duplicate.transform.localScale = original.transform.localScale;
+        ScaleAuditLog.Event("Dup.CreateDuplicate",
+            $"after localScale assign dupLocal={duplicate.transform.localScale} dupLossy={duplicate.transform.lossyScale}");
         return duplicate;
     }
     /// <summary>

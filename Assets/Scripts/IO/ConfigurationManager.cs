@@ -422,11 +422,18 @@ public class ConfigurationManager : MonoBehaviour
         TrackedObject[] foundObjects = Selectable.SelectedSelectables[0]
             .transform.root.GetComponentsInChildren<TrackedObject>();
 
+        ScaleAuditLog.Event("SaveConfig.begin", $"path={path} tracked={foundObjects.Length}");
+        ScaleAuditLog.Hierarchy("SaveConfig.preDetach", Selectable.SelectedSelectables[0].transform.root,
+            "live MoveUp hierarchy before SetToOriginalParent");
+
         foreach (TrackedObject obj in foundObjects)
         {
             if (obj.TryGetComponent(out AttachmentPoint attachmentPoint))
                 attachmentPoint.SetToOriginalParent();
         }
+
+        ScaleAuditLog.Hierarchy("SaveConfig.postDetach", Selectable.SelectedSelectables[0].transform.root,
+            "canonical under-tube hierarchy after SetToOriginalParent");
 
         // Persist the same attach-chain inverse Z that SetScaleLevel applies interactively,
         // so light drop tubes (and any scaled selectable) round-trip without post-load patches.
@@ -435,6 +442,9 @@ public class ConfigurationManager : MonoBehaviour
             if (obj != null && obj.TryGetComponent(out Selectable sel))
                 sel.EnsureAttachChainScaleCompensation();
         }
+
+        ScaleAuditLog.Hierarchy("SaveConfig.postCompensate", Selectable.SelectedSelectables[0].transform.root,
+            "after EnsureAttachChainScaleCompensation — this is what GetData serializes");
 
         foreach (TrackedObject obj in foundObjects)
             _tracker.objects.Add(obj.GetData());
@@ -454,6 +464,7 @@ public class ConfigurationManager : MonoBehaviour
 
         File.WriteAllText(path, json);
         Debug.Log($"Saved Config: {path}");
+        ScaleAuditLog.Event("SaveConfig.written", $"path={path} objects={_tracker.objects.Count}");
 
         ObjectMenu.Instance?.AddCustomMenuItem(path);
 
@@ -470,6 +481,9 @@ public class ConfigurationManager : MonoBehaviour
             if (obj.TryGetComponent(out AttachmentPoint attachmentPoint))
                 attachmentPoint.SetToProperParent();
         }
+
+        ScaleAuditLog.Hierarchy("SaveConfig.postRestoreMoveUp", Selectable.SelectedSelectables[0].transform.root,
+            "live hierarchy after SetToProperParent restore");
     }
 
     public string ReplaceInvalidChars(string filename)
@@ -503,95 +517,174 @@ public class ConfigurationManager : MonoBehaviour
         CreateTracker();
         NewRoomSave();
         var token = Loading.GetLoadingToken();
+        var totalTimer = Stopwatch.StartNew();
+        string lastPhase = "start";
+        string lastObject = null;
+        bool completed = false;
 
-        _roomConfiguration.roomDimension = RoomSize.Instance.CurrentDimensions;
-        // capture client metadata
+        Debug.Log($"[SaveRoom] START path=\"{path}\" title=\"{title}\" loadingActive={Loading.LoadingActive}");
+
         try
         {
-            _roomConfiguration.clientAccountName = UI_ClientMetaData.AccountName;
-            _roomConfiguration.clientAccountAddressLine1 = UI_ClientMetaData.AccountAddressLine1;
-            _roomConfiguration.clientAccountAddressLine2 = UI_ClientMetaData.AccountAddressLine2;
-            _roomConfiguration.clientProjectName = UI_ClientMetaData.ProjectName;
-            _roomConfiguration.clientProjectNumber = UI_ClientMetaData.ProjectNumber;
-            _roomConfiguration.clientOrderReferenceNumber = UI_ClientMetaData.OrderReferenceNumber;
-        }
-        catch (Exception e)
-        {
-            Debug.LogWarning($"Could not capture client metadata: {e.Message}");
-        }
-
-        TrackedObject[] foundObjects = FindObjectsOfType<TrackedObject>();
-
-        foreach (TrackedObject obj in foundObjects)
-        {
-            if (obj.TryGetComponent(out AttachmentPoint attachmentPoint))
-                attachmentPoint.SetToOriginalParent();
-        }
-
-        await Task.Delay(1000);
-        token.SetProgress(0.33f);
-
-        Transform roomRoot = GetCurrentRoomTransform();
-
-        foreach (TrackedObject obj in foundObjects)
-        {
-            if (obj == null) continue;
-            // One collection per placed root — not every nested TrackedObject under the room.
-            // Nested boom/light parts are captured via GetComponentsInChildren on the root.
-            if (!IsRoomSaveCollectionRoot(obj, roomRoot))
-                continue;
-
-            CreateTracker();
-            TrackedObject[] temps = obj.transform.GetComponentsInChildren<TrackedObject>(true);
-            foreach (TrackedObject to in temps)
+            _roomConfiguration.roomDimension = RoomSize.Instance.CurrentDimensions;
+            // capture client metadata
+            try
             {
-                if (to != null)
-                    _tracker.objects.Add(to.GetData());
+                _roomConfiguration.clientAccountName = UI_ClientMetaData.AccountName;
+                _roomConfiguration.clientAccountAddressLine1 = UI_ClientMetaData.AccountAddressLine1;
+                _roomConfiguration.clientAccountAddressLine2 = UI_ClientMetaData.AccountAddressLine2;
+                _roomConfiguration.clientProjectName = UI_ClientMetaData.ProjectName;
+                _roomConfiguration.clientProjectNumber = UI_ClientMetaData.ProjectNumber;
+                _roomConfiguration.clientOrderReferenceNumber = UI_ClientMetaData.OrderReferenceNumber;
             }
-            _roomConfiguration.collections.Add(_tracker);
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[SaveRoom] Could not capture client metadata: {e.Message}");
+            }
+
+            lastPhase = "find_tracked_objects";
+            TrackedObject[] foundObjects = FindObjectsOfType<TrackedObject>();
+            Debug.Log($"[SaveRoom] Found {foundObjects.Length} TrackedObject(s); roomDims={_roomConfiguration.roomDimension}");
+
+            lastPhase = "detach_attachment_points";
+            foreach (TrackedObject obj in foundObjects)
+            {
+                if (obj.TryGetComponent(out AttachmentPoint attachmentPoint))
+                    attachmentPoint.SetToOriginalParent();
+            }
+
+            ScaleAuditLog.Event("SaveRoom.postDetach", $"tracked={foundObjects.Length}");
+
+            // Same under-tube inverse Z contract as config save / SetScaleLevel.
+            lastPhase = "attach_chain_scale_compensation";
+            foreach (TrackedObject obj in foundObjects)
+            {
+                if (obj != null && obj.TryGetComponent(out Selectable sel))
+                    sel.EnsureAttachChainScaleCompensation();
+            }
+
+            ScaleAuditLog.Event("SaveRoom.postCompensate", "EnsureAttachChainScaleCompensation complete");
+
+            lastPhase = "delay_before_33";
+            await Task.Delay(1000);
+            token.SetProgress(0.33f);
+            Debug.Log("[SaveRoom] PROGRESS 33% — collecting object data");
+
+            lastPhase = "collect_getdata";
+            Transform roomRoot = GetCurrentRoomTransform();
+            Debug.Log($"[SaveRoom] roomRoot={(roomRoot != null ? roomRoot.name : "null")}");
+
+            var collectTimer = Stopwatch.StartNew();
+            int rootCount = 0;
+            int objectCount = 0;
+            foreach (TrackedObject obj in foundObjects)
+            {
+                if (obj == null) continue;
+                // One collection per placed root — not every nested TrackedObject under the room.
+                // Nested boom/light parts are captured via GetComponentsInChildren on the root.
+                if (!IsRoomSaveCollectionRoot(obj, roomRoot))
+                    continue;
+
+                rootCount++;
+                CreateTracker();
+                TrackedObject[] temps = obj.transform.GetComponentsInChildren<TrackedObject>(true);
+                Debug.Log($"[SaveRoom] root[{rootCount}] \"{obj.name}\" path={GetGameObjectPath(obj.gameObject)} childrenTracked={temps.Length}");
+
+                foreach (TrackedObject to in temps)
+                {
+                    if (to == null) continue;
+                    lastObject = $"{to.name} path={GetGameObjectPath(to.gameObject)}";
+                    try
+                    {
+                        _tracker.objects.Add(to.GetData());
+                        objectCount++;
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogError(
+                            $"[SaveRoom] GetData FAILED on \"{to.name}\" path={GetGameObjectPath(to.gameObject)} " +
+                            $"selectable={to.GetComponent<Selectable>() != null} " +
+                            $"attachmentPoint={to.GetComponent<AttachmentPoint>() != null} " +
+                            $"materialPalette={to.GetComponent<MaterialPalette>() != null}\n{ex}");
+                        throw;
+                    }
+                }
+                _roomConfiguration.collections.Add(_tracker);
+            }
+            collectTimer.Stop();
+            Debug.Log($"[SaveRoom] Collect done — roots={rootCount} objects={objectCount} ms={collectTimer.ElapsedMilliseconds}");
+
+            lastPhase = "delay_before_66";
+            lastObject = null;
+            await Task.Delay(1000);
+            token.SetProgress(0.66f);
+            Debug.Log("[SaveRoom] PROGRESS 66% — serializing JSON");
+
+            lastPhase = "serialize";
+            var serializeTimer = Stopwatch.StartNew();
+            string json = JsonConvert.SerializeObject(_roomConfiguration, new JsonSerializerSettings
+            {
+                ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
+                Formatting = Formatting.Indented,
+            });
+            serializeTimer.Stop();
+            Debug.Log($"[SaveRoom] Serialize done — chars={json.Length} ms={serializeTimer.ElapsedMilliseconds}");
+
+            lastPhase = "write_file";
+            string folder = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(folder) && !Directory.Exists(folder))
+                Directory.CreateDirectory(folder);
+
+            if (File.Exists(path))
+                File.Delete(path);
+
+            File.WriteAllText(path, json);
+            Debug.Log($"[SaveRoom] Wrote file \"{path}\" ({new FileInfo(path).Length} bytes)");
+
+            lastPhase = "delay_before_100";
+            await Task.Delay(1000);
+            token.SetProgress(1);
+            completed = true;
+            Debug.Log($"[SaveRoom] PROGRESS 100% — complete totalMs={totalTimer.ElapsedMilliseconds}");
+
+            // Only list saves that live in the app's Saved folder.
+            string savedRoot = Path.GetFullPath(GetSavedRoomsFolder())
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string fullPath = Path.GetFullPath(path);
+            if (fullPath.StartsWith(savedRoot, StringComparison.OrdinalIgnoreCase))
+                RoomConfigLoader.Instance?.RefreshOrAddRoomItem(path);
+
+            lastPhase = "restore_attachment_points";
+            foreach (TrackedObject obj in foundObjects)
+            {
+                if (obj.TryGetComponent(out AttachmentPoint attachmentPoint))
+                    attachmentPoint.SetToProperParent();
+            }
+
+            if (showSuccessDialog)
+            {
+                UI_DialogPrompt.Open(
+                  $"Room saved to:\n{path}",
+                  new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = path),
+                  new ButtonAction("Done"));
+            }
         }
-
-        await Task.Delay(1000);
-        token.SetProgress(0.66f);
-
-        string json = JsonConvert.SerializeObject(_roomConfiguration, new JsonSerializerSettings
+        catch (Exception ex)
         {
-            ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
-            Formatting = Formatting.Indented,
-        });
-
-        string folder = Path.GetDirectoryName(path);
-        if (!string.IsNullOrEmpty(folder) && !Directory.Exists(folder))
-            Directory.CreateDirectory(folder);
-
-        if (File.Exists(path))
-            File.Delete(path);
-
-        File.WriteAllText(path, json);
-        Debug.Log($"Saved Room: {path}");
-
-        await Task.Delay(1000);
-        token.SetProgress(1);
-
-        // Only list saves that live in the app's Saved folder.
-        string savedRoot = Path.GetFullPath(GetSavedRoomsFolder())
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        string fullPath = Path.GetFullPath(path);
-        if (fullPath.StartsWith(savedRoot, StringComparison.OrdinalIgnoreCase))
-            RoomConfigLoader.Instance?.RefreshOrAddRoomItem(path);
-
-        foreach (TrackedObject obj in foundObjects)
-        {
-            if (obj.TryGetComponent(out AttachmentPoint attachmentPoint))
-                attachmentPoint.SetToProperParent();
+            Debug.LogError(
+                $"[SaveRoom] ABORTED phase={lastPhase} lastObject={lastObject ?? "(none)"} " +
+                $"progress={token.Progress:0.##} loadingActive={Loading.LoadingActive} " +
+                $"elapsedMs={totalTimer.ElapsedMilliseconds}\n{ex}");
+            throw;
         }
-
-        if (showSuccessDialog)
+        finally
         {
-            UI_DialogPrompt.Open(
-              $"Room saved to:\n{path}",
-              new ButtonAction("Copy Path", () => GUIUtility.systemCopyBuffer = path),
-              new ButtonAction("Done"));
+            if (!completed)
+            {
+                Debug.LogError(
+                    $"[SaveRoom] EXIT WITHOUT COMPLETION phase={lastPhase} lastObject={lastObject ?? "(none)"} " +
+                    $"progress={token.Progress:0.##} — wait screen will stay up until app quit");
+            }
         }
     }
 
@@ -646,14 +739,42 @@ public class ConfigurationManager : MonoBehaviour
                 }
 
                 FinalizeLoadedInstanceColliders();
+                // Compensate under-tube (inside RestoreAllLoadedTransforms), then MoveUp
+                // with world-scale-preserving reparent — do not re-apply inverse after MoveUp.
+                ScaleAuditLog.Event("LoadArm.beginRestore", $"objects={_newObjects?.Count ?? 0}");
                 RestoreAllLoadedTransforms();
+                ScaleAuditLog.Event("LoadArm.afterRestore", "pre-MoveUp transforms restored + compensated");
+                if (_newObjects != null)
+                {
+                    foreach (var to in _newObjects)
+                    {
+                        if (to != null)
+                            ScaleAuditLog.Hierarchy("LoadArm.preMoveUp", to.transform, to.name);
+                    }
+                }
                 FinalizeLoadedAttachmentPoints();
-                FixLoadedNonUniformDropTubeScales();
+                if (_newObjects != null)
+                {
+                    foreach (var to in _newObjects)
+                    {
+                        if (to != null)
+                            ScaleAuditLog.Hierarchy("LoadArm.postMoveUp", to.transform, to.name);
+                    }
+                }
                 BatchActivateLoadedObjects();
                 CompleteDeferredSelectableInitialization();
                 RestoreLoadedInstanceColliders();
                 SettleLoadedBoomAssembly();
+                // Zero-scale mesh repair only; attach-chain inverse already applied pre-MoveUp.
                 FixLoadedNonUniformDropTubeScales();
+                if (_newObjects != null)
+                {
+                    foreach (var to in _newObjects)
+                    {
+                        if (to != null)
+                            ScaleAuditLog.Hierarchy("LoadArm.final", to.transform, to.name);
+                    }
+                }
 
                 PricingManager.RebuildPricingFromTrackedObjects();
 
@@ -985,10 +1106,11 @@ public class ConfigurationManager : MonoBehaviour
                 AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "restoreAllTransforms", transformTimer.ElapsedMilliseconds,
                     $"{_newObjects.Count} root(s)");
 
-                // MoveUp must run AFTER canonical transforms, BEFORE activation/settle.
+                // MoveUp must run AFTER canonical transforms + under-tube compensation
+                // (FixLoadedNonUniformDropTubeScales runs at end of RestoreAllLoadedTransforms).
+                // Scale-safe MoveUp preserves world scale so inverse Z does not escape as squash.
                 var attachmentTimer = Stopwatch.StartNew();
                 FinalizeLoadedAttachmentPoints();
-                FixLoadedNonUniformDropTubeScales();
                 LogLoadedArmScaleSnapshot("after FinalizeLoadedAttachmentPoints");
                 attachmentTimer.Stop();
                 AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "finalizeAttachmentPoints", attachmentTimer.ElapsedMilliseconds);
@@ -1014,6 +1136,7 @@ public class ConfigurationManager : MonoBehaviour
                     $"{restoredColliderCount} mesh collider(s) on {_newObjects.Count} object(s)");
 
                 SettleLoadedBoomAssembly();
+                // Zero-scale mesh repair only; attach-chain inverse already applied pre-MoveUp.
                 FixLoadedNonUniformDropTubeScales();
                 LogLoadedArmScaleSnapshot("after SettleLoadedBoomAssembly");
 
@@ -1318,9 +1441,10 @@ public class ConfigurationManager : MonoBehaviour
     }
 
     /// <summary>
-    /// After transforms restore: apply the shared attach-chain scale contract, and repair
-    /// any child that was crushed to true (0,0,0). Note: Simeon light mesh roots are
-    /// intentionally ~0.001 (Blender units) — do not treat that as broken.
+    /// Under-tube attach-chain inverse Z (same as interactive SetScaleLevel) plus repair
+    /// of true-zero localScales. Must run while APs are still children of scaled tubes
+    /// (pre-MoveUp). After MoveUp, AttachmentPoint reparent preserves world scale.
+    /// Note: Simeon light mesh roots are intentionally ~0.001 (Blender units).
     /// </summary>
     private void FixLoadedNonUniformDropTubeScales()
     {
@@ -1400,7 +1524,18 @@ public class ConfigurationManager : MonoBehaviour
 
     private void LogLoadedArmScaleSnapshot(string phase)
     {
-        if (AssetPipelineDiagnostics.RoomLoadQuietMode || _newObjects == null)
+        if (_newObjects == null)
+            return;
+
+        ScaleAuditLog.Event("LoadRoom.phase", phase);
+        foreach (TrackedObject root in _newObjects)
+        {
+            if (root == null)
+                continue;
+            ScaleAuditLog.Hierarchy("LoadRoom." + phase, root.transform, root.name);
+        }
+
+        if (AssetPipelineDiagnostics.RoomLoadQuietMode)
             return;
 
         foreach (TrackedObject root in _newObjects)

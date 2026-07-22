@@ -242,16 +242,12 @@ public partial class AttachmentPoint : MonoBehaviour
     {
         if (!MoveUpOnAttach || _originalParent == null) return;
 
-        // Store current world pose
-        Vector3 worldPos = transform.position;
-        Quaternion worldRot = transform.rotation;
-
-        // Set parent while preserving world position
-        transform.SetParent(_originalParent, false);
-        
-        // Restore world pose
-        transform.position = worldPos;
-        transform.rotation = worldRot;
+        ScaleAuditLog.Event("AP.SetToOriginalParent",
+            $"begin path={name} hasNormalized={_hasNormalizedParent} " +
+            $"origParent={_originalParent.name}");
+        ReparentPreservingWorldPoseAndScale(_originalParent);
+        // Allow a later SetToProperParent / MoveUp (e.g. after config/room save).
+        _hasNormalizedParent = false;
 
         // Store original local transform if not initialized
         if (!_hasBeenInitialized)
@@ -297,23 +293,72 @@ public partial class AttachmentPoint : MonoBehaviour
             if (parentAP == null) current = current.parent;
         }
 
-        if (parentAP == null) return;
+        if (parentAP == null)
+        {
+            ScaleAuditLog.Event("AP.ApplyProperParent",
+                $"skip no-parentAP path={name} curParent={(transform.parent != null ? transform.parent.name : "null")}");
+            return;
+        }
 
         Transform targetParent = parentAP.transform.parent;
-        if (targetParent == null) return;
+        if (targetParent == null)
+        {
+            ScaleAuditLog.Event("AP.ApplyProperParent",
+                $"skip null-targetParent path={name} parentAP={parentAP.name}");
+            return;
+        }
 
-        // Store current world pose
+        ScaleAuditLog.Event("AP.ApplyProperParent",
+            $"begin path={name} parentAP={parentAP.name} targetParent={targetParent.name}");
+        ReparentPreservingWorldPoseAndScale(targetParent);
+        _hasNormalizedParent = true;
+    }
+
+    /// <summary>
+    /// Reparent while keeping world position, rotation, and lossy scale.
+    /// Critical for Z-scaled tubes: under-tube inverse Z must not escape as squash
+    /// after MoveUp, and returning under a tube must not drop compensation.
+    /// </summary>
+    private void ReparentPreservingWorldPoseAndScale(Transform newParent)
+    {
         Vector3 worldPos = transform.position;
         Quaternion worldRot = transform.rotation;
+        Vector3 worldScale = transform.lossyScale;
 
-        // Change parent
-        transform.SetParent(targetParent, false);
+        ScaleAuditLog.ReparentBegin("AP.Reparent", transform, newParent, worldScale);
 
-        // Restore world pose
+        transform.SetParent(newParent, false);
         transform.position = worldPos;
         transform.rotation = worldRot;
+        SetLossyScale(transform, worldScale);
 
-        _hasNormalizedParent = true;
+        ScaleAuditLog.ReparentEnd("AP.Reparent", transform, worldScale);
+    }
+
+    private static void SetLossyScale(Transform t, Vector3 worldScale)
+    {
+        t.localScale = Vector3.one;
+        Vector3 parentLossyAtOne = t.lossyScale;
+        Vector3 computedLocal = new Vector3(
+            SafeDiv(worldScale.x, parentLossyAtOne.x),
+            SafeDiv(worldScale.y, parentLossyAtOne.y),
+            SafeDiv(worldScale.z, parentLossyAtOne.z));
+        ScaleAuditLog.Event("AP.SetLossyScale",
+            $"name={t.name} targetWorld={Fmt(worldScale)} parentLossyAtLocalOne={Fmt(parentLossyAtOne)} " +
+            $"computedLocal={Fmt(computedLocal)}");
+        t.localScale = computedLocal;
+    }
+
+    private static string Fmt(Vector3 v) =>
+        $"({v.x:G6},{v.y:G6},{v.z:G6})";
+
+    private static float SafeDiv(float numerator, float denominator)
+    {
+        float d = Mathf.Abs(denominator) < 1e-8f ? 1f : denominator;
+        float result = numerator / d;
+        if (float.IsNaN(result) || float.IsInfinity(result))
+            return 1f;
+        return result;
     }
 
     // Add method to reset to original local transform

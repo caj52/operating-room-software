@@ -120,6 +120,18 @@ public class TrackedObject : MonoBehaviour
         data.worldPosition = transform.position;
         data.worldRotation = transform.rotation;
         data.localScale = transform.localScale;
+        bool logScale = gameObject.GetComponent<AttachmentPoint>() != null
+            || IsScaleRelevantName(name)
+            || IsNonUniformScale(data.localScale)
+            || (TryGetComponent(out Selectable selForLog) && selForLog.ScaleLevels != null && selForLog.ScaleLevels.Count > 0);
+        if (logScale)
+        {
+            ScaleAuditLog.Event("Tracked.GetData",
+                $"name={name} captureLocal={data.localScale} lossy={transform.lossyScale} " +
+                $"parent={(transform.parent != null ? transform.parent.name : "null")} " +
+                $"parentLocal={(transform.parent != null ? transform.parent.localScale.ToString() : "n/a")} " +
+                $"parentLossy={(transform.parent != null ? transform.parent.lossyScale.ToString() : "n/a")}");
+        }
         if (transform.parent != null)
         {
             data.parentPath = ConfigurationManager.GetGameObjectPath(transform.parent.gameObject);
@@ -283,6 +295,15 @@ public class TrackedObject : MonoBehaviour
                 scale = Vector3.one;
         }
         transform.localScale = scale;
+        if (data.isAttachmentPoint || IsScaleRelevantName(name) || IsNonUniformScale(scale))
+        {
+            ScaleAuditLog.Event("Tracked.RestoreTransform",
+                $"name={name} isRoot={isRoot} isAP={data.isAttachmentPoint} " +
+                $"appliedLocal={scale} savedLocal={data.localScale} " +
+                $"scaleLevelZ={(data.scaleLevel != null ? data.scaleLevel.ScaleZ.ToString("G6") : "null")} " +
+                $"parent={(transform.parent != null ? transform.parent.name : "null")} " +
+                $"lossyAfter={transform.lossyScale}");
+        }
         if (data.isAttachmentPoint && gameObject.TryGetComponent<AttachmentPoint>(out var ap))
         {
             if (ap.MoveUpOnAttach && !ConfigurationManager.IsLoading)
@@ -291,6 +312,21 @@ public class TrackedObject : MonoBehaviour
                 transform.localRotation = _originalLocalRotation;
             }
         }
+    }
+
+    private static bool IsNonUniformScale(Vector3 s) =>
+        Mathf.Abs(s.x - s.y) > 0.02f || Mathf.Abs(s.y - s.z) > 0.02f || Mathf.Abs(s.x - s.z) > 0.02f;
+
+    private static bool IsScaleRelevantName(string n)
+    {
+        if (string.IsNullOrEmpty(n)) return false;
+        return n.IndexOf("DropTube", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("AttachmentPoint", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.Equals("AttachPoint", StringComparison.OrdinalIgnoreCase)
+            || n.IndexOf("ArmSegment", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("Cardanic", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("BoomHead", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("LightHead", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     public void ApplySavedState()
