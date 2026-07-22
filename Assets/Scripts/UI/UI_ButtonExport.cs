@@ -2,7 +2,7 @@ using UnityEngine;
 
 /// <summary>
 /// Legacy one-click object export button. Kept for prefab wiring; always hidden —
-/// object export lives under Object exports… (UI_ButtonExportObj → UI_ExportOptions).
+/// object export lives under Object Exports… (UI_ButtonExportObj → UI_ExportOptions).
 /// </summary>
 public class UI_ButtonExport : MonoBehaviour
 {

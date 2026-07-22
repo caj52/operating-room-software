@@ -2,7 +2,7 @@ using TMPro;
 using UnityEngine;
 
 /// <summary>
-/// Opens the exports hub: Room exports… or Object exports… when something is selected.
+/// Opens the exports hub: Room Exports… or Object Exports… when something is selected.
 /// </summary>
 public class UI_ButtonExportObj : MonoBehaviour
 {
@@ -33,8 +33,8 @@ public class UI_ButtonExportObj : MonoBehaviour
             return;
 
         _label.text = ExportRequest.HasSelection()
-            ? "Object exports…"
-            : "Room exports…";
+            ? "Object Exports…"
+            : "Room Exports…";
     }
 
     public void ExportObj()

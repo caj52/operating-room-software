@@ -410,7 +410,7 @@ public class ConfigurationManager : MonoBehaviour
         SaveConfigurationToPath(Path.Combine(folder, fileName));
     }
 
-    /// <summary>Saves the selected assembly configuration to an explicit path (OS save dialog).</summary>
+    /// <summary>Writes the selected assembly configuration JSON to <paramref name="path"/>.</summary>
     public void SaveConfigurationToPath(string path)
     {
         if (string.IsNullOrWhiteSpace(path))
@@ -641,8 +641,8 @@ public class ConfigurationManager : MonoBehaviour
             File.WriteAllText(path, json);
             Debug.Log($"[SaveRoom] Wrote file \"{path}\" ({new FileInfo(path).Length} bytes)");
 
-            lastPhase = "delay_before_100";
-            await Task.Delay(1000);
+            // Clear the loading token as soon as the file is durable — attachment
+            // restore below can take a while and must not keep the wait-screen up.
             token.SetProgress(1);
             completed = true;
             Debug.Log($"[SaveRoom] PROGRESS 100% — complete totalMs={totalTimer.ElapsedMilliseconds}");
