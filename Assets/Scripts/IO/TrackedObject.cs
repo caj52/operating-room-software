@@ -384,8 +384,18 @@ public class TrackedObject : MonoBehaviour
         else
         {
             AttachmentPoint ap = gameObject.GetComponent<AttachmentPoint>();
+            if (ap == null)
+            {
+                data.parent = ConfigurationManager.GetGameObjectPath(gameObject);
+                return;
+            }
+
+            // Place-spawned boom/service heads can leave destroyed entries in this list;
+            // scrub before reading so room save cannot NRE mid-collect.
+            ap.PurgeDestroyedAttachedSelectables();
             data.global_guid = ap.GUID;
-            if (ap.AttachedSelectable.Count > 0) data.attachedObject = ap.AttachedSelectable.FirstOrDefault().name;
+            Selectable attached = ap.AttachedSelectable.FirstOrDefault(s => s != null);
+            data.attachedObject = attached != null ? attached.name : null;
             data.parent = ConfigurationManager.GetGameObjectPath(gameObject);
         }
     }

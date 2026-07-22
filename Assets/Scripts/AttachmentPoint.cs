@@ -117,12 +117,16 @@ public partial class AttachmentPoint : MonoBehaviour
             if (parent == null) break;
         }
 
-        var childSelectables = GetComponentsInChildren<Selectable>();
-        if (childSelectables.Length > 0 && AttachedSelectable.Count == 0)
+        // Only direct child selectables — same contract as room-load wiring.
+        // GetComponentsInChildren would also grab nested service-head/outlet
+        // selectables; those get disabled/rebuilt on place and leave dead refs
+        // that crash room save in TrackedObject.GetGUIDs.
+        if (AttachedSelectable.Count == 0)
         {
-            foreach (Selectable s in childSelectables)
+            for (int i = 0; i < transform.childCount; i++)
             {
-                SetAttachedSelectable(s);
+                if (transform.GetChild(i).TryGetComponent(out Selectable s))
+                    SetAttachedSelectable(s);
             }
         }
 
@@ -237,6 +241,9 @@ public partial class AttachmentPoint : MonoBehaviour
         AttachedSelectable.RemoveAll(item => item == null);
         AttachedSelectable.TrimExcess();
     }
+
+    /// <summary>Drops Unity-destroyed entries so save/load can safely read the list.</summary>
+    public void PurgeDestroyedAttachedSelectables() => RemoveNullSelectables();
     //Anwar Edits
     public void SetToOriginalParent()
     {

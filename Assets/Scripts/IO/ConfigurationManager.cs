@@ -675,7 +675,6 @@ public class ConfigurationManager : MonoBehaviour
                 $"[SaveRoom] ABORTED phase={lastPhase} lastObject={lastObject ?? "(none)"} " +
                 $"progress={token.Progress:0.##} loadingActive={Loading.LoadingActive} " +
                 $"elapsedMs={totalTimer.ElapsedMilliseconds}\n{ex}");
-            throw;
         }
         finally
         {
@@ -683,7 +682,8 @@ public class ConfigurationManager : MonoBehaviour
             {
                 Debug.LogError(
                     $"[SaveRoom] EXIT WITHOUT COMPLETION phase={lastPhase} lastObject={lastObject ?? "(none)"} " +
-                    $"progress={token.Progress:0.##} — wait screen will stay up until app quit");
+                    $"progress={token.Progress:0.##} — clearing wait screen");
+                token.Done();
             }
         }
     }
