@@ -679,7 +679,7 @@ private IEnumerator Start()
                 }
 
                 if (NeedsAttachChainEnsureAfterDirectScale(_selectable))
-                    _selectable.EnsureAttachChainScaleCompensation();
+                    _selectable.EnsureAttachChainScaleCompensation(reapplyMeshIsolation: false);
                 return;
             }
 
@@ -689,10 +689,10 @@ private IEnumerator Start()
 
         _selectable.transform.localScale = new Vector3(xScale, yScale, zScale);
 
-        // Discrete ScaleLevels path uses UpdateZScaling → SetScaleLevel (inverse-scales APs).
-        // Free-scale / broken ScaleZ=0 lists write localScale directly — still need AP inverse.
+        // Discrete ScaleLevels: UpdateZScaling → SetScaleLevel (sole length writer).
+        // Free-scale writes localScale here — AP inverse only via Ensure.
         if (NeedsAttachChainEnsureAfterDirectScale(_selectable))
-            _selectable.EnsureAttachChainScaleCompensation();
+            _selectable.EnsureAttachChainScaleCompensation(reapplyMeshIsolation: false);
 
         if (_selectable.ParentSelectable != null)
         {

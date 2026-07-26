@@ -47,7 +47,10 @@ public class EnforceZScale : MonoBehaviour
             _directParent = _upperSelectables[index];
         }
         Subscribe();
-        Enforce();
+        // Do not fight load/dup preserved lengths on first tick — only enforce after
+        // user-driven ScaleUpdated (or fresh placement that is not preserve-flagged).
+        if (_selectable == null || !_selectable.ShouldPreserveLiveLengthScale)
+            Enforce();
     }
 
     private void Subscribe()
@@ -86,6 +89,8 @@ public class EnforceZScale : MonoBehaviour
     private void Enforce()
     {
         if (_directParent == null) return;
+        if (_selectable == null || _selectable.CurrentScaleLevel == null) return;
+        if (_directParent.CurrentScaleLevel == null) return;
 
         if (_currentEnforcementAttempts++ > _maxEnforcementAttemptsInFrame) 
         {

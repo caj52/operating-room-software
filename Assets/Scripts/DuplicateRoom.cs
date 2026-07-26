@@ -193,6 +193,13 @@ public class DuplicateRoom : MonoBehaviour
         Vector3 relativePosition = obj.transform.position - originalRoomPos;
         Vector3 newObjectPos = newRoomPos + relativePosition;
         GameObject newObj = Instantiate(obj, newObjectPos, obj.transform.rotation);
+        // Mark before Start so InitializeAfterStart / GetAttachedObjects preserve live length.
+        foreach (var sel in newObj.GetComponentsInChildren<Selectable>(true))
+        {
+            if (sel == null) continue;
+            sel.isDuplicated = true;
+            sel.OriginalLocalPosition = sel.transform.localPosition;
+        }
         newObj.transform.localScale = obj.transform.localScale;
         HighlightEffect highlight = newObj.GetComponent<HighlightEffect>();
         if (highlight != null)

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using RTG;
 using UnityEngine;
+using UnityEngine.Events;
 using UnityEngine.SceneManagement;
 
 [Serializable]
@@ -15,8 +16,10 @@ public class BoomHeadScaleHandler : MonoBehaviour
     [field: SerializeField] public Transform railAttachPoint;
     [field: SerializeField] public Selectable.ScaleLevel scale;
 
-    [field: SerializeField] 
-    private List<GameObject> GameObjectsDisabledOnRuntime 
+    private UnityAction<Selectable.ScaleLevel> _onScaleChangeHandler;
+
+    [field: SerializeField]
+    private List<GameObject> GameObjectsDisabledOnRuntime
     { get; set; } = new();
 
     private void Awake()
@@ -33,41 +36,32 @@ public class BoomHeadScaleHandler : MonoBehaviour
 
     private void Start()
     {
-        _selectable.OnScaleChange?.AddListener((x) => ReassembleRows(x));
+        if (_selectable == null) return;
+        _onScaleChangeHandler = ReassembleRows;
+        _selectable.OnScaleChange?.AddListener(_onScaleChangeHandler);
     }
 
-
-    // AFTER (fixed):
     private void OnEnable()
     {
-        // Anwar_boom_Fix: Delay ReassembleRows to ensure ScaleLevels are restored first
         StartCoroutine(DelayedReassembleRows());
     }
-    private System.Collections.IEnumerator DelayedReassembleRows()
+
+    private IEnumerator DelayedReassembleRows()
     {
-        // Wait for configuration loading to complete
         yield return new WaitUntil(() => !ConfigurationManager.IsLoading);
-        // Wait one more frame to ensure TrackedObject.StoreValues has completed
         yield return null;
-        // Now safely call ReassembleRows with the current scale level
         if (_selectable != null && _selectable.CurrentScaleLevel != null)
         {
-            Debug.Log($"[Anwar_boom_Fix] Delayed ReassembleRows for {gameObject.name} with Size={_selectable.CurrentScaleLevel.Size}");
             ReassembleRows(_selectable.CurrentScaleLevel);
         }
-        else
-        {
-            Debug.LogWarning($"[Anwar_boom_Fix] Delayed ReassembleRows failed - no valid CurrentScaleLevel for {gameObject.name}");
-        }
     }
+
     public void ReassembleRows(Selectable.ScaleLevel scaleLevel)
     {
-        if (scaleLevel.TryGetValue("rows", out string s_rowCount))
+        if (scaleLevel != null && scaleLevel.TryGetValue("rows", out string s_rowCount)
+            && !string.IsNullOrEmpty(s_rowCount)
+            && int.TryParse(s_rowCount, out int rowCount))
         {
-            if (!string.IsNullOrEmpty(s_rowCount))
-            {
-            int rowCount = int.Parse(s_rowCount);
-
             for (int i = 1; i <= attachRow.Length; i++)
             {
                 if (i <= rowCount)
@@ -86,19 +80,13 @@ public class BoomHeadScaleHandler : MonoBehaviour
                     }
                 }
             }
-           
-            
-            }
         }
 
         SetRailScale(scaleLevel);
     }
 
-
     public void ReassembleRowsCount(int c)
     {
-
-
         for (int i = 1; i <= attachRow.Length; i++)
         {
             if (i <= c)
@@ -117,15 +105,17 @@ public class BoomHeadScaleHandler : MonoBehaviour
                 }
             }
         }
-
     }
 
     private void OnDestroy()
     {
-        _selectable.OnScaleChange?.RemoveListener((x) => ReassembleRows(x));
+        if (_selectable != null && _onScaleChangeHandler != null)
+            _selectable.OnScaleChange?.RemoveListener(_onScaleChangeHandler);
     }
+
     void SetHeight(GameObject go, int i, int rowCount)
     {
+        if (attachOffsets == null || rowCount < 1 || rowCount > attachOffsets.Length) return;
         go.transform.localPosition = new Vector3(
                 go.transform.localPosition.x,
                 go.transform.localPosition.y,
@@ -141,13 +131,17 @@ public class BoomHeadScaleHandler : MonoBehaviour
     void SetRailScale(Selectable.ScaleLevel scaleLevel)
     {
         scale = scaleLevel;
-        if(railAttachPoint.childCount == 1) return; 
+        if (railAttachPoint == null || railAttachPoint.childCount <= 1) return;
 
         Selectable rail = railAttachPoint.GetChild(1).GetComponent<Selectable>();
-        Transform point = rail.transform.GetChild(0);
-        List<AttachedShelf> shelves = new List<AttachedShelf>();
+        if (rail == null) return;
 
-        foreach(Selectable selectable in point.GetComponentsInChildren<Selectable>())
+        if (rail.transform.childCount < 1) return;
+        Transform point = rail.transform.GetChild(0);
+        if (point == null) return;
+
+        var shelves = new List<AttachedShelf>();
+        foreach (Selectable selectable in point.GetComponentsInChildren<Selectable>())
         {
             if (selectable.SpecialTypes.Contains(SpecialSelectableType.ServiceHeadShelves))
             {
@@ -155,19 +149,24 @@ public class BoomHeadScaleHandler : MonoBehaviour
             }
         }
 
-        foreach(AttachedShelf child in shelves)
-        {
+        foreach (AttachedShelf child in shelves)
             child.shelf.SetParent(null);
-        }
 
-        rail.transform.localScale = new Vector3(1,1,1);
+        // Keep rail local identity under the attach point; parent attach-chain
+        // compensation (inverse Z on the AP) is what keeps world size correct.
+        rail.transform.localScale = Vector3.one;
 
-        foreach(AttachedShelf child in shelves)
+        foreach (AttachedShelf child in shelves)
         {
             child.shelf.SetParent(point);
             child.shelf.localPosition = child.localPosition;
-            child.shelf.SetWorldScale(new Vector3(1,1,1));
+            // Local identity under a compensated rail — do not force world (1,1,1),
+            // which undoes attach-chain inverse on the service head.
+            child.shelf.localScale = Vector3.one;
         }
+
+        // Do NOT call EnsureAttachChain here — after load/MoveUp that double-compensates.
+        // Interactive SetScaleLevel / pre-MoveUp FixLoaded already own attach-chain math.
     }
 }
 

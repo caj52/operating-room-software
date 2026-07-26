@@ -435,12 +435,13 @@ public class ConfigurationManager : MonoBehaviour
         ScaleAuditLog.Hierarchy("SaveConfig.postDetach", Selectable.SelectedSelectables[0].transform.root,
             "canonical under-tube hierarchy after SetToOriginalParent");
 
-        // Persist the same attach-chain inverse Z that SetScaleLevel applies interactively,
-        // so light drop tubes (and any scaled selectable) round-trip without post-load patches.
+        // Persist AP inverse Z. Do NOT reapply mesh isolation here — live SetScaleLevel
+        // already has the correct untracked child scales; a re-derive can diverge and
+        // bake the wrong inverse into the save.
         foreach (TrackedObject obj in foundObjects)
         {
-            if (obj != null && obj.TryGetComponent(out Selectable sel))
-                sel.EnsureAttachChainScaleCompensation();
+            if (obj != null && obj.TryGetComponent(out Selectable sel) && sel != null)
+                sel.EnsureAttachChainScaleCompensation(reapplyMeshIsolation: false);
         }
 
         ScaleAuditLog.Hierarchy("SaveConfig.postCompensate", Selectable.SelectedSelectables[0].transform.root,
@@ -556,11 +557,12 @@ public class ConfigurationManager : MonoBehaviour
             ScaleAuditLog.Event("SaveRoom.postDetach", $"tracked={foundObjects.Length}");
 
             // Same under-tube inverse Z contract as config save / SetScaleLevel.
+            // Load (not save) re-derives untracked mesh inverses.
             lastPhase = "attach_chain_scale_compensation";
             foreach (TrackedObject obj in foundObjects)
             {
-                if (obj != null && obj.TryGetComponent(out Selectable sel))
-                    sel.EnsureAttachChainScaleCompensation();
+                if (obj != null && obj.TryGetComponent(out Selectable sel) && sel != null)
+                    sel.EnsureAttachChainScaleCompensation(reapplyMeshIsolation: false);
             }
 
             ScaleAuditLog.Event("SaveRoom.postCompensate", "EnsureAttachChainScaleCompensation complete");
@@ -766,7 +768,7 @@ public class ConfigurationManager : MonoBehaviour
                 RestoreLoadedInstanceColliders();
                 SettleLoadedBoomAssembly();
                 // Zero-scale mesh repair only; attach-chain inverse already applied pre-MoveUp.
-                FixLoadedNonUniformDropTubeScales();
+                FixLoadedNonUniformDropTubeScales(applyAttachChain: false);
                 if (_newObjects != null)
                 {
                     foreach (var to in _newObjects)
@@ -1137,7 +1139,7 @@ public class ConfigurationManager : MonoBehaviour
 
                 SettleLoadedBoomAssembly();
                 // Zero-scale mesh repair only; attach-chain inverse already applied pre-MoveUp.
-                FixLoadedNonUniformDropTubeScales();
+                FixLoadedNonUniformDropTubeScales(applyAttachChain: false);
                 LogLoadedArmScaleSnapshot("after SettleLoadedBoomAssembly");
 
                 var pricingTimer = Stopwatch.StartNew();
@@ -1441,34 +1443,62 @@ public class ConfigurationManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Under-tube attach-chain inverse Z (same as interactive SetScaleLevel) plus repair
-    /// of true-zero localScales. Must run while APs are still children of scaled tubes
-    /// (pre-MoveUp). After MoveUp, AttachmentPoint reparent preserves world scale.
+    /// Pre-MoveUp length isolation for loaded objects. Sole discrete writer is
+    /// Selectable.SetScaleLevel (via ReapplyLengthScaleIsolation). Ensure only cleans
+    /// polluted AP XY first. Runs as ONE global parent-first pass across all loaded
+    /// roots — per-root FixLoaded was reapplying arms under still-polluted drop-tube
+    /// APs (bad .002 like 2.46,0.89,0.89) and leaving tips slightly low.
     /// Note: Simeon light mesh roots are intentionally ~0.001 (Blender units).
     /// </summary>
-    private void FixLoadedNonUniformDropTubeScales()
+    private void FixLoadedNonUniformDropTubeScales(bool applyAttachChain = true)
     {
         if (_newObjects == null)
             return;
 
-        foreach (TrackedObject to in _newObjects)
+        if (applyAttachChain)
         {
-            if (to == null)
-                continue;
-
-            foreach (Selectable sel in to.GetComponentsInChildren<Selectable>(true))
+            var unique = new HashSet<Selectable>();
+            var ordered = new List<Selectable>();
+            foreach (TrackedObject to in _newObjects)
             {
-                if (sel == null) continue;
-                try
+                if (to == null) continue;
+                foreach (Selectable sel in to.GetComponentsInChildren<Selectable>(true))
                 {
-                    sel.EnsureAttachChainScaleCompensation();
-                    sel.RepairUntrackedChildInversesAfterLoad();
+                    if (sel == null || !unique.Add(sel)) continue;
+                    ordered.Add(sel);
                 }
+            }
+
+            // Parents before children so drop-tube AP (1,1,1/z) exists before arm Reapply.
+            ordered.Sort((a, b) =>
+            {
+                int da = HierarchyDepth(a.transform);
+                int db = HierarchyDepth(b.transform);
+                return da != db ? da.CompareTo(db) : string.CompareOrdinal(a.name, b.name);
+            });
+
+            foreach (Selectable sel in ordered)
+            {
+                try { sel.EnsureAttachChainScaleCompensation(reapplyMeshIsolation: false); }
                 catch (Exception ex)
                 {
                     Debug.LogWarning($"[FixLoadedNonUniformDropTubeScales] {sel.name}: {ex.Message}");
                 }
             }
+            foreach (Selectable sel in ordered)
+            {
+                try { sel.ReapplyLengthScaleIsolation(); }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[FixLoadedNonUniformDropTubeScales] reapply {sel.name}: {ex.Message}");
+                }
+            }
+        }
+
+        foreach (TrackedObject to in _newObjects)
+        {
+            if (to == null)
+                continue;
 
             foreach (Transform t in to.GetComponentsInChildren<Transform>(true))
             {
@@ -1482,6 +1512,17 @@ public class ConfigurationManager : MonoBehaviour
                     $"Repaired zero localScale on {GetLoadComparablePath(t.gameObject)}");
             }
         }
+    }
+
+    private static int HierarchyDepth(Transform t)
+    {
+        int depth = 0;
+        while (t != null)
+        {
+            depth++;
+            t = t.parent;
+        }
+        return depth;
     }
 
     /// <summary>

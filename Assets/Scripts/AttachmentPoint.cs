@@ -346,6 +346,8 @@ public partial class AttachmentPoint : MonoBehaviour
     {
         t.localScale = Vector3.one;
         Vector3 parentLossyAtOne = t.lossyScale;
+        // Full XYZ: length stretch on a rotated mesh parent often lands on X/Y in the AP's
+        // local frame. Forcing XY=1 left downstream at lossy (stretch,1,1/z).
         Vector3 computedLocal = new Vector3(
             SafeDiv(worldScale.x, parentLossyAtOne.x),
             SafeDiv(worldScale.y, parentLossyAtOne.y),

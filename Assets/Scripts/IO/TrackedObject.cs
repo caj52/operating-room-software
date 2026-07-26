@@ -253,10 +253,9 @@ public class TrackedObject : MonoBehaviour
                             ?? d.scaleLevel;
                 if (scale != null)
                 {
-                    if (ConfigurationManager.IsLoading)
-                        selectable.RestoreScaleLevelFromSave(scale);
-                    else
-                        selectable.SetScaleLevel(scale, true, false);
+                    // Metadata only — never SetScaleLevel here. Transforms come from
+                    // RestoreTransform; length isolation from FixLoaded → Reapply → SetScaleLevel.
+                    selectable.RestoreScaleLevelFromSave(scale);
                     // Even when scaleLevels was empty/missing, a concrete saved scale must
                     // block InitializeAfterStart from resetting to ModelDefault.
                     selectable.ScaleLevelsRestoredFromSave = true;
@@ -312,6 +311,27 @@ public class TrackedObject : MonoBehaviour
                 transform.localRotation = _originalLocalRotation;
             }
         }
+    }
+
+    /// <summary>
+    /// Re-apply saved local position/rotation without touching scale.
+    /// Used after length-isolation re-derive so temporary parent Z/rotation thrash
+    /// cannot leave arms slightly translated (e.g. tip sitting lower).
+    /// </summary>
+    public void RestoreLocalPoseKeepingScale()
+    {
+        if (!HasStoredValues)
+            return;
+
+        bool hasLocalRotation = data.localRotation.x * data.localRotation.x
+            + data.localRotation.y * data.localRotation.y
+            + data.localRotation.z * data.localRotation.z
+            + data.localRotation.w * data.localRotation.w > 1e-8f;
+        if (!hasLocalRotation)
+            return;
+
+        transform.localPosition = data.localPosition;
+        transform.localRotation = data.localRotation;
     }
 
     private static bool IsNonUniformScale(Vector3 s) =>
