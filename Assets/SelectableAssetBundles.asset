@@ -256,8 +256,11 @@ MonoBehaviour:
       <ThumbnailBase64>k__BackingField: 
       <Name>k__BackingField: Azurion 7B2015 Biplane
       <SubPartName>k__BackingField: 
-      <Categories>k__BackingField: []
-      <KeyWords>k__BackingField: []
+      <Categories>k__BackingField:
+      - Specialty Imaging
+      <KeyWords>k__BackingField:
+      - Azurion
+      - Philips
       <AttachmentPointGuidMetaData>k__BackingField: []
   - <PrefabName>k__BackingField: Azurion 7C20 FlexArm
     <SaveLoadGuid>k__BackingField: gameobject_0bc936273bfde614bb55fca0304c1432
@@ -269,8 +272,12 @@ MonoBehaviour:
       <ThumbnailBase64>k__BackingField: 
       <Name>k__BackingField: Azurion 7C20 FlexArm
       <SubPartName>k__BackingField: 
-      <Categories>k__BackingField: []
-      <KeyWords>k__BackingField: []
+      <Categories>k__BackingField:
+      - Specialty Imaging
+      <KeyWords>k__BackingField:
+      - Azurion
+      - FlexArm
+      - Philips
       <AttachmentPointGuidMetaData>k__BackingField: []
   - <PrefabName>k__BackingField: BoomCielingFlange
     <SaveLoadGuid>k__BackingField: gameobject_041a819c3701fb948a9f9a9e0d25958c
@@ -470,10 +477,14 @@ MonoBehaviour:
       <Enabled>k__BackingField: 1
       <IsStandalone>k__BackingField: 1
       <ThumbnailBase64>k__BackingField: 
-      <Name>k__BackingField: CArmMonitor
+      <Name>k__BackingField: GE OEC 9900 Monitor
       <SubPartName>k__BackingField: 
-      <Categories>k__BackingField: []
-      <KeyWords>k__BackingField: []
+      <Categories>k__BackingField:
+      - Specialty Imaging
+      <KeyWords>k__BackingField:
+      - OEC
+      - 9900
+      - C-Arm
       <AttachmentPointGuidMetaData>k__BackingField: []
   - <PrefabName>k__BackingField: CArmRobot
     <SaveLoadGuid>k__BackingField: gameobject_063ec944f6e103242a814ac7f1ab231f
@@ -483,10 +494,14 @@ MonoBehaviour:
       <Enabled>k__BackingField: 1
       <IsStandalone>k__BackingField: 1
       <ThumbnailBase64>k__BackingField: 
-      <Name>k__BackingField: CArmRobot
+      <Name>k__BackingField: GE OEC 9900 C-Arm
       <SubPartName>k__BackingField: 
-      <Categories>k__BackingField: []
-      <KeyWords>k__BackingField: []
+      <Categories>k__BackingField:
+      - Specialty Imaging
+      <KeyWords>k__BackingField:
+      - OEC
+      - 9900
+      - C-Arm
       <AttachmentPointGuidMetaData>k__BackingField: []
   - <PrefabName>k__BackingField: CartWithElectronics
     <SaveLoadGuid>k__BackingField: gameobject_f715a7888caee88438155507eb21792a
@@ -871,8 +886,11 @@ MonoBehaviour:
       <ThumbnailBase64>k__BackingField: 
       <Name>k__BackingField: Digital Diagnost C90
       <SubPartName>k__BackingField: 
-      <Categories>k__BackingField: []
-      <KeyWords>k__BackingField: []
+      <Categories>k__BackingField:
+      - Specialty Imaging
+      <KeyWords>k__BackingField:
+      - C90
+      - Philips
       <AttachmentPointGuidMetaData>k__BackingField: []
   - <PrefabName>k__BackingField: DigitalWallClock
     <SaveLoadGuid>k__BackingField: gameobject_f14ae3a315bfa98469559e34321255d2
@@ -1259,10 +1277,13 @@ MonoBehaviour:
       <Enabled>k__BackingField: 1
       <IsStandalone>k__BackingField: 1
       <ThumbnailBase64>k__BackingField: 
-      <Name>k__BackingField: Dura Diagnost 4_1
+      <Name>k__BackingField: Philips Dura Diagnost
       <SubPartName>k__BackingField: 
-      <Categories>k__BackingField: []
-      <KeyWords>k__BackingField: []
+      <Categories>k__BackingField:
+      - Specialty Imaging
+      <KeyWords>k__BackingField:
+      - Dura
+      - Philips
       <AttachmentPointGuidMetaData>k__BackingField: []
   - <PrefabName>k__BackingField: EndoscopyTower
     <SaveLoadGuid>k__BackingField: gameobject_af4bc14824710524eb3823707af229a3
@@ -1682,10 +1703,14 @@ MonoBehaviour:
       <Enabled>k__BackingField: 1
       <IsStandalone>k__BackingField: 1
       <ThumbnailBase64>k__BackingField: 
-      <Name>k__BackingField: omnictscan
+      <Name>k__BackingField: GE Allia IGS 7
       <SubPartName>k__BackingField: 
-      <Categories>k__BackingField: []
-      <KeyWords>k__BackingField: []
+      <Categories>k__BackingField:
+      - Specialty Imaging
+      <KeyWords>k__BackingField:
+      - Allia
+      - IGS
+      - GE
       <AttachmentPointGuidMetaData>k__BackingField: []
   - <PrefabName>k__BackingField: GEStorageUnit
     <SaveLoadGuid>k__BackingField: gameobject_fd562582e6e124e41980d48de0029757
@@ -2027,10 +2052,14 @@ MonoBehaviour:
       <Enabled>k__BackingField: 1
       <IsStandalone>k__BackingField: 1
       <ThumbnailBase64>k__BackingField: 
-      <Name>k__BackingField: omnictscan
+      <Name>k__BackingField: PET-CT / Omni CT Scan
       <SubPartName>k__BackingField: 
-      <Categories>k__BackingField: []
-      <KeyWords>k__BackingField: []
+      <Categories>k__BackingField:
+      - Specialty Imaging
+      <KeyWords>k__BackingField:
+      - PET
+      - CT
+      - Omni
       <AttachmentPointGuidMetaData>k__BackingField: []
   - <PrefabName>k__BackingField: OR_Table_0
     <SaveLoadGuid>k__BackingField: gameobject_839a064b625fb724ab496f21e46986e7
@@ -2423,10 +2452,14 @@ MonoBehaviour:
       <Enabled>k__BackingField: 1
       <IsStandalone>k__BackingField: 0
       <ThumbnailBase64>k__BackingField: 
-      <Name>k__BackingField: Simeon_Light_7000
+      <Name>k__BackingField: U|ONE Light
       <SubPartName>k__BackingField: 
-      <Categories>k__BackingField: []
-      <KeyWords>k__BackingField: []
+      <Categories>k__BackingField:
+      - Surgical Lights
+      <KeyWords>k__BackingField:
+      - U|ONE
+      - Simeon
+      - 7000
       <AttachmentPointGuidMetaData>k__BackingField: []
   - <PrefabName>k__BackingField: Simeon_Light_8000
     <SaveLoadGuid>k__BackingField: gameobject_9d8bfe60207068d43bd3e89a01c90394
@@ -2436,10 +2469,14 @@ MonoBehaviour:
       <Enabled>k__BackingField: 1
       <IsStandalone>k__BackingField: 0
       <ThumbnailBase64>k__BackingField: 
-      <Name>k__BackingField: Simeon_Light_8000
+      <Name>k__BackingField: U|002 Light
       <SubPartName>k__BackingField: 
-      <Categories>k__BackingField: []
-      <KeyWords>k__BackingField: []
+      <Categories>k__BackingField:
+      - Surgical Lights
+      <KeyWords>k__BackingField:
+      - U|002
+      - Simeon
+      - 8000
       <AttachmentPointGuidMetaData>k__BackingField: []
   - <PrefabName>k__BackingField: SimeonLightPlate
     <SaveLoadGuid>k__BackingField: gameobject_3c254b739bf7bdd4cbd8df9c73228ef2

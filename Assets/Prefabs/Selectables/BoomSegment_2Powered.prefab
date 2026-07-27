@@ -1034,7 +1034,12 @@ MonoBehaviour:
   <InitialLocalPositionOffset>k__BackingField: {x: 0, y: 0, z: 0}
   <IsDestructible>k__BackingField: 1
   <AllowInverseControl>k__BackingField: 0
-  <ScaleLevels>k__BackingField: []
+  <ScaleLevels>k__BackingField:
+  - <Size>k__BackingField: 1
+    <Selected>k__BackingField: 1
+    <ModelDefault>k__BackingField: 1
+    <ScaleZ>k__BackingField: 0
+    metadata: []
   <UseLossyScale>k__BackingField: 0
   <ZAlwaysFacesGround>k__BackingField: 1
   <ZAlwaysFacesGroundElevationOnly>k__BackingField: 0
@@ -1205,7 +1210,12 @@ MonoBehaviour:
   <InitialLocalPositionOffset>k__BackingField: {x: 0, y: 0, z: 0}
   <IsDestructible>k__BackingField: 1
   <AllowInverseControl>k__BackingField: 0
-  <ScaleLevels>k__BackingField: []
+  <ScaleLevels>k__BackingField:
+  - <Size>k__BackingField: 1
+    <Selected>k__BackingField: 1
+    <ModelDefault>k__BackingField: 1
+    <ScaleZ>k__BackingField: 0
+    metadata: []
   <UseLossyScale>k__BackingField: 0
   <ZAlwaysFacesGround>k__BackingField: 0
   <ZAlwaysFacesGroundElevationOnly>k__BackingField: 0
