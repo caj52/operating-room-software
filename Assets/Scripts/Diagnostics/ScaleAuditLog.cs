@@ -16,6 +16,17 @@ public static class ScaleAuditLog
     private static string _logPath;
     private static bool _sessionStarted;
 
+    /// <summary>
+    /// When true (default in Editor / Development builds), SetScaleLevel also dumps the
+    /// full hierarchy. Length-isolation probes always log regardless of this flag.
+    /// </summary>
+    public static bool VerboseHierarchy
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        = true;
+#else
+        = false;
+#endif
+
     public static string LogPath
     {
         get
@@ -29,6 +40,27 @@ public static class ScaleAuditLog
             _logPath = Path.Combine(dir, "scale_audit.log");
             return _logPath;
         }
+    }
+
+    /// <summary>
+    /// Snapshot used to detect "length stretch" vs true length isolation:
+    /// tube XY stable, tube Z / tip distance grow, downstream lossy stays ~1, diameter stable.
+    /// </summary>
+    public struct LengthProbe
+    {
+        public Vector3 TubeLocal;
+        public Vector3 TubeLossy;
+        public Vector3 SelfBoundsSize;
+        public Vector3 SubtreeBoundsSize;
+        public float SelfDiameter;
+        public float SelfLength;
+        public float TipDistance;
+        public string FirstChildName;
+        public Vector3 FirstChildLocal;
+        public Vector3 FirstChildLossy;
+        public string DownstreamName;
+        public Vector3 DownstreamLossy;
+        public int ChildCount;
     }
 
     public static void Event(string phase, string message)
@@ -45,6 +77,160 @@ public static class ScaleAuditLog
         string line = $"[{Now()}] [{phase}] WARN {message}";
         Write(line);
         Debug.LogWarning($"[SCALE_AUDIT] [{phase}] {message}");
+    }
+
+    public static LengthProbe CaptureLengthProbe(Transform tube)
+    {
+        var probe = new LengthProbe();
+        if (tube == null) return probe;
+
+        probe.TubeLocal = tube.localScale;
+        probe.TubeLossy = tube.lossyScale;
+        probe.ChildCount = tube.childCount;
+        // Mesh often lives on an untracked wrapper (.002), not the Selectable — use that
+        // segment's renderers, stopping before the next Selectable (next arm / head).
+        probe.SelfBoundsSize = ArmMeshBoundsSize(tube);
+        probe.SubtreeBoundsSize = BoundsSizeOn(tube, includeChildren: true);
+        SplitLengthDiameter(probe.SelfBoundsSize, out probe.SelfLength, out probe.SelfDiameter);
+        probe.TipDistance = TipWorldDistance(tube);
+
+        if (tube.childCount > 0)
+        {
+            Transform child = tube.GetChild(0);
+            probe.FirstChildName = child.name;
+            probe.FirstChildLocal = child.localScale;
+            probe.FirstChildLossy = child.lossyScale;
+        }
+
+        Selectable down = FindFirstDownstreamSelectable(tube);
+        if (down != null)
+        {
+            probe.DownstreamName = down.name;
+            probe.DownstreamLossy = down.transform.lossyScale;
+        }
+
+        return probe;
+    }
+
+    /// <summary>
+    /// Compare before/after SetScaleLevel and emit a one-line verdict that is easy to grep:
+    /// LENGTH_OK | TUBE_XY_STRETCH | DIAMETER_STRETCH | DOWNSTREAM_STRETCH | MIXED_FAIL
+    /// </summary>
+    public static void LogLengthIsolation(
+        string phase,
+        Transform tube,
+        LengthProbe before,
+        float requestedScaleZ,
+        float sizeMeters,
+        bool setSelected,
+        bool usedStoredChildScales,
+        bool usedCalculateInverse)
+    {
+        if (tube == null) return;
+
+        LengthProbe after = CaptureLengthProbe(tube);
+        float eps = 0.04f;
+
+        bool tubeXyStable =
+            Mathf.Abs(after.TubeLocal.x - before.TubeLocal.x) <= eps
+            && Mathf.Abs(after.TubeLocal.y - before.TubeLocal.y) <= eps;
+        bool tubeZMatched = Mathf.Abs(after.TubeLocal.z - requestedScaleZ) <= 0.02f;
+
+        bool diameterStable = before.SelfDiameter < 1e-5f
+            || Mathf.Abs(after.SelfDiameter / Mathf.Max(before.SelfDiameter, 1e-6f) - 1f) <= 0.08f;
+
+        float lengthRatio = before.SelfLength > 1e-5f
+            ? after.SelfLength / before.SelfLength
+            : 0f;
+        float tipRatio = before.TipDistance > 1e-5f
+            ? after.TipDistance / before.TipDistance
+            : 0f;
+        float zRatio = Mathf.Abs(before.TubeLocal.z) > 1e-5f
+            ? after.TubeLocal.z / before.TubeLocal.z
+            : requestedScaleZ;
+
+        bool downstreamOk = true;
+        if (!string.IsNullOrEmpty(after.DownstreamName))
+        {
+            // Downstream should stay near world-uniform 1 (isolation), not track tube Z.
+            Vector3 d = after.DownstreamLossy;
+            float dMax = Mathf.Max(Mathf.Abs(d.x), Mathf.Max(Mathf.Abs(d.y), Mathf.Abs(d.z)));
+            float dMin = Mathf.Min(Mathf.Abs(d.x), Mathf.Min(Mathf.Abs(d.y), Mathf.Abs(d.z)));
+            bool nearOne = Mathf.Abs(dMax - 1f) <= 0.12f && Mathf.Abs(dMin - 1f) <= 0.12f;
+            bool grewWithTube = zRatio > 1.05f && dMax > Mathf.Max(AbsMax(before.DownstreamLossy) * 1.08f, 1.12f);
+            downstreamOk = nearOne && !grewWithTube;
+        }
+
+        bool childInverseOk = true;
+        if (!string.IsNullOrEmpty(after.FirstChildName) && Mathf.Abs(requestedScaleZ - 1f) > 0.05f)
+        {
+            // Direct mesh/AP child should compensate so its lossy stays ~1 when tube Z != 1.
+            Vector3 cl = after.FirstChildLossy;
+            float cMax = Mathf.Max(Mathf.Abs(cl.x), Mathf.Max(Mathf.Abs(cl.y), Mathf.Abs(cl.z)));
+            childInverseOk = Mathf.Abs(cMax - 1f) <= 0.15f;
+        }
+
+        string verdict = "LENGTH_OK";
+        if (!tubeXyStable) verdict = "TUBE_XY_STRETCH";
+        else if (!diameterStable) verdict = "DIAMETER_STRETCH";
+        else if (!downstreamOk) verdict = "DOWNSTREAM_STRETCH";
+        else if (!childInverseOk) verdict = "CHILD_INVERSE_FAIL";
+        else if (!tubeZMatched) verdict = "Z_MISMATCH";
+
+        var sb = new StringBuilder(768);
+        sb.Append("verdict=").Append(verdict);
+        sb.Append(" name=").Append(tube.name);
+        sb.Append(" sizeM=").Append(F(sizeMeters));
+        sb.Append(" reqZ=").Append(F(requestedScaleZ));
+        sb.Append(" setSelected=").Append(setSelected);
+        sb.Append(" applyPath=");
+        if (usedStoredChildScales && usedCalculateInverse) sb.Append("stored+worldPreserve");
+        else if (usedStoredChildScales) sb.Append("storedChildScales");
+        else if (usedCalculateInverse) sb.Append("worldPreserve");
+        else sb.Append("none");
+
+        sb.Append(" | tubeLocal ").Append(V(before.TubeLocal)).Append("->").Append(V(after.TubeLocal));
+        sb.Append(" tubeLossy ").Append(V(before.TubeLossy)).Append("->").Append(V(after.TubeLossy));
+        sb.Append(" tubeXyStable=").Append(tubeXyStable);
+        sb.Append(" zMatched=").Append(tubeZMatched);
+
+        sb.Append(" | selfBounds ").Append(V(before.SelfBoundsSize)).Append("->").Append(V(after.SelfBoundsSize));
+        sb.Append(" selfLen ").Append(F(before.SelfLength)).Append("->").Append(F(after.SelfLength))
+            .Append(" (x").Append(F(lengthRatio)).Append(')');
+        sb.Append(" selfDiam ").Append(F(before.SelfDiameter)).Append("->").Append(F(after.SelfDiameter))
+            .Append(" diamStable=").Append(diameterStable);
+
+        sb.Append(" | tipDist ").Append(F(before.TipDistance)).Append("->").Append(F(after.TipDistance))
+            .Append(" (x").Append(F(tipRatio)).Append(") zRatio=").Append(F(zRatio));
+
+        if (!string.IsNullOrEmpty(after.FirstChildName))
+        {
+            sb.Append(" | child0=").Append(after.FirstChildName);
+            sb.Append(" local ").Append(V(before.FirstChildLocal)).Append("->").Append(V(after.FirstChildLocal));
+            sb.Append(" lossy ").Append(V(before.FirstChildLossy)).Append("->").Append(V(after.FirstChildLossy));
+            sb.Append(" inverseOk=").Append(childInverseOk);
+        }
+
+        if (!string.IsNullOrEmpty(after.DownstreamName))
+        {
+            sb.Append(" | down=").Append(after.DownstreamName);
+            sb.Append(" lossy ").Append(V(before.DownstreamLossy)).Append("->").Append(V(after.DownstreamLossy));
+            sb.Append(" ok=").Append(downstreamOk);
+        }
+
+        if (tube.TryGetComponent(out Selectable sel) && sel.CurrentScaleLevel != null)
+        {
+            sb.Append(" | metaZ=").Append(F(sel.CurrentScaleLevel.ScaleZ))
+              .Append(" metaSize=").Append(F(sel.CurrentScaleLevel.Size))
+              .Append(" liveZ=").Append(F(after.TubeLocal.z))
+              .Append(" metaDesync=")
+              .Append(Mathf.Abs(sel.CurrentScaleLevel.ScaleZ - after.TubeLocal.z) > 0.05f);
+        }
+
+        if (verdict == "LENGTH_OK")
+            Event(phase, sb.ToString());
+        else
+            Warn(phase, sb.ToString());
     }
 
     /// <summary>Dump one transform's local/lossy scale, parent chain, and flags.</summary>
@@ -197,6 +383,137 @@ public static class ScaleAuditLog
             Node(phase + ".after", self, note);
     }
 
+    private static Vector3 ArmMeshBoundsSize(Transform tube)
+    {
+        Bounds? merged = null;
+        AccumulateRendererBounds(tube, ref merged, stopAtSelectableChildren: true);
+        return merged.HasValue ? merged.Value.size : Vector3.zero;
+    }
+
+    private static Vector3 BoundsSizeOn(Transform root, bool includeChildren)
+    {
+        if (!includeChildren)
+        {
+            Bounds? self = null;
+            AccumulateRendererBounds(root, ref self, stopAtSelectableChildren: false, selfOnly: true);
+            return self.HasValue ? self.Value.size : Vector3.zero;
+        }
+
+        Bounds? merged = null;
+        AccumulateRendererBounds(root, ref merged, stopAtSelectableChildren: false);
+        return merged.HasValue ? merged.Value.size : Vector3.zero;
+    }
+
+    private static void AccumulateRendererBounds(
+        Transform root,
+        ref Bounds? merged,
+        bool stopAtSelectableChildren,
+        bool selfOnly = false)
+    {
+        if (root == null) return;
+
+        Renderer[] selfRenderers = root.GetComponents<Renderer>();
+        for (int i = 0; i < selfRenderers.Length; i++)
+            EncapsulateIfUseful(selfRenderers[i], ref merged);
+
+        if (selfOnly) return;
+
+        for (int c = 0; c < root.childCount; c++)
+        {
+            Transform child = root.GetChild(c);
+            if (child == null) continue;
+            if (stopAtSelectableChildren && child.GetComponent<Selectable>() != null)
+                continue;
+            AccumulateRendererBounds(child, ref merged, stopAtSelectableChildren, selfOnly: false);
+        }
+    }
+
+    private static void EncapsulateIfUseful(Renderer r, ref Bounds? merged)
+    {
+        if (r == null || !r.enabled) return;
+        // Skip tiny logo/measurement quads — they skew diameter metrics.
+        if (r.name.IndexOf("Logo", StringComparison.OrdinalIgnoreCase) >= 0) return;
+        if (r.name.IndexOf("Measurement", StringComparison.OrdinalIgnoreCase) >= 0) return;
+        if (r.name.IndexOf("Quad", StringComparison.OrdinalIgnoreCase) >= 0
+            && r.bounds.size.sqrMagnitude < 0.05f)
+            return;
+
+        if (merged == null) merged = r.bounds;
+        else
+        {
+            Bounds b = merged.Value;
+            b.Encapsulate(r.bounds);
+            merged = b;
+        }
+    }
+
+    private static void SplitLengthDiameter(Vector3 size, out float length, out float diameter)
+    {
+        float ax = Mathf.Abs(size.x), ay = Mathf.Abs(size.y), az = Mathf.Abs(size.z);
+        length = Mathf.Max(ax, Mathf.Max(ay, az));
+        // Diameter = mean of the two axes that are NOT the length axis.
+        // (Previously used "two non-shortest", which wrongly folded length into diameter
+        // and false-alarmed DIAMETER_STRETCH whenever the arm lengthened.)
+        if (ax >= ay && ax >= az) diameter = 0.5f * (ay + az);
+        else if (ay >= ax && ay >= az) diameter = 0.5f * (ax + az);
+        else diameter = 0.5f * (ax + ay);
+        if (length < 1e-6f) diameter = 0f;
+    }
+
+    private static float TipWorldDistance(Transform tube)
+    {
+        if (tube == null) return 0f;
+        Vector3 origin = tube.position;
+        float best = 0f;
+
+        // Prefer attachment / light / next-arm tips under this tube.
+        Transform[] all = tube.GetComponentsInChildren<Transform>(true);
+        for (int i = 0; i < all.Length; i++)
+        {
+            Transform t = all[i];
+            if (t == null || t == tube) continue;
+            string n = t.name;
+            bool tipLike =
+                n.IndexOf("AttachPoint", StringComparison.OrdinalIgnoreCase) >= 0
+                || n.IndexOf("LightHead", StringComparison.OrdinalIgnoreCase) >= 0
+                || n.IndexOf("ArmSegment_2", StringComparison.OrdinalIgnoreCase) >= 0
+                || n.IndexOf("BoomHead", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (!tipLike) continue;
+            float d = Vector3.Distance(origin, t.position);
+            if (d > best) best = d;
+        }
+
+        if (best > 1e-5f) return best;
+
+        // Fallback: farthest renderer corner from tube origin.
+        Renderer[] renderers = tube.GetComponentsInChildren<Renderer>(true);
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer r = renderers[i];
+            if (r == null) continue;
+            Vector3 c = r.bounds.center;
+            float d = Vector3.Distance(origin, c) + r.bounds.extents.magnitude;
+            if (d > best) best = d;
+        }
+        return best;
+    }
+
+    private static Selectable FindFirstDownstreamSelectable(Transform tube)
+    {
+        if (tube == null) return null;
+        Selectable[] sels = tube.GetComponentsInChildren<Selectable>(true);
+        for (int i = 0; i < sels.Length; i++)
+        {
+            Selectable s = sels[i];
+            if (s == null || s.transform == tube) continue;
+            return s;
+        }
+        return null;
+    }
+
+    private static float AbsMax(Vector3 v) =>
+        Mathf.Max(Mathf.Abs(v.x), Mathf.Max(Mathf.Abs(v.y), Mathf.Abs(v.z)));
+
     private static void EnsureSession()
     {
         if (_sessionStarted) return;
@@ -207,9 +524,9 @@ public static class ScaleAuditLog
             string banner =
                 $"========== SCALE AUDIT SESSION {DateTime.Now:yyyy-MM-dd HH:mm:ss} " +
                 $"unity={Application.unityVersion} product={Application.productName} " +
-                $"path={LogPath} ==========";
+                $"verboseHierarchy={VerboseHierarchy} path={LogPath} ==========";
             Write(banner);
-            Debug.Log($"[SCALE_AUDIT] Logging to {LogPath}");
+            Debug.Log($"[SCALE_AUDIT] Logging to {LogPath} (length probes always on; hierarchy verbose={VerboseHierarchy})");
         }
     }
 

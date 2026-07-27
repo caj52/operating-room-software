@@ -906,15 +906,15 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         scaleLevel.Selected = true;
         CurrentScaleLevel = scaleLevel;
         CurrentPreviewScaleLevel = scaleLevel;
+        // Baseline for the stored-child path in SetScaleLevel. Without this, scrubbing
+        // back to the restored level indexes an empty _childScales list and throws.
+        StoreChildScales();
     }
 
     /// <summary>
-    /// AP Z-inverse contract + optional mesh isolation re-derive.
-    /// Discrete length changes must go through <see cref="SetScaleLevel"/> (via
-    /// <see cref="ReapplyLengthScaleIsolation"/>). This method exists for:
-    /// - save: normalize AP locals before serialize (no mesh re-derive)
-    /// - load: clean polluted AP XY before Reapply
-    /// - free-scale gizmo: SetScaleLevel does not run
+    /// Keep direct AttachmentPoints at world scale (1,1,1) under this length owner.
+    /// Same intent as the old local (1,1,1/z) contract; uses world-scale restore so
+    /// rotated APs stay correct. Discrete length still goes through <see cref="SetScaleLevel"/>.
     /// </summary>
     public void EnsureAttachChainScaleCompensation(bool reapplyMeshIsolation = false)
     {
@@ -951,23 +951,22 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 continue;
 
             Vector3 cls = child.localScale;
-            // Z-only attach contract. Never preserve polluted XY (e.g. 1.12,1.12,4) — that
-            // forces attached arms to save as (0.89,0.89,1) and breaks reload.
-            Vector3 next = new Vector3(1f, 1f, inv);
-            bool zOk = Mathf.Abs(cls.z * targetZ - 1f) < 0.05f;
-            bool xyOk = Mathf.Abs(cls.x - 1f) < 0.05f && Mathf.Abs(cls.y - 1f) < 0.05f;
-            if (zOk && xyOk)
+            Vector3 lossy = child.lossyScale;
+            bool worldOk = Mathf.Abs(Mathf.Abs(lossy.x) - 1f) < 0.05f
+                && Mathf.Abs(Mathf.Abs(lossy.y) - 1f) < 0.05f
+                && Mathf.Abs(Mathf.Abs(lossy.z) - 1f) < 0.05f;
+            if (worldOk)
             {
                 ScaleAuditLog.Event("Sel.EnsureAttachChain.child",
-                    $"skip-ok child={child.name} local={cls} lossy={child.lossyScale}");
+                    $"skip-ok child={child.name} local={cls} lossy={lossy}");
                 StripAbsorbedAttachInverseFromChildren(child, targetZ, inv);
                 continue;
             }
 
-            child.localScale = next;
+            AttachmentPoint.SetWorldScale(child, Vector3.one);
             StripAbsorbedAttachInverseFromChildren(child, targetZ, inv);
             ScaleAuditLog.Warn("Sel.EnsureAttachChain.child",
-                $"WRITE child={child.name} before={cls} after={next} " +
+                $"WRITE child={child.name} before={cls} after={child.localScale} " +
                 $"lossyAfter={child.lossyScale}");
         }
 
@@ -1036,9 +1035,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
     /// <summary>
     /// Rebuild length isolation after load (untracked mesh wrappers are not serialized).
-    /// Must use SetScaleLevel itself — a one-shot InverseTransformVector does not match the
-    /// interactive double-loop result (e.g. live .002=(0.62,1,1) vs bad reapply (0.62,0.62,1)),
-    /// and the bad Y crush makes the next arm sit lower in world space.
+    /// Resets to unit-length baseline then runs <see cref="SetScaleLevel"/> so load matches
+    /// the interactive world-scale preserve path.
     /// </summary>
     public void ReapplyLengthScaleIsolation()
     {
@@ -1049,8 +1047,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         if (Mathf.Abs(targetZ - 1f) < 0.001f)
             return;
 
-        // Snapshot untracked/AP child scales for logging; then reset to unit-length baseline
-        // so SetScaleLevel computes a real Z diff (it no-ops when already at targetZ).
+        // Reset to unit-length baseline so SetScaleLevel rebuilds isolation from identity.
         Vector3 ls = transform.localScale;
         transform.localScale = new Vector3(ls.x, ls.y, 1f);
 
@@ -1076,7 +1073,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             child.localScale = Vector3.one;
         }
 
-        // Force the calculate path (not restored _childScales).
+        // Force the world-preserve path (not restored _childScales).
         CurrentScaleLevel = null;
         SetScaleLevel(target, setSelected: true, fireEvent: false);
 
@@ -1223,11 +1220,16 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             return;
         }
 
+        ScaleAuditLog.LengthProbe lengthBefore = ScaleAuditLog.CaptureLengthProbe(transform);
         ScaleAuditLog.Event("Sel.SetScaleLevel.begin",
             $"name={name} setSelected={setSelected} fireEvent={fireEvent} " +
             $"requestedScaleZ={scaleLevel.ScaleZ:G6} size={scaleLevel.Size} " +
             $"beforeLocal={transform.localScale} beforeLossy={transform.lossyScale} " +
-            $"currentScaleZ={(CurrentScaleLevel != null ? CurrentScaleLevel.ScaleZ.ToString("G6") : "null")}");
+            $"currentScaleZ={(CurrentScaleLevel != null ? CurrentScaleLevel.ScaleZ.ToString("G6") : "null")} " +
+            $"selfLen={lengthBefore.SelfLength:G6} selfDiam={lengthBefore.SelfDiameter:G6} " +
+            $"tipDist={lengthBefore.TipDistance:G6} " +
+            $"child0={lengthBefore.FirstChildName ?? "none"} child0Lossy={lengthBefore.FirstChildLossy} " +
+            $"down={lengthBefore.DownstreamName ?? "none"} downLossy={lengthBefore.DownstreamLossy}");
 
         CurrentPreviewScaleLevel = scaleLevel;
 
@@ -1236,97 +1238,36 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             OnScaleChange?.Invoke(CurrentPreviewScaleLevel);
         }
 
-        // Client intent (unchanged since main / pre-Connor branches):
-        // lengthen THIS selectable only; inverse-scale direct children so nothing
-        // attached down-stream (next arm, light head) inherits the stretch.
-        Quaternion storedRotation = transform.rotation;
-        transform.rotation = _originalRotation;
+        // Client intent (unchanged): lengthen THIS selectable only; keep direct children
+        // at the world size they had so nothing attached downstream inherits the stretch.
+        // Old path used InverseTransformVector (breaks on cardanic/45° joints). Same intent,
+        // rotation-safe: capture child world scale → write tube Z → SetWorldScale restore.
+        bool usedStoredChildScales = false;
+        bool usedCalculateInverse = false;
 
-        for (int j = 0; j < 2; j++) //not sure if still need to do this twice
+        bool canUseStored = scaleLevel == CurrentScaleLevel
+            && _childScales != null
+            && _childScales.Count == transform.childCount;
+
+        if (scaleLevel == CurrentScaleLevel && !canUseStored)
         {
-            Vector3 parentOriginalScale = transform.localScale;
-            Vector3 newScale = new Vector3(transform.localScale.x, transform.localScale.y, scaleLevel.ScaleZ);
+            ScaleAuditLog.Warn("Sel.SetScaleLevel.storedMismatch",
+                $"name={name} childCount={transform.childCount} stored={(_childScales != null ? _childScales.Count : 0)} — using worldPreserve");
+        }
+
+        Vector3 newScale = new Vector3(transform.localScale.x, transform.localScale.y, scaleLevel.ScaleZ);
+
+        if (canUseStored)
+        {
+            usedStoredChildScales = true;
             transform.localScale = newScale;
-
-            if (scaleLevel == CurrentScaleLevel)
-            {
-                //Debug.Log("Using stored child scales");
-                for (int i = 0; i < transform.childCount; i++)
-                    transform.GetChild(i).transform.localScale = _childScales[i];
-            }
-            else
-            {
-                // Debug.Log("Calculating child scales");
-                Vector3 newParentScale = newScale;
-                // Get the relative difference to the original scale
-                var diffX = newParentScale.x / parentOriginalScale.x;
-                var diffY = newParentScale.y / parentOriginalScale.y;
-                var diffZ = newParentScale.z / parentOriginalScale.z;
-
-                // Debug.Log($"Relative Difference ({diffX}, {diffY}, {diffZ})");
-
-                // This inverts the scale differences
-                var diffVector = new Vector3(1 / diffX, 1 / diffY, 1 / diffZ);
-
-                for (int i = 0; i < transform.childCount; i++)
-                {
-                    var child = transform.GetChild(i);
-
-                    if (child.TryGetComponent(out IgnoreInverseScaling ignore))
-                    {
-                        if (ignore != null)
-                        {
-                            if (ignore.IgnoreX && ignore.IgnoreY && ignore.IgnoreZ) continue;
-                        }
-                    }
-
-                    Vector3 localDiff = child.transform.InverseTransformVector(diffVector);
-                    // Debug.Log($"{child.name} Current Scale is ({child.transform.localScale.x}, {child.transform.localScale.y}, {child.transform.localScale.z})");
-                    // Debug.Log($"Local Diff after InverseTransformVector for {child.name} is ({localDiff.x}, {localDiff.y}, {localDiff.z})");
-
-                    // APs often have no Selectable — still must use axis-aligned inverse, not
-                    // InverseTransformVector (non-uniform parent scale corrupts AP Z, e.g. 5→3.5).
-                    bool isAttachChain = child.GetComponent<AttachmentPoint>() != null
-                        || child.name.Equals("AttachmentPoint", StringComparison.OrdinalIgnoreCase)
-                        || child.name.Equals("AttachPoint", StringComparison.OrdinalIgnoreCase);
-                    if (isAttachChain)
-                    {
-                        child.transform.localScale = Vector3.Scale(child.transform.localScale, diffVector);
-                        continue;
-                    }
-
-                    if (child.TryGetComponent(out Selectable selectable))
-                    {
-                        if (selectable.IsGizmoSettingAllowed(GizmoType.Scale, Axis.Z))
-                        {
-                            child.transform.localScale = Vector3.Scale(child.transform.localScale, diffVector);
-                        }
-                    }
-                    else if (gameObject.TryGetComponent(out BoomHeadScaleHandler headScale))
-                    {
-                        child.transform.localScale = Vector3.Scale(child.transform.localScale, diffVector);
-                    }
-                    else
-                    {
-                        float x = Mathf.Abs(child.transform.localScale.x * localDiff.x);
-                        float y = Mathf.Abs(child.transform.localScale.y * localDiff.y);
-                        float z = Mathf.Abs(child.transform.localScale.z * localDiff.z);
-
-                        if (ignore != null)
-                        {
-                            if (ignore.IgnoreX) x = child.transform.localScale.x;
-                            if (ignore.IgnoreY) y = child.transform.localScale.y;
-                            if (ignore.IgnoreZ) z = child.transform.localScale.z;
-                        }
-                        Vector3 next = new Vector3(x, y, z);
-                        // InverseTransformVector on rotated mesh children can collapse to ~0;
-                        // never write that — keep prior scale instead.
-                        if (next.sqrMagnitude < 1e-8f)
-                            continue;
-                        child.transform.localScale = next;
-                    }
-                }
-            }
+            for (int i = 0; i < transform.childCount; i++)
+                transform.GetChild(i).localScale = _childScales[i];
+        }
+        else
+        {
+            usedCalculateInverse = true;
+            IsolateDirectChildrenPreservingWorldScale(newScale);
         }
 
         if (setSelected)
@@ -1348,15 +1289,98 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             StoreChildScales();
         }
 
-        transform.rotation = storedRotation;
+        ScaleAuditLog.LogLengthIsolation(
+            "Sel.SetScaleLevel.length",
+            transform,
+            lengthBefore,
+            scaleLevel.ScaleZ,
+            scaleLevel.Size,
+            setSelected,
+            usedStoredChildScales,
+            usedCalculateInverse);
 
-        ScaleAuditLog.Hierarchy("Sel.SetScaleLevel.after", transform,
-            $"name={name} scaleZ={(scaleLevel != null ? scaleLevel.ScaleZ.ToString("G6") : "null")} setSelected={setSelected}");
+        if (ScaleAuditLog.VerboseHierarchy)
+        {
+            ScaleAuditLog.Hierarchy("Sel.SetScaleLevel.after", transform,
+                $"name={name} scaleZ={(scaleLevel != null ? scaleLevel.ScaleZ.ToString("G6") : "null")} setSelected={setSelected}");
+        }
 
         //if (TryGetComponent(out ScaleGroup _))
         //{
         //    transform.SetParent(oldParent);
         //}
+    }
+
+    /// <summary>
+    /// After changing this tube's local Z, restore each isolatable direct child's world
+    /// scale so the next arm / light head does not inherit the stretch. Attach points and
+    /// untracked mesh wrappers are forced to world (1,1,1); length-capable Selectable
+    /// children keep the world size they had before the tube change.
+    /// </summary>
+    private void IsolateDirectChildrenPreservingWorldScale(Vector3 newParentLocalScale)
+    {
+        int n = transform.childCount;
+        if (n == 0)
+        {
+            transform.localScale = newParentLocalScale;
+            return;
+        }
+
+        var targetWorld = new Vector3[n];
+        var mode = new byte[n]; // 0=skip, 1=worldOne, 2=preserveWorld
+        bool boomHead = GetComponent<BoomHeadScaleHandler>() != null;
+
+        for (int i = 0; i < n; i++)
+        {
+            Transform child = transform.GetChild(i);
+            if (child == null)
+            {
+                mode[i] = 0;
+                continue;
+            }
+
+            if (child.TryGetComponent(out IgnoreInverseScaling ignore)
+                && ignore.IgnoreX && ignore.IgnoreY && ignore.IgnoreZ)
+            {
+                mode[i] = 0;
+                continue;
+            }
+
+            bool isAttach = child.GetComponent<AttachmentPoint>() != null
+                || child.name.Equals("AttachmentPoint", StringComparison.OrdinalIgnoreCase)
+                || child.name.Equals("AttachPoint", StringComparison.OrdinalIgnoreCase);
+
+            if (isAttach)
+            {
+                mode[i] = 1; // world (1,1,1)
+                targetWorld[i] = Vector3.one;
+                continue;
+            }
+
+            if (child.GetComponent<Selectable>() != null)
+            {
+                // Keep whatever world size this selectable already had (length or not).
+                mode[i] = 2;
+                targetWorld[i] = child.lossyScale;
+                continue;
+            }
+
+            // Untracked mesh wrapper (.002, boom mesh pieces): world (1,1,1) so tip APs
+            // and attached gear do not inherit tube stretch. Boom-head children preserve
+            // their current world size (rails/shelves may not be unit).
+            mode[i] = boomHead ? (byte)2 : (byte)1;
+            targetWorld[i] = boomHead ? child.lossyScale : Vector3.one;
+        }
+
+        transform.localScale = newParentLocalScale;
+
+        for (int i = 0; i < n; i++)
+        {
+            if (mode[i] == 0) continue;
+            Transform child = transform.GetChild(i);
+            if (child == null) continue;
+            AttachmentPoint.SetWorldScale(child, targetWorld[i]);
+        }
     }
 
     public void UpdateZScaling(bool setSelected)

@@ -337,13 +337,19 @@ public partial class AttachmentPoint : MonoBehaviour
         transform.SetParent(newParent, false);
         transform.position = worldPos;
         transform.rotation = worldRot;
-        SetLossyScale(transform, worldScale);
+        SetWorldScale(transform, worldScale);
 
         ScaleAuditLog.ReparentEnd("AP.Reparent", transform, worldScale);
     }
 
-    private static void SetLossyScale(Transform t, Vector3 worldScale)
+    /// <summary>
+    /// Set localScale so <paramref name="t"/>'s lossy/world scale matches
+    /// <paramref name="worldScale"/>. Rotation-safe replacement for axis guesses /
+    /// InverseTransformVector when isolating children under a length-scaled parent.
+    /// </summary>
+    public static void SetWorldScale(Transform t, Vector3 worldScale)
     {
+        if (t == null) return;
         t.localScale = Vector3.one;
         Vector3 parentLossyAtOne = t.lossyScale;
         // Full XYZ: length stretch on a rotated mesh parent often lands on X/Y in the AP's
@@ -352,7 +358,7 @@ public partial class AttachmentPoint : MonoBehaviour
             SafeDiv(worldScale.x, parentLossyAtOne.x),
             SafeDiv(worldScale.y, parentLossyAtOne.y),
             SafeDiv(worldScale.z, parentLossyAtOne.z));
-        ScaleAuditLog.Event("AP.SetLossyScale",
+        ScaleAuditLog.Event("AP.SetWorldScale",
             $"name={t.name} targetWorld={Fmt(worldScale)} parentLossyAtLocalOne={Fmt(parentLossyAtOne)} " +
             $"computedLocal={Fmt(computedLocal)}");
         t.localScale = computedLocal;
