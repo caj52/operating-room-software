@@ -130,10 +130,80 @@ public class UI_PdfExportOptions : MonoBehaviour
 
         ExportPaths.PromptForExportFolderThen(() =>
         {
-            selectable.ExportElevationPdf(title, subtitle, assemblies);
+            StartCoroutine(ExportPdfLocalCoroutine(selectable, title, subtitle, assemblies));
+        });
+    }
+
+    /// <summary>
+    /// Same capture + Enrich path as batch elevations (not the legacy PdfExporter table builder).
+    /// </summary>
+    IEnumerator ExportPdfLocalCoroutine(
+        Selectable selectable,
+        string title,
+        string subtitle,
+        List<AssemblyData> assemblies)
+    {
+        if (selectable == null)
+        {
+            ExportPaths.ClearExportBaseOverride();
+            yield break;
+        }
+
+        if (!selectable.TryGetArmAssemblyRoot(out GameObject rootObj))
+        {
+            ExportPaths.ClearExportBaseOverride();
+            yield break;
+        }
+
+        var root = rootObj.GetComponent<Selectable>();
+        if (root == null)
+        {
+            ExportPaths.ClearExportBaseOverride();
+            yield break;
+        }
+
+        List<PdfExporterLocal.PdfImageData> images = null;
+        bool waiting = true;
+        yield return root.CapturePdfDataForExport(title, subtitle, assemblies, (img, _) =>
+        {
+            images = img;
+            waiting = false;
+        });
+        yield return new WaitUntil(() => !waiting);
+
+        var assemblyDatas = (assemblies != null && assemblies.Count > 0)
+            ? assemblies
+            : GenerateAssemblyDataWithTitles(root);
+        var additional = GetAdditionalData();
+        var meta = GetProjectMetaData();
+        var allAssemblyJson = PdfExporterLocal.ConvertToAssemblyJsonFull(assemblyDatas, additional);
+
+        if (images == null || images.Count == 0)
+        {
+            Debug.LogWarning("Elevation PDF export produced no images.");
             ExportPaths.ClearExportBaseOverride();
             gameObject.SetActive(false);
-        });
+            yield break;
+        }
+
+        string path = PdfExporterLocal.ExportElevationPdfLocal(
+            images,
+            title,
+            subtitle,
+            allAssemblyJson,
+            meta,
+            new PdfExporterLocal.PdfExportOptions
+            {
+                OutputDirectory = ExportPaths.PdfDir,
+                OpenAfterExport = true,
+                ShowSuccessDialog = true,
+            });
+
+        if (!string.IsNullOrEmpty(path))
+            ExportFolderUtility.RevealInFileManager(path);
+
+        ExportPaths.ClearExportBaseOverride();
+        gameObject.SetActive(false);
     }
 
     public static void Open(Selectable selectable)

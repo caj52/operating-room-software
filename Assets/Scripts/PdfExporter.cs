@@ -171,12 +171,16 @@ public class PdfExporter : MonoBehaviour
                         }
                     });
                 }
-                if (item.ScaleLevels.Count > 0)
+                if (item.ScaleLevels != null && item.ScaleLevels.Count > 0)
                 {
-                    JSONObject selectableData = new();
-                    selectableData.Add("Item", itemName + " length");
-                    selectableData.Add("Value", item.CurrentScaleLevel.Size * 1000f + "mm");
-                    assembly.ItemArray.Add(selectableData);
+                    string lengthMm = ElevationLengthFormat.TryFormatMm(item);
+                    if (!string.IsNullOrEmpty(lengthMm))
+                    {
+                        JSONObject selectableData = new();
+                        selectableData.Add("Item", itemName + " length");
+                        selectableData.Add("Value", lengthMm);
+                        assembly.ItemArray.Add(selectableData);
+                    }
                 }
             });
 

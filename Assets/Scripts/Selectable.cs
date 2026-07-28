@@ -387,6 +387,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         if (Started)
             return;
 
+        EnsureMeasurablesLinked();
+
         if (!ConfigurationManager.IsLoading &&
             GUID != "" &&
             !ConfigurationManager.IsRoomBoundary(GUID) &&
@@ -909,6 +911,50 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         // Baseline for the stored-child path in SetScaleLevel. Without this, scrubbing
         // back to the restored level indexes an empty _childScales list and throws.
         StoreChildScales();
+    }
+
+    /// <summary>
+    /// Elevation / export: ensure CurrentScaleLevel points at a catalog entry with Size
+    /// without touching transforms. Fixes dual-selectables where CurrentScaleLevel was cleared.
+    /// </summary>
+    public void EnsureCurrentScaleLevelFromCatalog()
+    {
+        // Prefab serializes an orphan CurrentScaleLevel with Size=0 — treat that as unbound.
+        if (CurrentScaleLevel != null && CurrentScaleLevel.Size > 0f
+            && ScaleLevels != null && ScaleLevels.Contains(CurrentScaleLevel))
+            return;
+        if (ScaleLevels == null || ScaleLevels.Count == 0)
+            return;
+
+        float liveZ = transform.localScale.z;
+        float beforeSize = CurrentScaleLevel != null ? CurrentScaleLevel.Size : 0f;
+        bool beforeInList = CurrentScaleLevel != null
+            && ScaleLevels.Contains(CurrentScaleLevel);
+
+        ScaleLevel pick = ScaleLevels.FirstOrDefault(s => s != null && s.Selected && s.Size > 0f)
+            ?? ScaleLevels.FirstOrDefault(s =>
+                s != null && s.Size > 0f && s.ScaleZ > 0.01f && Mathf.Abs(s.ScaleZ - liveZ) < 0.02f)
+            ?? ScaleLevels.FirstOrDefault(s => s != null && s.Size > 0f);
+        if (pick == null)
+        {
+            if (Selectable.IsInElevationPhotoMode)
+            {
+                Debug.LogWarning(
+                    $"[ElevDim] ScaleLevel rebind FAILED {ElevationLengthFormat.DiagnoseSizeBinding(this)} " +
+                    "— ScaleLevels present but no Size>0 entry");
+            }
+            return;
+        }
+
+        RestoreScaleLevelFromSave(pick);
+
+        if (Selectable.IsInElevationPhotoMode
+            && (beforeSize <= 0f || !beforeInList || !Mathf.Approximately(beforeSize, pick.Size)))
+        {
+            Debug.Log(
+                $"[ElevDim] ScaleLevel rebound name={name} beforeSize={beforeSize:F3} beforeInList={beforeInList} " +
+                $"→ size={pick.Size:F3} z={pick.ScaleZ:F3} liveZ={liveZ:F3}");
+        }
     }
 
     /// <summary>
@@ -1493,7 +1539,12 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     List<AssemblyData> assemblyDatas,
     Action<List<PdfExporterLocal.PdfImageData>, List<Selectable>> onComplete)
     {
-        if (!TryGetArmAssemblyRoot(out GameObject rootObj)) yield break;
+        if (!TryGetArmAssemblyRoot(out GameObject rootObj))
+        {
+            Debug.LogWarning($"[ElevDim] CapturePdfDataForExport: no arm assembly root on {name}");
+            onComplete?.Invoke(new List<PdfExporterLocal.PdfImageData>(), null);
+            yield break;
+        }
 
         if (rootObj != gameObject)
         {
@@ -1503,31 +1554,36 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         }
 
         IsInElevationPhotoMode = true;
-        var camera = GetComponentInChildren<Camera>();
-        ActiveCameraRenderTextureElevation = camera;
-        ClearSelectionForCapture();
-
-        // Hide the 3D floor mesh during capture — the PDF ground graphic is the floor.
         bool floorWasActive = true;
-        var floorBoundary = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor);
-        if (floorBoundary != null)
-        {
-            floorWasActive = floorBoundary.gameObject.activeSelf;
-            floorBoundary.gameObject.SetActive(false);
-        }
-
-        SetAssemblyToDefaultRotations();
-        _measurableActiveStates.Clear();
-        ToggleMeasurableActiveStates(true);
-
-        List<(Selectable selectable, bool wasActive)> visibilitySnapshot = ActiveSelectables
-            .Where(x => x != null)
-            .Select(x => (x, x.gameObject.activeSelf))
-            .ToList();
-
+        RoomBoundary floorBoundary = null;
+        List<(Selectable selectable, bool wasActive)> visibilitySnapshot = null;
         List<PdfExporterLocal.PdfImageData> imageData = new();
         try
         {
+            var camera = GetComponentInChildren<Camera>();
+            ActiveCameraRenderTextureElevation = camera;
+            ClearSelectionForCapture();
+
+            // Hide the 3D floor mesh during capture — the PDF ground graphic is the floor.
+            floorBoundary = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor);
+            if (floorBoundary != null)
+            {
+                floorWasActive = floorBoundary.gameObject.activeSelf;
+                floorBoundary.gameObject.SetActive(false);
+            }
+
+            SetAssemblyToDefaultRotations();
+            _measurableActiveStates.Clear();
+            ToggleMeasurableActiveStates(true);
+
+            visibilitySnapshot = ActiveSelectables
+                .Where(x => x != null)
+                .Select(x => (x, x.gameObject.activeSelf))
+                .ToList();
+
+            if (camera == null)
+                throw new Exception($"Elevation capture camera missing on assembly root {name}");
+
             ActiveSelectables
                 .Where(x => x != null && !_assemblySelectables.Contains(x))
                 .ToList()
@@ -1550,23 +1606,40 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 }
             }
         }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[ElevDim] Capture failed for {name}: {ex}");
+        }
         finally
         {
-            foreach (var (selectable, wasActive) in visibilitySnapshot)
+            if (visibilitySnapshot != null)
             {
-                if (selectable != null && selectable.gameObject != null)
-                    selectable.gameObject.SetActive(wasActive);
+                foreach (var (selectable, wasActive) in visibilitySnapshot)
+                {
+                    if (selectable != null && selectable.gameObject != null)
+                        selectable.gameObject.SetActive(wasActive);
+                }
             }
 
             RestoreArmAssemblyRotations();
-            _assemblySelectables.ForEach(x => x.FaceZTowardGround());
+            if (_assemblySelectables != null)
+                _assemblySelectables.ForEach(x => { if (x != null) x.FaceZTowardGround(); });
             if (floorBoundary != null)
                 floorBoundary.gameObject.SetActive(floorWasActive);
-            IsInElevationPhotoMode = false;
+            // Tear down overlays while still in elev mode (Toggle uses that flag),
+            // then hard-clear anything left so dims never stick in the live scene.
             ToggleMeasurableActiveStates(false);
-        }
+            IsInElevationPhotoMode = false;
+            ElevationCutsheetPass.EndCaptureCleanup();
+            // Final wipe after elev flag is off — OnEnable/CheckActiveState must not
+            // revive measurement labels in the live room.
+            ElevationCutsheetPass.SuppressAllOverlays();
+            ActiveCameraRenderTextureElevation = null;
 
-        onComplete?.Invoke(imageData, _assemblySelectables);
+            // Always complete — PdfBatchExporter waits on this callback; skipping it hangs
+            // the multipage export so later assemblies never get a page.
+            onComplete?.Invoke(imageData, _assemblySelectables);
+        }
     }
 
     public List<PdfExporter.PdfImageData> GetAssemblyPDFImageData(Camera camera)
@@ -1618,6 +1691,9 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             }
 
             FaceAllTowardGround();
+            // Colliders lag transforms after articulation — floor underside casts must
+            // see the pose that renderers already show (else ticks float under raised arms).
+            Physics.SyncTransforms();
         }
 
         // First pass: compute unified bounds that fit both orientations including measurement overlays
@@ -1701,54 +1777,89 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
             // this obj is the ceiling mount
             IsInElevationPhotoMode = true;
-            var camera = GetComponentInChildren<Camera>();
-            ActiveCameraRenderTextureElevation = camera;
-            ClearSelectionForCapture();
-
             bool floorWasActive = true;
-            var floorBoundary = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor);
-            if (floorBoundary != null)
-            {
-                floorWasActive = floorBoundary.gameObject.activeSelf;
-                floorBoundary.gameObject.SetActive(false);
-            }
-
-            SetAssemblyToDefaultRotations();
-            _measurableActiveStates.Clear();
-            ToggleMeasurableActiveStates(true);
-
-            //store visibility states of all selectables in scene for later
-            List<(Selectable selectable, bool wasActive)> visibilitySnapshot = ActiveSelectables
-                .Where(x => x != null)
-                .Select(x => (x, x.gameObject.activeSelf))
-                .ToList();
+            RoomBoundary floorBoundary = null;
+            List<(Selectable selectable, bool wasActive)> visibilitySnapshot = null;
 
             try
             {
+                var camera = GetComponentInChildren<Camera>();
+                ActiveCameraRenderTextureElevation = camera;
+                ClearSelectionForCapture();
+
+                floorBoundary = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor);
+                if (floorBoundary != null)
+                {
+                    floorWasActive = floorBoundary.gameObject.activeSelf;
+                    floorBoundary.gameObject.SetActive(false);
+                }
+
+                SetAssemblyToDefaultRotations();
+                _measurableActiveStates.Clear();
+                ToggleMeasurableActiveStates(true);
+
+                visibilitySnapshot = ActiveSelectables
+                    .Where(x => x != null)
+                    .Select(x => (x, x.gameObject.activeSelf))
+                    .ToList();
+
                 //shut off all selectables in the scene except for the ones in this arm assembly
                 ActiveSelectables
                     .Where(x => x != null && !_assemblySelectables.Contains(x))
                     .ToList()
                     .ForEach(x => x.gameObject.SetActive(false));
 
-                PdfExporter.ExportElevationPdf(
-                    GetAssemblyPDFImageData(camera),
-                    _assemblySelectables, title, subtitle, assemblyDatas);
+                var captured = GetAssemblyPDFImageData(camera);
+                var images = new List<PdfExporterLocal.PdfImageData>();
+                if (captured != null)
+                {
+                    foreach (var img in captured)
+                    {
+                        if (img == null || string.IsNullOrEmpty(img.Path))
+                            continue;
+                        images.Add(new PdfExporterLocal.PdfImageData
+                        {
+                            Path = img.Path,
+                            Width = img.Width > 0 ? img.Width : 1000,
+                            Height = img.Height > 0 ? img.Height : 1000
+                        });
+                    }
+                }
+
+                var datas = assemblyDatas != null && assemblyDatas.Count > 0
+                    ? assemblyDatas
+                    : UI_PdfExportOptions.GenerateAssemblyDataWithTitles(this);
+                var allAssemblyJson = PdfExporterLocal.ConvertToAssemblyJsonFull(
+                    datas,
+                    UI_PdfExportOptions.GetAdditionalData());
+                PdfExporterLocal.ExportElevationPdfLocal(
+                    images,
+                    title,
+                    subtitle,
+                    allAssemblyJson,
+                    UI_PdfExportOptions.GetProjectMetaData());
             }
             finally
             {
-                foreach (var (selectable, wasActive) in visibilitySnapshot)
+                if (visibilitySnapshot != null)
                 {
-                    if (selectable != null && selectable.gameObject != null)
-                        selectable.gameObject.SetActive(wasActive);
+                    foreach (var (selectable, wasActive) in visibilitySnapshot)
+                    {
+                        if (selectable != null && selectable.gameObject != null)
+                            selectable.gameObject.SetActive(wasActive);
+                    }
                 }
 
                 RestoreArmAssemblyRotations();
-                _assemblySelectables.ForEach(x => x.FaceZTowardGround());
+                if (_assemblySelectables != null)
+                    _assemblySelectables.ForEach(x => { if (x != null) x.FaceZTowardGround(); });
                 if (floorBoundary != null)
                     floorBoundary.gameObject.SetActive(floorWasActive);
-                IsInElevationPhotoMode = false;
                 ToggleMeasurableActiveStates(false);
+                IsInElevationPhotoMode = false;
+                ElevationCutsheetPass.EndCaptureCleanup();
+                ElevationCutsheetPass.SuppressAllOverlays();
+                ActiveCameraRenderTextureElevation = null;
             }
         }
     }
@@ -1767,30 +1878,32 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
             // this obj is the ceiling mount
             IsInElevationPhotoMode = true;
-            var camera = GetComponentInChildren<Camera>();
-            ActiveCameraRenderTextureElevation = camera;
-            ClearSelectionForCapture();
-
             bool floorWasActive = true;
-            var floorBoundary = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor);
-            if (floorBoundary != null)
-            {
-                floorWasActive = floorBoundary.gameObject.activeSelf;
-                floorBoundary.gameObject.SetActive(false);
-            }
-
-            SetAssemblyToDefaultRotations();
-            _measurableActiveStates.Clear();
-            ToggleMeasurableActiveStates(true);
-
-            //store visibility states of all selectables in scene for later
-            List<(Selectable selectable, bool wasActive)> visibilitySnapshot = ActiveSelectables
-                .Where(x => x != null)
-                .Select(x => (x, x.gameObject.activeSelf))
-                .ToList();
+            RoomBoundary floorBoundary = null;
+            List<(Selectable selectable, bool wasActive)> visibilitySnapshot = null;
 
             try
             {
+                var camera = GetComponentInChildren<Camera>();
+                ActiveCameraRenderTextureElevation = camera;
+                ClearSelectionForCapture();
+
+                floorBoundary = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor);
+                if (floorBoundary != null)
+                {
+                    floorWasActive = floorBoundary.gameObject.activeSelf;
+                    floorBoundary.gameObject.SetActive(false);
+                }
+
+                SetAssemblyToDefaultRotations();
+                _measurableActiveStates.Clear();
+                ToggleMeasurableActiveStates(true);
+
+                visibilitySnapshot = ActiveSelectables
+                    .Where(x => x != null)
+                    .Select(x => (x, x.gameObject.activeSelf))
+                    .ToList();
+
                 //shut off all selectables in the scene except for the ones in this arm assembly
                 ActiveSelectables
                     .Where(x => x != null && !_assemblySelectables.Contains(x))
@@ -1801,21 +1914,30 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             }
             finally
             {
-                foreach (var (selectable, wasActive) in visibilitySnapshot)
+                if (visibilitySnapshot != null)
                 {
-                    if (selectable != null && selectable.gameObject != null)
-                        selectable.gameObject.SetActive(wasActive);
+                    foreach (var (selectable, wasActive) in visibilitySnapshot)
+                    {
+                        if (selectable != null && selectable.gameObject != null)
+                            selectable.gameObject.SetActive(wasActive);
+                    }
                 }
 
                 RestoreArmAssemblyRotations();
-                _assemblySelectables.ForEach(x =>
+                if (_assemblySelectables != null)
                 {
-                    if (x != null) x.FaceZTowardGround();
-                });
+                    _assemblySelectables.ForEach(x =>
+                    {
+                        if (x != null) x.FaceZTowardGround();
+                    });
+                }
                 if (floorBoundary != null)
                     floorBoundary.gameObject.SetActive(floorWasActive);
-                IsInElevationPhotoMode = false;
                 ToggleMeasurableActiveStates(false);
+                IsInElevationPhotoMode = false;
+                ElevationCutsheetPass.EndCaptureCleanup();
+                ElevationCutsheetPass.SuppressAllOverlays();
+                ActiveCameraRenderTextureElevation = null;
             }
         }
 
@@ -1834,8 +1956,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
     /// <summary>
     /// Captures an elevation photo of the assembly from either the “front” or “back”
-    /// depending on the invertDirection flag. All of your existing measurement‐,
-    /// fitting‐ and rendering‐logic remains exactly as before.
+    /// depending on the invertDirection flag.
     /// </summary>
     private string GetElevationPhoto(
         Camera camera,
@@ -1845,66 +1966,51 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         int fileIndex,
         bool invertDirection = false)
     {
-        // enable & switch to ortho
         camera.enabled = true;
         camera.orthographic = true;
 
-        // save original transform
         Vector3 cameraOriginalPos = camera.transform.position;
-
-        // compute direction – invert if requested
         Vector3 outwardDirection = cameraOriginalPos - transform.position;
         if (invertDirection)
             outwardDirection = -outwardDirection;
 
-        // position & aim
         camera.transform.position = bounds.center + (outwardDirection.normalized * bounds.extents.magnitude);
         camera.transform.LookAt(bounds.center, Vector3.up);
         camera.orthographicSize = bounds.extents.y;
 
-        // run your existing “show only those measurables” logic
-        float addedHeight = 0.1f;
-        Measurable.BeginElevationMeasurementPass();
-        _assemblySelectables.ForEach(item =>
+        // Cutsheet overlays only — never activate Walls / imperial then erase.
+        ElevationCutsheetPass.Apply(_assemblySelectables, camera);
+
+        if (_assemblySelectables != null)
         {
-            if (item.Measurables.Count == 0) return;
-            item.Measurables.ForEach(measurable =>
+            foreach (var item in _assemblySelectables)
             {
-                if (measurable.Disabled) return;
-
-                var valid = measurable.Measurements
-                    .Where(m => m.Measurable.ShowInElevationPhoto)
-                    .ToList();
-                if (valid.Count == 0)
+                if (item?.Measurables == null) continue;
+                foreach (var measurable in item.Measurables)
                 {
-                    measurable.SetActive(false);
-                    return;
+                    if (measurable?.Measurements == null) continue;
+                    foreach (var measurement in measurable.Measurements)
+                    {
+                        if (measurement?.Measurer == null || !measurement.Measurer.gameObject.activeSelf)
+                            continue;
+                        if (measurement.Measurer.Renderer != null)
+                            bounds.Encapsulate(measurement.Measurer.Renderer.bounds);
+                        if (measurement.Measurer.MeasurementText != null
+                            && measurement.Measurer.MeasurementText.gameObject.activeSelf)
+                        {
+                            bounds.Encapsulate(new Bounds(
+                                measurement.Measurer.MeasurementText.transform.position,
+                                Vector3.one * 1f));
+                        }
+                    }
                 }
+            }
+        }
 
-                measurable.SetActive(true);
-                measurable.UpdateMeasurements(ref addedHeight, camera);
-
-                valid.ForEach(measurement =>
-                {
-                    if (measurement.Measurer == null || !measurement.Measurer.gameObject.activeSelf)
-                        return;
-                    measurement.Measurer.UpdateTransform(camera);
-                    measurement.Measurer.MeasurementText
-                        .UpdateVisibilityAndPosition(camera, force: true);
-
-                    bounds.Encapsulate(measurement.Measurer.Renderer.bounds);
-                    var textBounds = new Bounds(measurement.Measurer.MeasurementText.transform.position, Vector3.one * 1f);
-                    bounds.Encapsulate(textBounds);
-                });
-            });
-        });
-
-        // reposition & re‐aim now that bounds may have grown
         camera.transform.position = bounds.center + (outwardDirection.normalized * bounds.extents.magnitude);
         camera.transform.LookAt(bounds.center, Vector3.up);
         camera.orthographicSize = bounds.extents.y;
 
-        // grow ortho size until min & max world points fit in RT
         int safetyCounter = 1000;
         Vector2 screenMin = camera.WorldToScreenPoint(bounds.min);
         Vector2 screenMax = camera.WorldToScreenPoint(bounds.max);
@@ -1923,23 +2029,23 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         if (safetyCounter == 0)
             throw new Exception("Could not get bounds of Arm Assembly for photo");
 
-        // compute pixel dims
         imageWidth = Mathf.CeilToInt(Mathf.Abs(screenMax.x - screenMin.x));
         imageHeight = Mathf.CeilToInt(Mathf.Abs(screenMax.y - screenMin.y));
 
-        // render
+        ElevationCutsheetPass.SuppressNonCutsheetTexts();
         Canvas.ForceUpdateCanvases();
         InGameLight.ToggleLights(false);
         var camLight = camera.GetComponentInChildren<Light>(true);
-        camLight.gameObject.SetActive(true);
+        if (camLight != null)
+            camLight.gameObject.SetActive(true);
 
         camera.Render();
         camera.enabled = false;
 
-        camLight.gameObject.SetActive(false);
+        if (camLight != null)
+            camLight.gameObject.SetActive(false);
         InGameLight.ToggleLights(true);
 
-        // read back
         RenderTexture.active = rt;
         Texture2D tex = new Texture2D(imageWidth, imageHeight, TextureFormat.RGBA32, false);
         float minX = Mathf.Min(screenMin.x, screenMax.x);
@@ -1947,18 +2053,16 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         tex.ReadPixels(new Rect(minX, minY, imageWidth, imageHeight), 0, 0);
         RenderTexture.active = null;
 
-        // save PNG
         byte[] pngData = tex.EncodeToPNG();
         string filenameImage = Path.Combine(
             Application.persistentDataPath,
             $"ExportedArmAssemblyElevationShot{fileIndex}{(invertDirection ? "_back" : "_front")}.png");
-    File.WriteAllBytes(filenameImage, pngData);
+        File.WriteAllBytes(filenameImage, pngData);
 
-    // restore original camera position
-    camera.transform.position = cameraOriginalPos;
+        camera.transform.position = cameraOriginalPos;
 
-    return filenameImage;
-}
+        return filenameImage;
+    }
 
     // Computes the expanded bounds for the current orientation (front/back) including measurement overlays without rendering
     private Bounds ComputeExpandedBoundsForOrientation(Camera camera, Bounds bounds, bool invertDirection)
@@ -1974,41 +2078,33 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         camera.transform.LookAt(bounds.center, Vector3.up);
         camera.orthographicSize = bounds.extents.y;
 
-        float addedHeight = 0.1f;
-        Measurable.BeginElevationMeasurementPass();
-        _assemblySelectables.ForEach(item =>
+        ElevationCutsheetPass.Apply(_assemblySelectables, camera);
+        // Expand bounds from active cutsheet measurers only.
+        if (_assemblySelectables != null)
         {
-            if (item.Measurables.Count == 0) return;
-            item.Measurables.ForEach(measurable =>
+            foreach (var item in _assemblySelectables)
             {
-                if (measurable.Disabled) return;
-
-                var valid = measurable.Measurements
-                    .Where(m => m.Measurable.ShowInElevationPhoto)
-                    .ToList();
-                if (valid.Count == 0)
+                if (item?.Measurables == null) continue;
+                foreach (var measurable in item.Measurables)
                 {
-                    measurable.SetActive(false);
-                    return;
+                    if (measurable?.Measurements == null) continue;
+                    foreach (var measurement in measurable.Measurements)
+                    {
+                        if (measurement?.Measurer == null || !measurement.Measurer.gameObject.activeSelf)
+                            continue;
+                        if (measurement.Measurer.Renderer != null)
+                            bounds.Encapsulate(measurement.Measurer.Renderer.bounds);
+                        if (measurement.Measurer.MeasurementText != null
+                            && measurement.Measurer.MeasurementText.gameObject.activeSelf)
+                        {
+                            bounds.Encapsulate(new Bounds(
+                                measurement.Measurer.MeasurementText.transform.position,
+                                Vector3.one * 1f));
+                        }
+                    }
                 }
-
-                measurable.SetActive(true);
-                measurable.UpdateMeasurements(ref addedHeight, camera);
-
-                valid.ForEach(measurement =>
-                {
-                    if (measurement.Measurer == null || !measurement.Measurer.gameObject.activeSelf)
-                        return;
-                    measurement.Measurer.UpdateTransform(camera);
-                    measurement.Measurer.MeasurementText
-                        .UpdateVisibilityAndPosition(camera, force: true);
-
-                    bounds.Encapsulate(measurement.Measurer.Renderer.bounds);
-                    var textBounds = new Bounds(measurement.Measurer.MeasurementText.transform.position, Vector3.one * 1f);
-                    bounds.Encapsulate(textBounds);
-                });
-            });
-        });
+            }
+        }
 
         // Re-aim with expanded bounds
         camera.transform.position = bounds.center + (outwardDirection.normalized * bounds.extents.magnitude);
@@ -2066,32 +2162,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         camera.transform.LookAt(fixedBounds.center, Vector3.up);
         camera.orthographicSize = fixedBounds.extents.y;
 
-        // Update measurement transforms for current camera so they render in right place (but don't change bounds)
-        float addedHeight = 0.1f;
-        Measurable.BeginElevationMeasurementPass();
-        _assemblySelectables.ForEach(item =>
-        {
-            if (item.Measurables.Count == 0) return;
-            item.Measurables.ForEach(measurable =>
-            {
-                if (measurable.Disabled) return;
-                var valid = measurable.Measurements.Where(m => m.Measurable.ShowInElevationPhoto).ToList();
-                if (valid.Count == 0)
-                {
-                    measurable.SetActive(false);
-                    return;
-                }
-                measurable.SetActive(true);
-                measurable.UpdateMeasurements(ref addedHeight, camera);
-                valid.ForEach(measurement =>
-                {
-                    if (measurement.Measurer == null || !measurement.Measurer.gameObject.activeSelf)
-                        return;
-                    measurement.Measurer.UpdateTransform(camera);
-                    measurement.Measurer.MeasurementText.UpdateVisibilityAndPosition(camera, force: true);
-                });
-            });
-        });
+        // Cutsheet overlays only — never activate Walls/Ceiling / interactive imperial dims.
+        ElevationCutsheetPass.Apply(_assemblySelectables, camera);
 
         // Fit fixed bounds into RT
         int safetyCounter = 1000;
@@ -2113,15 +2185,18 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         imageWidth = Mathf.CeilToInt(Mathf.Abs(screenMax.x - screenMin.x));
         imageHeight = Mathf.CeilToInt(Mathf.Abs(screenMax.y - screenMin.y));
 
+        ElevationCutsheetPass.SuppressNonCutsheetTexts();
         Canvas.ForceUpdateCanvases();
         InGameLight.ToggleLights(false);
         var camLight = camera.GetComponentInChildren<Light>(true);
-        camLight.gameObject.SetActive(true);
+        if (camLight != null)
+            camLight.gameObject.SetActive(true);
 
         camera.Render();
         camera.enabled = false;
 
-        camLight.gameObject.SetActive(false);
+        if (camLight != null)
+            camLight.gameObject.SetActive(false);
         InGameLight.ToggleLights(true);
 
         RenderTexture.active = rt;
@@ -2172,7 +2247,26 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         {
             if (rootObj == gameObject)
             {
-                _assemblySelectables = GetComponentsInChildren<Selectable>().ToList();
+                // includeInactive: dual-selectable length owners (.001) can be inactive
+                // while their mesh still renders under a related wrapper.
+                _assemblySelectables = GetComponentsInChildren<Selectable>(true).ToList();
+                ExpandAssemblySelectablesWithRelated();
+                // Dual-selectable boom/light prefabs often leave Measurables [] while the
+                // ToOrigin Measurable lives on a related child — link before elevation dims.
+                _assemblySelectables.ForEach(s =>
+                {
+                    if (s == null) return;
+                    s.EnsureCurrentScaleLevelFromCatalog();
+                    s.EnsureMeasurablesLinked();
+                    if (s.Measurables == null) return;
+                    foreach (var m in s.Measurables)
+                        m?.EnsureInitializedForElevation();
+                });
+                Debug.Log(
+                    $"[ElevDim] Assembly roster root={name} count={_assemblySelectables.Count} " +
+                    $"withMeas={_assemblySelectables.Count(s => s != null && s.Measurables != null && s.Measurables.Count > 0)} " +
+                    $"names={string.Join(",", _assemblySelectables.Where(s => s != null).Select(s => s.name))}",
+                    this);
                 //_assemblySelectables.Add(this);
                 _originalRotations.Clear();
                 Array.ForEach(_assemblySelectables.OrderBy(x => x.GetParentCount()).ToArray(), item =>
@@ -2191,11 +2285,164 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             }
         }
     }
+
+    /// <summary>
+    /// RelatedSelectables may hold the ScaleLevels / Measurable owner when it is not
+    /// already under this root's transform children list.
+    /// </summary>
+    private void ExpandAssemblySelectablesWithRelated()
+    {
+        if (_assemblySelectables == null)
+            return;
+
+        var seen = new HashSet<Selectable>(_assemblySelectables.Where(s => s != null));
+        var extras = new List<Selectable>();
+        foreach (var s in _assemblySelectables)
+        {
+            if (s?.RelatedSelectables == null)
+                continue;
+            foreach (var rel in s.RelatedSelectables)
+            {
+                if (rel == null || !seen.Add(rel))
+                    continue;
+                extras.Add(rel);
+            }
+        }
+        if (extras.Count > 0)
+            _assemblySelectables.AddRange(extras);
+    }
+    /// <summary>
+    /// Boom/light prefabs often ship a ToOrigin Measurable while the ScaleLevels
+    /// Selectable still has Measurables []. Recover self refs; pull at most ONE
+    /// ToOrigin from the dual-select group so cutsheets never stack duplicate lengths.
+    /// </summary>
+    public void EnsureMeasurablesLinked()
+    {
+        if (Measurables == null)
+            Measurables = new List<Measurable>();
+
+        // Drop null slots left by missing nested prefab refs.
+        Measurables.RemoveAll(m => m == null);
+
+        foreach (var m in GetComponents<Measurable>())
+            TryAddCutsheetMeasurable(m);
+
+        bool isLengthOwner = ScaleLevels != null && ScaleLevels.Count > 0;
+        if (!isLengthOwner)
+            return;
+
+        bool alreadyHasToOrigin = Measurables.Any(m =>
+            m != null && MeasurableHasType(m, MeasurementType.ToArmAssemblyOrigin));
+        if (alreadyHasToOrigin)
+            return;
+
+        // Only when this length owner has no ToOrigin yet — claim one from dual-select
+        // related group or unowned children. Never steal a descendant Size-owner's ToOrigin
+        // (that dropped the child's catalog length on cutsheets via measurableClaimed).
+        Measurable claim = null;
+        foreach (var m in GetComponentsInChildren<Measurable>(true))
+        {
+            if (m == null || !MeasurableHasType(m, MeasurementType.ToArmAssemblyOrigin))
+                continue;
+            if (IsOwnedByOtherLengthSelectable(m))
+                continue;
+            if (IsToOriginClaimedElsewhere(m))
+                continue;
+            claim = m;
+            break;
+        }
+
+        if (claim == null && RelatedSelectables != null)
+        {
+            foreach (var rel in RelatedSelectables)
+            {
+                if (rel == null || rel == this)
+                    continue;
+                foreach (var m in rel.GetComponentsInChildren<Measurable>(true))
+                {
+                    if (m == null || !MeasurableHasType(m, MeasurementType.ToArmAssemblyOrigin))
+                        continue;
+                    if (IsOwnedByOtherLengthSelectable(m))
+                        continue;
+                    if (IsToOriginClaimedElsewhere(m))
+                        continue;
+                    claim = m;
+                    break;
+                }
+                if (claim != null)
+                    break;
+            }
+        }
+
+        if (claim != null && !Measurables.Contains(claim))
+            Measurables.Add(claim);
+
+        if (Selectable.IsInElevationPhotoMode
+            && !Measurables.Any(m => m != null && MeasurableHasType(m, MeasurementType.ToArmAssemblyOrigin)))
+        {
+            Debug.LogWarning(
+                $"[ElevDim] length owner has NO ToOrigin measurable after link " +
+                $"name={name} levels={ScaleLevels.Count} measCount={Measurables.Count} " +
+                $"bind={{ {ElevationLengthFormat.DiagnoseSizeBinding(this)} }}",
+                this);
+        }
+    }
+
+    static bool MeasurableHasType(Measurable m, MeasurementType type)
+    {
+        if (m == null)
+            return false;
+        if (m.MeasurementTypes != null && m.MeasurementTypes.Contains(type))
+            return true;
+        if (m.Measurements != null && m.Measurements.Any(x => x != null && x.MeasurementType == type))
+            return true;
+        return false;
+    }
+
+    bool IsToOriginClaimedElsewhere(Measurable m)
+    {
+        if (RelatedSelectables == null)
+            return false;
+        foreach (var rel in RelatedSelectables)
+        {
+            if (rel == null || rel == this)
+                continue;
+            if (rel.ScaleLevels != null && rel.ScaleLevels.Count > 0
+                && rel.Measurables != null && rel.Measurables.Contains(m))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// True when <paramref name="m"/> sits under a different Selectable that has its own
+    /// ScaleLevels — that descendant owns the catalog length, not this parent.
+    /// </summary>
+    bool IsOwnedByOtherLengthSelectable(Measurable m)
+    {
+        if (m == null)
+            return false;
+        var nearest = m.GetComponentInParent<Selectable>(true);
+        if (nearest == null || nearest == this)
+            return false;
+        return nearest.ScaleLevels != null && nearest.ScaleLevels.Count > 0;
+    }
+
+    void TryAddCutsheetMeasurable(Measurable m)
+    {
+        if (m == null || Measurables.Contains(m))
+            return;
+        if (!MeasurableHasType(m, MeasurementType.ToArmAssemblyOrigin)
+            && !MeasurableHasType(m, MeasurementType.Floor))
+            return;
+        Measurables.Add(m);
+    }
+
    public void ToggleMeasurableActiveStatesWhilePlacing(bool enable)
     {
       
         //Debug.LogError("ToggleMeasurableActiveStatesWhilePlacing");
-        if (Measurables.Count > 0)
+        if (Measurables != null && Measurables.Count > 0)
         {
             //  Debug.LogError("Measurables.Count > 0");
             Measurables.ForEach(measurable =>
@@ -2210,32 +2457,74 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         }
     }
 
+    /// <summary>
+    /// Elevation capture is synchronous — MeasurementText.Update never runs before Render.
+    /// Hard-hide any label that is not a cutsheet whitelist dim.
+    /// </summary>
+    private static void HideNonWhitelistedElevationMeasurementTexts()
+    {
+        ElevationCutsheetPass.SuppressNonCutsheetTexts();
+    }
+
     private void ToggleMeasurableActiveStates(bool active)
     {
+        // Init / interactive placement also calls this. Only the elevation branch may
+        // suppress the shared canvas — otherwise every InitializeAfterStart would wipe
+        // all MeasurementTexts in the scene.
+        if (!IsInElevationPhotoMode)
+        {
+            if (Measurables == null || Measurables.Count == 0)
+                return;
+            foreach (var measurable in Measurables)
+            {
+                if (measurable == null)
+                    continue;
+                measurable.SetActive(active);
+            }
+            return;
+        }
+
         if (active)
         {
+            // Elevation: suppress everything. Cutsheet dims are built explicitly in
+            // ElevationCutsheetPass.Apply during capture — never SetActive(true) on
+            // measurables (that enables Walls and flashes imperial canvas labels).
+            ElevationCutsheetPass.SuppressAllOverlays();
+
+            if (_assemblySelectables == null)
+                return;
+
             _assemblySelectables.ForEach(item =>
             {
-                if (item.Measurables.Count > 0)
+                if (item == null) return;
+                item.EnsureCurrentScaleLevelFromCatalog();
+                item.EnsureMeasurablesLinked();
+                if (item.Measurables == null || item.Measurables.Count == 0)
+                    return;
+
+                item.Measurables.ForEach(measurable =>
                 {
-                    item.Measurables.ForEach(measurable =>
-                    {
-                        measurable.ArmAssemblyActiveInElevationPhotoMode = true;
-                        _measurableActiveStates[measurable] = measurable.IsActive;
-                        measurable.SetActive(true);
-                    });
-                }
+                    if (measurable == null) return;
+                    measurable.EnsureInitializedForElevation();
+                    _measurableActiveStates[measurable] = measurable.IsActive;
+                    // Soft flag only — do not enable wall measurers / fire ActiveMeasurablesChanged.
+                    measurable.ArmAssemblyActiveInElevationPhotoMode = true;
+                });
             });
         }
         else
         {
+            ElevationCutsheetPass.SuppressAllOverlays();
             _measurableActiveStates.Keys.ToList().ForEach(item =>
             {
+                if (item == null) return;
                 item.ArmAssemblyActiveInElevationPhotoMode = false;
-                item.SetActive(_measurableActiveStates[item]);
-                float _ = 0;
-                item.UpdateMeasurements(ref _);
+                item.ClearCutsheetElevationState();
+                // Do not UpdateMeasurements here — that re-drew cutsheet dims into the live scene.
+                item.SetActive(false);
             });
+            _measurableActiveStates.Clear();
+            ElevationCutsheetPass.EndCaptureCleanup();
         }
     }
 

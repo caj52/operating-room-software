@@ -867,15 +867,24 @@ public class PdfExporterLocal
     private static float GetCeilingHeight()
     {
         var ceiling = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling);
-        if (ceiling == null)
-            return 0f;
+        if (ceiling != null)
+        {
+            // Live underside Y (floor top ≈ 0) so table/footer match photo ceiling reference.
+            float underside = ceiling.transform.position.y - (ceiling.transform.localScale.y * 0.5f);
+            if (underside > 0.1f)
+                return underside;
+            if (ceiling.Height > 0.1f)
+                return ceiling.Height;
+        }
 
-        // Live underside Y (floor top ≈ 0) so table/footer match photo ceiling reference.
-        float underside = ceiling.transform.position.y - (ceiling.transform.localScale.y * 0.5f);
-        if (underside > 0.1f)
-            return underside;
+        if (RoomSize.Instance != null)
+        {
+            float fromRoom = RoomSize.Instance.CurrentDimensions.Height.ToMeters();
+            if (fromRoom > 0.1f)
+                return fromRoom;
+        }
 
-        return ceiling.Height;
+        return 0f;
     }
 
     private static string FormatCeilingHeightMm()
@@ -1151,13 +1160,9 @@ public class PdfExporterLocal
             bool lengthAlreadyAdded = assembly.Fields.Any(f => f.Item == itemName + " length");
             if (!lengthAlreadyAdded)
             {
-                float size = item.CurrentScaleLevel?.Size
-                             ?? item.CurrentPreviewScaleLevel?.Size
-                             ?? 0f;
-                if (size > 0f)
-                {
-                    assembly.Fields.Add(new PdfField { Item = itemName + " length", Value = (size * 1000f).ToString("F0") + "mm" });
-                }
+                string lengthMm = ElevationLengthFormat.TryFormatMm(item);
+                if (!string.IsNullOrEmpty(lengthMm))
+                    assembly.Fields.Add(new PdfField { Item = itemName + " length", Value = lengthMm });
             }
         }
 

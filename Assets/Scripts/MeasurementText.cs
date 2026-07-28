@@ -11,6 +11,10 @@ public class MeasurementText : MonoBehaviour
     [SerializeField, ReadOnly] private Measurer _measurer;
     public TextMeshProUGUI Text;
 
+    private Material _defaultSharedMaterial;
+    private Material _elevationSharedMaterial;
+    private bool _elevationStyleApplied;
+
     private void Awake()
     {
         if (Prefab == null)
@@ -27,6 +31,8 @@ public class MeasurementText : MonoBehaviour
     private void OnDestroy()
     {
         Measurable.ActiveMeasurablesChanged.RemoveListener(CheckActiveState);
+        if (_elevationSharedMaterial != null)
+            Destroy(_elevationSharedMaterial);
     }
 
     public static MeasurementText GetMeasurementText(Measurer measurer)
@@ -39,7 +45,33 @@ public class MeasurementText : MonoBehaviour
 
     public void CheckActiveState()
     {
-        gameObject.SetActive(_measurer.Measurement.Measurable.IsActive);
+        // Elevation capture builds labels explicitly in ElevationCutsheetPass.
+        // ActiveMeasurablesChanged must never revive imperial / wall canvas texts mid-capture.
+        if (Selectable.IsInElevationPhotoMode)
+        {
+            if (_measurer == null || !_measurer.ShouldDrawInElevationPhoto())
+                gameObject.SetActive(false);
+            return;
+        }
+
+        bool active = _measurer != null
+            && _measurer.Measurement?.Measurable != null
+            && _measurer.Measurement.Measurable.IsActive;
+
+        gameObject.SetActive(active);
+    }
+
+    /// <summary>True when this label is allowed to remain visible for elevation RT capture.</summary>
+    public bool ShouldRemainVisibleInElevationCapture()
+    {
+        if (_measurer == null || !_measurer.gameObject.activeInHierarchy)
+            return false;
+        if (!_measurer.ShouldDrawInElevationPhoto())
+            return false;
+        // Must be metric cutsheet text — never keep imperial leftovers / partial glyphs.
+        string d = _measurer.Distance;
+        return !string.IsNullOrEmpty(d)
+            && d.IndexOf("mm", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     public void RotateTowardCamera(Camera camera = null)
@@ -76,6 +108,20 @@ public class MeasurementText : MonoBehaviour
 
     public void UpdateVisibilityAndPosition(Camera camera = null, bool force = false)
     {
+        if (_measurer == null)
+        {
+            gameObject.SetActive(false);
+            return;
+        }
+
+        if (Text == null)
+            Text = GetComponent<TextMeshProUGUI>();
+        if (Text == null)
+        {
+            gameObject.SetActive(false);
+            return;
+        }
+
         if (camera == null)
         {
             // During elevation capture, Camera.main is wrong — use the elevation RT camera.
@@ -92,9 +138,30 @@ public class MeasurementText : MonoBehaviour
 
         if (Selectable.IsInElevationPhotoMode)
         {
+            if (!_measurer.ShouldDrawInElevationPhoto())
+            {
+                gameObject.SetActive(false);
+                return;
+            }
+
+            // Never show stale imperial leftovers on cutsheets.
+            if (Text.text != null && Text.text.IndexOf('\'') >= 0
+                && Text.text.IndexOf("mm", StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                gameObject.SetActive(false);
+                return;
+            }
+
+            ApplyElevationTextStyle();
             PlaceElevationText(camera);
+            gameObject.SetActive(true);
             return;
         }
+
+        RestoreDefaultTextStyle();
+
+        if (camera == null)
+            return;
 
         Vector3 directionFromCamera = (_measurer.TextPosition - camera.transform.position).normalized;
         float distanceToCamera = Vector3.Distance(camera.transform.position, _measurer.TextPosition);
@@ -108,67 +175,74 @@ public class MeasurementText : MonoBehaviour
     /// <summary>
     /// Horizontal arm dims: text above the line.
     /// Vertical floor dims: text beside the line.
-    /// Offset uses TMP glyph bounds — not the empty RectTransform (200×50), which was
-    /// inventing ~12 cm of gap via world-space canvas scale.
+    /// One gap for all cutsheet labels — see ElevationDimPlacement.LabelGapMeters.
     /// </summary>
     private void PlaceElevationText(Camera camera)
     {
-        const float gapMeters = 0.015f;
-
-        if (Text != null)
-        {
-            var rt = Text.rectTransform;
-            rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.anchoredPosition = Vector2.zero;
-        }
+        bool isFloor = _measurer?.Measurement?.MeasurementType == MeasurementType.Floor;
+        int floorLane = isFloor ? Mathf.Max(0, _measurer.ElevationTextLane) : 0;
 
         Vector3 onLine = _measurer.TextPosition;
         Vector3 dimDir = _measurer.transform.forward;
         if (dimDir.sqrMagnitude < 1e-8f)
             dimDir = Vector3.down;
-        dimDir.Normalize();
 
-        Vector3 camUp = camera.transform.up;
-        Vector3 camRight = camera.transform.right;
-        bool isHorizontalOnPage =
-            Mathf.Abs(Vector3.Dot(dimDir, camRight)) >= Mathf.Abs(Vector3.Dot(dimDir, camUp));
-        Vector3 perp = isHorizontalOnPage ? camUp : camRight;
-        if (perp.sqrMagnitude < 1e-8f)
-            perp = Vector3.up;
-        perp.Normalize();
-
-        float halfExtent = 0f;
         transform.position = onLine;
         RotateTowardCamera(camera);
-        if (Text != null)
-        {
-            Text.ForceMeshUpdate();
-            Bounds glyphBounds = Text.textBounds;
-            Vector3 c = glyphBounds.center;
-            Vector3 e = glyphBounds.extents;
-            Vector3[] localCorners =
-            {
-                c + new Vector3(-e.x, -e.y, 0f),
-                c + new Vector3(-e.x,  e.y, 0f),
-                c + new Vector3( e.x, -e.y, 0f),
-                c + new Vector3( e.x,  e.y, 0f),
-            };
-
-            float minAlong = float.MaxValue;
-            float maxAlong = float.MinValue;
-            var rt = Text.rectTransform;
-            for (int i = 0; i < 4; i++)
-            {
-                float d = Vector3.Dot(rt.TransformPoint(localCorners[i]) - onLine, perp);
-                minAlong = Mathf.Min(minAlong, d);
-                maxAlong = Mathf.Max(maxAlong, d);
-            }
-
-            halfExtent = Mathf.Max(0f, (maxAlong - minAlong) * 0.5f);
-        }
-
-        transform.position = onLine + perp * (halfExtent + gapMeters);
+        ElevationDimPlacement.PlaceLabel(
+            transform, Text, onLine, dimDir, camera, isFloor, floorLane);
         RotateTowardCamera(camera);
+    }
+
+    /// <summary>
+    /// Elevation cutsheets need crisp black type. The shared MeasurementText prefab
+    /// uses LiberationSans Drop Shadow (OUTLINE_ON + UNDERLAY_ON), which reads as
+    /// doubled/fuzzy "800 mm" in orthographic PDF captures.
+    /// </summary>
+    private void ApplyElevationTextStyle()
+    {
+        if (Text == null || _elevationStyleApplied)
+            return;
+
+        _defaultSharedMaterial = Text.fontSharedMaterial;
+
+        Material source = Text.font != null ? Text.font.material : Text.fontSharedMaterial;
+        if (source == null)
+            return;
+
+        if (_elevationSharedMaterial == null)
+            _elevationSharedMaterial = new Material(source);
+
+        _elevationSharedMaterial.CopyPropertiesFromMaterial(source);
+        // Prefer plain font face — Drop Shadow mat keywords read as doubled type in elev PDFs.
+        _elevationSharedMaterial.DisableKeyword("OUTLINE_ON");
+        _elevationSharedMaterial.DisableKeyword("UNDERLAY_ON");
+        if (_elevationSharedMaterial.HasProperty("_OutlineWidth"))
+            _elevationSharedMaterial.SetFloat("_OutlineWidth", 0f);
+        if (_elevationSharedMaterial.HasProperty("_UnderlayDilate"))
+            _elevationSharedMaterial.SetFloat("_UnderlayDilate", 0f);
+        if (_elevationSharedMaterial.HasProperty("_UnderlayOffsetX"))
+            _elevationSharedMaterial.SetFloat("_UnderlayOffsetX", 0f);
+        if (_elevationSharedMaterial.HasProperty("_UnderlayOffsetY"))
+            _elevationSharedMaterial.SetFloat("_UnderlayOffsetY", 0f);
+        if (_elevationSharedMaterial.HasProperty("_UnderlaySoftness"))
+            _elevationSharedMaterial.SetFloat("_UnderlaySoftness", 0f);
+
+        Text.fontSharedMaterial = _elevationSharedMaterial;
+        Text.outlineWidth = 0f;
+        Text.fontStyle = FontStyles.Normal;
+        _elevationStyleApplied = true;
+    }
+
+    private void RestoreDefaultTextStyle()
+    {
+        if (!_elevationStyleApplied || Text == null)
+            return;
+
+        if (_defaultSharedMaterial != null)
+            Text.fontSharedMaterial = _defaultSharedMaterial;
+
+        _elevationStyleApplied = false;
     }
 
     string NormalizeFeetInches(string input)

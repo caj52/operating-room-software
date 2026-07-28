@@ -18,6 +18,10 @@ public class Measurer : MonoBehaviour
     public MeshRenderer Renderer { get; private set; }
     public List<LineRenderer> LineRenderers { get; private set; } = new();
     public MeasurementText MeasurementText;
+    private LineRenderer _elevationBodyLine;
+
+    /// <summary>Elevation floor-label lane (0,1,2…) for text side/offset — dim line stays on part.</summary>
+    public int ElevationTextLane { get; set; }
     //public bool AllowInElevationPhotoMode => Measurement != null && Measurement.Measurable.ArmAssemblyActiveInElevationPhotoMode && Measurement.MeasurementType == MeasurementType.ToArmAssemblyOrigin;
     public Measurable.Measurement Measurement { get; private set; }
     public string Distance { get; private set; } = string.Empty;
@@ -27,8 +31,13 @@ public class Measurer : MonoBehaviour
 
     private void OnEnable()
     {
+        if (MeasurementText == null)
+            return;
+
+        // Never auto-show labels. Interactive use turns them on via Measurable.SetActive;
+        // elevation cutsheet turns them on explicitly after Distance is metric mm.
         if (MeasurementText != null)
-            MeasurementText.gameObject.SetActive(true);
+            MeasurementText.gameObject.SetActive(false);
     }
 
     private void OnDisable()
@@ -39,7 +48,53 @@ public class Measurer : MonoBehaviour
 
     private void Update()
     {
+        // Elevation photos only draw cutsheet dims. Leave stale interactive (often imperial)
+        // labels hidden — they live on a shared canvas, not under the selectable.
+        if (Selectable.IsInElevationPhotoMode)
+        {
+            if (!ShouldDrawInElevationPhoto())
+            {
+                if (MeasurementText != null && MeasurementText.gameObject.activeSelf)
+                    MeasurementText.gameObject.SetActive(false);
+                if (LineRenderers != null)
+                {
+                    foreach (var lr in LineRenderers)
+                    {
+                        if (lr != null)
+                            lr.enabled = false;
+                    }
+                }
+                if (_elevationBodyLine != null)
+                    _elevationBodyLine.enabled = false;
+                if (Renderer != null)
+                    Renderer.enabled = false;
+            }
+            // Do not UpdateTransform — cutsheet pass already placed Origin/HitPoint/leaders.
+            return;
+        }
+
+        if (_elevationBodyLine != null)
+            _elevationBodyLine.enabled = false;
+        if (Renderer != null && !Renderer.enabled)
+            Renderer.enabled = true;
+
         UpdateTransform();
+    }
+
+    /// <summary>
+    /// Cutsheet elevation whitelist: catalog arm/tube lengths + floor clearances only.
+    /// </summary>
+    public bool ShouldDrawInElevationPhoto()
+    {
+        if (Measurement?.Measurable == null)
+            return false;
+        if (!Measurement.Measurable.ShowInElevationPhoto)
+            return false;
+
+        if (Measurement.MeasurementType == MeasurementType.ToArmAssemblyOrigin)
+            return TryGetOwningCatalogLengthMeters() > 0f;
+
+        return Measurement.MeasurementType == MeasurementType.Floor;
     }
 
     public static Measurer GetMeasurer(Measurable.Measurement measurement)
@@ -50,51 +105,23 @@ public class Measurer : MonoBehaviour
         return measurer;
     }
 
-    private float TryGetArmLengthMetersFromHierarchy()
+    /// <summary>
+    /// Catalog length for this measurable's owning Selectable only (no ancestor steal).
+    /// Size is meters; returns -1 when the owner has no configured length.
+    /// </summary>
+    private float TryGetOwningCatalogLengthMeters()
     {
-        // Walk up the hierarchy to find a Selectable that represents an arm
-        var parents = Measurement?.Measurable ?
-            Measurement.Measurable.GetComponentsInParent<Selectable>(true) : null;
+        var measurable = Measurement?.Measurable;
+        if (measurable == null)
+            return -1f;
 
-        if (parents == null || parents.Length == 0) return -1f;
+        // Cutsheet pass may pin catalog length when dual-select ownership is ambiguous.
+        if (measurable.CutsheetCatalogLengthMeters > 0f)
+            return measurable.CutsheetCatalogLengthMeters;
 
-        bool NameHas(Selectable s, string token) => s != null && s.gameObject.name.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0;
-        bool HasSize(Selectable s) => s != null && s.CurrentScaleLevel != null && s.CurrentScaleLevel.Size > 0f;
-
-        // Support multiple common naming schemes for arm segments
-        string[] bottomHints = { "BottomArm", "BoomSegment_2", "Segment_2", "Arm2", "LowerArm", "Lower_Arm" };
-        string[] topHints    = { "TopArm", "BoomSegment_1", "Segment_1", "Arm1", "UpperArm", "Upper_Arm" };
-
-        // Prefer distal (bottom/segment_2) if present, otherwise top/segment_1, else any ancestor with a size
-        Selectable bottom = parents.FirstOrDefault(s => HasSize(s) && bottomHints.Any(h => NameHas(s, h)));
-        Selectable top    = parents.FirstOrDefault(s => HasSize(s) && topHints.Any(h => NameHas(s, h)));
-        Selectable armSel = bottom ?? top ?? parents.FirstOrDefault(HasSize);
-
-        if (armSel != null)
-        {
-            // Size is in meters
-            return armSel.CurrentScaleLevel.Size;
-        }
-
-        return -1f;
-    }
-
-    private bool IsBoomArmFromHierarchy()
-    {
-        var parents = Measurement?.Measurable ?
-            Measurement.Measurable.GetComponentsInParent<Selectable>(true) : null;
-        if (parents == null || parents.Length == 0) return false;
-        return parents.Any(s =>
-        {
-            if (s == null || s.gameObject == null)
-                return false;
-
-            string n = s.gameObject.name;
-            return n.IndexOf("Boom", StringComparison.OrdinalIgnoreCase) >= 0
-                || n.IndexOf("ArmSegment", StringComparison.OrdinalIgnoreCase) >= 0
-                || n.IndexOf("TopArm", StringComparison.OrdinalIgnoreCase) >= 0
-                || n.IndexOf("BottomArm", StringComparison.OrdinalIgnoreCase) >= 0;
-        });
+        // Cutsheet pin first; else own Size only (never Related steal).
+        float sizeM = ElevationLengthFormat.ResolveOwnSizeMeters(measurable.GetOwningSelectable());
+        return sizeM > 0f ? sizeM : -1f;
     }
 
     public void UpdateTransform(Camera camera = null)
@@ -104,43 +131,35 @@ public class Measurer : MonoBehaviour
             camera = Camera.main;
         }
 
-        // Elevation PDFs use a decorative ground graphic under the photos; its TOP
-        // edge is the floor. Dim lines must end at world y of that plane (room floor
-        // surface / y=0) so photo bottoms meet the graphic flush — not the floor
-        // mesh center, which sits half-thickness below and makes lines overshoot.
         Vector3 hitPoint = Measurement.HitPoint;
-        bool isFloorHit = Measurement.MeasurementType == MeasurementType.Floor
-            || Measurement.RoomBoundaryType == RoomBoundaryType.Floor
-            || Mathf.Abs(hitPoint.y) < 0.05f;
+        // Floor clearances only — never snap catalog length dims that happen to sit near y=0.
+        bool isFloorHit = Measurement.MeasurementType == MeasurementType.Floor;
         if (isFloorHit)
-            hitPoint.y = GetFloorTopY();
+            hitPoint.y = ElevationDimPlacement.FloorTopY();
 
         transform.position = Measurement.Origin;
         transform.LookAt(hitPoint);
 
-        // Prefer world-space span for overlays (matches drawn ray). Use configured arm
-        // length (cutsheet) when present — note 8. Only fall back to world when the
-        // drawn span is clearly a half-scale / double-span artifact.
+        // Drawn leader uses world span. Catalog length wins for arm/tube callouts.
         float worldMeters = Vector3.Distance(Measurement.Origin, hitPoint);
         float distanceMeters = worldMeters;
+        float catalogLen = -1f;
         if (Measurement != null
-            && Measurement.MeasurementType == MeasurementType.ToArmAssemblyOrigin
-            && IsBoomArmFromHierarchy())
+            && Measurement.MeasurementType == MeasurementType.ToArmAssemblyOrigin)
         {
-            float armLen = TryGetArmLengthMetersFromHierarchy();
-            if (armLen > 0f)
-            {
-                if (Mathf.Abs(worldMeters - armLen * 2f) < 0.08f * Mathf.Max(worldMeters, armLen))
-                    distanceMeters = worldMeters;
-                else
-                    distanceMeters = armLen; // cutsheet length wins (incl. near-match and mismatch)
-            }
+            catalogLen = TryGetOwningCatalogLengthMeters();
+            if (catalogLen > 0f)
+                distanceMeters = catalogLen;
         }
 
         // Elevation / cutsheet overlays: metric (mm) per CS / Architecture feedback.
         if (Selectable.IsInElevationPhotoMode)
         {
-            int mm = Mathf.RoundToInt(distanceMeters * 1000f);
+            // Catalog Size may be legacy raw-mm; world floor spans are always meters.
+            int mm = Measurement != null
+                && Measurement.MeasurementType == MeasurementType.ToArmAssemblyOrigin
+                ? ElevationLengthFormat.SizeValueToMm(distanceMeters)
+                : Mathf.RoundToInt(distanceMeters * 1000f);
             Distance = $"{mm} mm";
         }
         else
@@ -150,11 +169,43 @@ public class Measurer : MonoBehaviour
             Distance = $"{distanceFeet}' {distanceInches}\"";
         }
 
-        transform.localScale = new Vector3(
-            transform.localScale.x,
-            transform.localScale.y,
-            worldMeters);
-        MeasurementText.UpdateVisibilityAndPosition(camera);
+        // Body must match Origin→HitPoint so ticks and leaders agree. Only fall back to
+        // catalog when the world span collapsed (~0) — e.g. mount pivots on the AP.
+        float drawMeters = worldMeters;
+        if (drawMeters < 0.01f && catalogLen > 0f)
+            drawMeters = catalogLen;
+        if (drawMeters < 0.01f)
+            drawMeters = 0.01f;
+
+        // Always reset thickness — preserving localScale.x/y once let a fat scale stick
+        // and drew the black rectangular "boxes" on elevation PDFs.
+        float thickness = Selectable.IsInElevationPhotoMode ? 0.006f : 0.01f;
+        transform.localScale = new Vector3(thickness, thickness, drawMeters);
+
+        // Elevation: hide the mesh body; leaders + a thin body line carry the dim.
+        // The cube mesh read as a heavy black rectangle in ortho captures.
+        if (Renderer == null)
+            Renderer = GetComponentInChildren<MeshRenderer>(true);
+        if (Renderer != null)
+            Renderer.enabled = !Selectable.IsInElevationPhotoMode;
+
+        if (Selectable.IsInElevationPhotoMode)
+            EnsureElevationBodyLine(Measurement.Origin, hitPoint, camera);
+
+        // Elevation: show label only when this is a cutsheet dim. Live scene: only if
+        // the measurable is interactively active (never auto-revive after export).
+        if (MeasurementText != null)
+        {
+            bool show = Selectable.IsInElevationPhotoMode
+                ? ShouldDrawInElevationPhoto()
+                : (Measurement?.Measurable != null && Measurement.Measurable.IsActive);
+            if (show && !MeasurementText.gameObject.activeSelf)
+                MeasurementText.gameObject.SetActive(true);
+            else if (!show && MeasurementText.gameObject.activeSelf)
+                MeasurementText.gameObject.SetActive(false);
+            if (show)
+                MeasurementText.UpdateVisibilityAndPosition(camera);
+        }
 
         // Do not draw an extra floor graphic in elevation exports. The room floor
         // mesh already renders the thick hatched floor line; dimension rays should
@@ -279,13 +330,7 @@ public class Measurer : MonoBehaviour
     /// World Y of the visible floor surface (top of floor mesh). Room convention
     /// places this at y=0; floor transform center sits half-thickness below.
     /// </summary>
-    private static float GetFloorTopY()
-    {
-        var floor = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor);
-        if (floor == null)
-            return 0f;
-        return floor.transform.position.y + (floor.transform.localScale.y * 0.5f);
-    }
+    private static float GetFloorTopY() => ElevationDimPlacement.FloorTopY();
 
     private float GetFloorWidth()
     {
@@ -364,8 +409,106 @@ public class Measurer : MonoBehaviour
         MeasurementText = MeasurementText.GetMeasurementText(this);
         _childTransform = transform.GetChild(0);
         Renderer = GetComponentInChildren<MeshRenderer>();
-        LineRenderers = GetComponentsInChildren<LineRenderer>(true).ToList();
+        EnsureLineRenderers();
         LineRenderers.ForEach(x => x.enabled = false);
+    }
+
+    /// <summary>
+    /// Prefab instances can wake with an empty LineRenderers list (Awake order / inactive).
+    /// Re-query children before indexing — avoids ArgumentOutOfRange spam in Update/elev.
+    /// </summary>
+    public void EnsureLineRenderers()
+    {
+        if (LineRenderers != null && LineRenderers.Count >= 2
+            && LineRenderers[0] != null && LineRenderers[1] != null
+            && LineRenderers[0] != _elevationBodyLine
+            && LineRenderers[1] != _elevationBodyLine)
+            return;
+        LineRenderers = GetComponentsInChildren<LineRenderer>(true)
+            .Where(lr => lr != null && lr != _elevationBodyLine)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Ortho elevation captures turn the scaled cube mesh into a heavy black rectangle.
+    /// Draw the dim span as a world-space line instead.
+    /// </summary>
+    private void EnsureElevationBodyLine(Vector3 origin, Vector3 hitPoint, Camera camera)
+    {
+        if (_elevationBodyLine == null)
+        {
+            var go = new GameObject("ElevationBodyLine");
+            go.transform.SetParent(transform, false);
+            go.layer = gameObject.layer;
+            _elevationBodyLine = go.AddComponent<LineRenderer>();
+            _elevationBodyLine.useWorldSpace = true;
+            _elevationBodyLine.positionCount = 2;
+            _elevationBodyLine.material = new Material(Shader.Find("Sprites/Default"));
+            _elevationBodyLine.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            _elevationBodyLine.receiveShadows = false;
+        }
+
+        float w = 0.008f;
+        if (camera != null)
+        {
+            float d0 = Mathf.Abs(Vector3.Dot(origin - camera.transform.position, camera.transform.forward));
+            float d1 = Mathf.Abs(Vector3.Dot(hitPoint - camera.transform.position, camera.transform.forward));
+            w = Mathf.Max(0.004f, 0.0025f * Mathf.Max(d0, d1));
+        }
+
+        _elevationBodyLine.enabled = true;
+        _elevationBodyLine.SetPosition(0, origin);
+        _elevationBodyLine.SetPosition(1, hitPoint);
+        _elevationBodyLine.startWidth = w;
+        _elevationBodyLine.endWidth = w;
+        _elevationBodyLine.startColor = Color.black;
+        _elevationBodyLine.endColor = Color.black;
+        var grad = new Gradient();
+        grad.SetKeys(
+            new[] { new GradientColorKey(Color.black, 0f), new GradientColorKey(Color.black, 1f) },
+            new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(1f, 1f) });
+        _elevationBodyLine.colorGradient = grad;
+    }
+
+    /// <summary>True when the thin elev body LineRenderer is drawn (orphan scan uses this).</summary>
+    public bool ElevationBodyLineEnabled =>
+        _elevationBodyLine != null && _elevationBodyLine.enabled;
+
+    /// <summary>
+    /// Hide every elev visual on this measurer (leaders, body line, mesh, text).
+    /// Safe to call after PDF capture so overlays do not remain in the live scene.
+    /// </summary>
+    public void DisableElevationVisuals()
+    {
+        if (_elevationBodyLine != null)
+            _elevationBodyLine.enabled = false;
+        if (LineRenderers != null)
+        {
+            foreach (var lr in LineRenderers)
+            {
+                if (lr != null)
+                    lr.enabled = false;
+            }
+        }
+        if (MeasurementText != null)
+            MeasurementText.gameObject.SetActive(false);
+        // Restore mesh for interactive use later; elev had it forced off.
+        if (Renderer == null)
+            Renderer = GetComponentInChildren<MeshRenderer>(true);
+        if (Renderer != null)
+            Renderer.enabled = true;
+    }
+
+    public bool TryGetLeaderPair(out LineRenderer a, out LineRenderer b)
+    {
+        EnsureLineRenderers();
+        a = null;
+        b = null;
+        if (LineRenderers == null || LineRenderers.Count < 2)
+            return false;
+        a = LineRenderers[0];
+        b = LineRenderers[1];
+        return a != null && b != null;
     }
 
     private void OnDestroy()

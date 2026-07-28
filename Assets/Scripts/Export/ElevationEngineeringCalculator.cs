@@ -115,7 +115,7 @@ public static class ElevationEngineeringCalculator
 
         foreach (var item in selectables)
         {
-            string n = NameOf(item);
+            string n = NameOfForLightMatch(item);
             if (string.IsNullOrEmpty(n))
                 continue;
             var row = _rows.FirstOrDefault(r =>
@@ -135,7 +135,7 @@ public static class ElevationEngineeringCalculator
         bool any = false;
         foreach (var item in selectables)
         {
-            string n = NameOf(item);
+            string n = NameOfForLightMatch(item);
             if (string.IsNullOrEmpty(n))
                 continue;
             var row = _rows.FirstOrDefault(r =>
@@ -191,11 +191,11 @@ public static class ElevationEngineeringCalculator
             string name = NameOf(item);
             if (name.IndexOf("Service Head", StringComparison.OrdinalIgnoreCase) < 0)
                 continue;
-            float sizeM = item.CurrentScaleLevel?.Size
-                          ?? item.CurrentPreviewScaleLevel?.Size
-                          ?? 0f;
+            float sizeM = ElevationLengthFormat.ResolveSizeMeters(item);
+            if (sizeM >= 10f)
+                return Mathf.RoundToInt(sizeM);
             if (sizeM > 0.05f)
-                return (int)Math.Round(sizeM * 1000.0);
+                return Mathf.RoundToInt(sizeM * 1000f);
             var m = MmInName.Match(name);
             if (m.Success && int.TryParse(m.Groups[1].Value, out int mm))
                 return mm;
@@ -208,6 +208,25 @@ public static class ElevationEngineeringCalculator
         if (item == null)
             return "";
         return item.GetMetadata()?.Name ?? item.UIButtonName ?? item.name ?? "";
+    }
+
+    static string NameOfForLightMatch(Selectable item)
+        => NormalizeLightCatalogAlias(NameOf(item));
+
+    /// <summary>Map prefab / Simeon mesh names onto CSV light_head catalog keys.</summary>
+    static string NormalizeLightCatalogAlias(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return name;
+        if (name.IndexOf("8000", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("U|002", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("U | 002", StringComparison.OrdinalIgnoreCase) >= 0)
+            return "U|002";
+        if (name.IndexOf("7000", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("U|ONE", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("U | ONE", StringComparison.OrdinalIgnoreCase) >= 0)
+            return "U|ONE";
+        return name;
     }
 
     static void EnsureLoaded()

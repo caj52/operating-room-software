@@ -1460,7 +1460,8 @@ MonoBehaviour:
   <ZAlwaysFacesGround>k__BackingField: 0
   <ZAlwaysFacesGroundElevationOnly>k__BackingField: 0
   <ZAlignUpIsParentForward>k__BackingField: 0
-  <Measurables>k__BackingField: []
+  <Measurables>k__BackingField:
+  - {fileID: 7876360189110734781}
   Measurers: []
   measurements: []
   <AlignForElevationPhoto>k__BackingField: 0

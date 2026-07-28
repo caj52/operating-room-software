@@ -43,6 +43,20 @@ public class PdfBatchExporter : MonoBehaviour
                 result.Add(rootSelectable);
         }
 
+        // Deterministic page order — HashSet / ActiveSelectables order is not stable
+        // across renames/reloads, which made multipage PDFs look "random".
+        result.Sort((a, b) =>
+        {
+            string na = a != null ? a.name : string.Empty;
+            string nb = b != null ? b.name : string.Empty;
+            int byName = string.CompareOrdinal(na, nb);
+            if (byName != 0)
+                return byName;
+            int ida = a != null ? a.GetInstanceID() : 0;
+            int idb = b != null ? b.GetInstanceID() : 0;
+            return ida.CompareTo(idb);
+        });
+
         return result;
     }
 
@@ -109,7 +123,10 @@ public class PdfBatchExporter : MonoBehaviour
                 }
                 else
                 {
-                    Debug.LogWarning($"Skipping config {root.name} — missing image or data.");
+                    Debug.LogWarning(
+                        $"Skipping config {root.name} — missing image or data. " +
+                        $"images={(images == null ? "null" : images.Count.ToString())} " +
+                        $"assemblyJson={allAssemblyJson.Count}");
                 }
             }
 

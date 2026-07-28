@@ -81,7 +81,8 @@ public class ProposalPDFGenerator : MonoBehaviour
     /// <summary>Reuse last ceiling / elevation stills so text/pricing edits stay fast.</summary>
     bool _reuseCachedVisuals;
     string _previewCeilingCachePath;
-    readonly List<string> _previewElevationCachePaths = new();
+    /// <summary>Preview elevation stills keyed by assembly root id (GUID or hierarchy path).</summary>
+    readonly Dictionary<string, string> _previewElevationCacheByRoot = new();
     /// <summary>
     /// When true, elevation capture for the proposal preview uses a single view + JPEG.
     /// Export path stays at full quality (front+back PNG).
@@ -742,7 +743,7 @@ public class ProposalPDFGenerator : MonoBehaviour
         {
             if (string.IsNullOrEmpty(imagePath) || !File.Exists(imagePath))
                 continue;
-            if (_previewElevationCachePaths.Contains(imagePath))
+            if (_previewElevationCacheByRoot.ContainsValue(imagePath))
                 continue;
             try
             {
@@ -1007,19 +1008,15 @@ public class ProposalPDFGenerator : MonoBehaviour
 
             if (selectable != null && !selectable.Equals(null))
             {
-                float size = selectable.CurrentPreviewScaleLevel?.Size ?? 0f;
-                if (size > 0)
-                {
-                    sizeStr = $" ({size * 1000}mm)";
-                }
-                else
+                sizeStr = ElevationLengthFormat.TryFormatMmSuffix(selectable);
+                if (string.IsNullOrEmpty(sizeStr))
                 {
                     foreach (var related in selectable.RelatedSelectables)
                     {
-                        var selectedScale = related.ScaleLevels?.FirstOrDefault(s => s.Selected);
-                        if (selectedScale != null)
+                        string relatedMm = ElevationLengthFormat.TryFormatMmSuffix(related);
+                        if (!string.IsNullOrEmpty(relatedMm))
                         {
-                            sizeStr = $" ({selectedScale.Size * 1000}mm)";
+                            sizeStr = relatedMm;
                             break;
                         }
                     }
@@ -1166,10 +1163,9 @@ public class ProposalPDFGenerator : MonoBehaviour
         }
 
         bool reuseElevations = _previewMode && _reuseCachedVisuals
-                               && _previewElevationCachePaths.Count > 0
-                               && _previewElevationCachePaths.TrueForAll(p => !string.IsNullOrEmpty(p) && File.Exists(p));
-        int elevationCacheIndex = 0;
-        var freshElevationCache = new List<string>();
+                               && _previewElevationCacheByRoot.Count > 0
+                               && _previewElevationCacheByRoot.Values.All(p => !string.IsNullOrEmpty(p) && File.Exists(p));
+        var freshElevationCache = new Dictionary<string, string>();
 
         for (int i = 0; i < list.Length; i++)
         {
@@ -1181,10 +1177,14 @@ public class ProposalPDFGenerator : MonoBehaviour
             Selectable root = GetRootParent(list[i]);
             if (root == null || !processedRoots.Add(root)) continue;
 
+            string cacheKey = GetElevationCacheKey(root);
             string elevationPath = null;
-            if (reuseElevations && elevationCacheIndex < _previewElevationCachePaths.Count)
+            if (reuseElevations
+                && !string.IsNullOrEmpty(cacheKey)
+                && _previewElevationCacheByRoot.TryGetValue(cacheKey, out string cachedPath)
+                && File.Exists(cachedPath))
             {
-                elevationPath = _previewElevationCachePaths[elevationCacheIndex++];
+                elevationPath = cachedPath;
             }
             else
             {
@@ -1198,7 +1198,7 @@ public class ProposalPDFGenerator : MonoBehaviour
 
                 if (imageData != null && imageData.Count > 0 && !string.IsNullOrEmpty(imageData[0].Path))
                 {
-                    elevationPath = StabilizePreviewElevation(imageData[0].Path, freshElevationCache.Count);
+                    elevationPath = StabilizePreviewElevation(imageData[0].Path, cacheKey);
                     foreach (var imgData in imageData)
                     {
                         if (!string.IsNullOrEmpty(imgData.Path))
@@ -1219,20 +1219,29 @@ public class ProposalPDFGenerator : MonoBehaviour
             if (!string.IsNullOrEmpty(elevationPath))
             {
                 AddImageToPDF(document, elevationPath, pdfWriter, imageHeight);
-                if (_previewMode)
-                    freshElevationCache.Add(elevationPath);
+                if (_previewMode && !string.IsNullOrEmpty(cacheKey))
+                    freshElevationCache[cacheKey] = elevationPath;
             }
         }
 
         if (_previewMode && !reuseElevations && freshElevationCache.Count > 0)
         {
-            // Cache was cleared at bake start when visuals were forced; just remember paths.
-            _previewElevationCachePaths.Clear();
-            _previewElevationCachePaths.AddRange(freshElevationCache);
+            ClearPreviewElevationCache();
+            foreach (var kv in freshElevationCache)
+                _previewElevationCacheByRoot[kv.Key] = kv.Value;
         }
     }
 
-    string StabilizePreviewElevation(string sourcePath, int index)
+    static string GetElevationCacheKey(Selectable root)
+    {
+        if (root == null)
+            return null;
+        if (!string.IsNullOrEmpty(root.GUID))
+            return root.GUID;
+        return GetHierarchyPath(root.transform);
+    }
+
+    string StabilizePreviewElevation(string sourcePath, string cacheKey)
     {
         if (!_previewMode || string.IsNullOrEmpty(sourcePath) || !File.Exists(sourcePath))
             return sourcePath;
@@ -1242,9 +1251,14 @@ public class ProposalPDFGenerator : MonoBehaviour
             string ext = Path.GetExtension(sourcePath);
             if (string.IsNullOrEmpty(ext))
                 ext = ".jpg";
+            string safeKey = string.IsNullOrEmpty(cacheKey)
+                ? "unknown"
+                : string.Join("_", cacheKey.Split(Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries));
+            if (safeKey.Length > 64)
+                safeKey = safeKey.Substring(0, 64);
             string dest = Path.Combine(
                 Application.temporaryCachePath,
-                $"proposal_preview_elev_{index}{ext}");
+                $"proposal_preview_elev_{safeKey}{ext}");
             File.Copy(sourcePath, dest, overwrite: true);
             return dest;
         }
@@ -1257,15 +1271,14 @@ public class ProposalPDFGenerator : MonoBehaviour
 
     void ClearPreviewElevationCache()
     {
-        for (int i = 0; i < _previewElevationCachePaths.Count; i++)
+        foreach (var p in _previewElevationCacheByRoot.Values)
         {
-            string p = _previewElevationCachePaths[i];
             if (string.IsNullOrEmpty(p) || !File.Exists(p))
                 continue;
             try { File.Delete(p); }
             catch { /* ignore */ }
         }
-        _previewElevationCachePaths.Clear();
+        _previewElevationCacheByRoot.Clear();
     }
 
     private void GeneratePricingPage(Document document, PdfWriter writer)
@@ -2131,14 +2144,9 @@ public class ProposalPDFGenerator : MonoBehaviour
             if (scaleHandler != null)
             {
                 // Try to get size from current scale level
-                var currentScale = selectable.CurrentPreviewScaleLevel;
-                if (currentScale != null && currentScale.Size > 0)
-                {
-                    int mm = currentScale.Size >= 10f
-                        ? Mathf.RoundToInt(currentScale.Size)
-                        : Mathf.RoundToInt(currentScale.Size * 1000f);
-                    return $"{mm}mm Service Head";
-                }
+                string lengthMm = ElevationLengthFormat.TryFormatMm(selectable);
+                if (!string.IsNullOrEmpty(lengthMm))
+                    return $"{lengthMm} Service Head";
                 
                 // Fallback: try to determine from UIButtonName
                 if (!string.IsNullOrEmpty(selectable.UIButtonName))
