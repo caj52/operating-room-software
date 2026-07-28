@@ -414,25 +414,8 @@ public class Measurable : MonoBehaviour
     }
 
     /// <summary>
-    /// Length axis clearly world-vertical (tubes/flanges). Arms with horizontal Z return false.
-    /// </summary>
-    public static bool IsVerticalLengthOwner(Selectable owner)
-    {
-        if (owner == null)
-            return false;
-
-        Vector3 lengthAxis = owner.transform.TransformDirection(Vector3.forward);
-        if (lengthAxis.sqrMagnitude > 1e-8f
-            && Mathf.Abs(Vector3.Dot(lengthAxis.normalized, Vector3.up)) >= 0.75f)
-            return true;
-
-        return false;
-    }
-
-    /// <summary>
-    /// World bounds of the length owner's own meshes only — never child Selectables
-    /// (arms/lights under a drop tube). Encapsulates every own renderer so tube dims
-    /// span the full visible column, not a single slightly-short mesh piece.
+    /// World bounds of the length owner's own meshes only — never child Selectables.
+    /// Used for V/H classify proportions only — not for tick span.
     /// </summary>
     public static bool TryGetOwnRendererBounds(Selectable owner, out Bounds bounds)
     {
@@ -446,12 +429,10 @@ public class Measurable : MonoBehaviour
             if (r == null || !r.enabled || !r.gameObject.activeInHierarchy)
                 continue;
 
-            // Nearest Selectable must be this length owner — skip arm/light/outlet kids.
             var nearestSel = r.GetComponentInParent<Selectable>(true);
             if (nearestSel != owner)
                 continue;
 
-            // Skip tiny deco / measurement helpers that would inflate XZ without height.
             float h = r.bounds.size.y;
             float xz = Mathf.Max(r.bounds.size.x, r.bounds.size.z);
             if (h < 0.01f && xz < 0.05f)
@@ -469,136 +450,235 @@ public class Measurable : MonoBehaviour
         return any;
     }
 
-    private bool TryGetOwnerRendererBounds(out Bounds bounds)
+    /// <summary>
+    /// Distal feature for a catalog length: farthest AttachmentPoint under the owner
+    /// (or dual-select twin) along the length axis from the proximal mount.
+    /// </summary>
+    AttachmentPoint FindDistalAttachmentPoint(Selectable owner, AttachmentPoint proximal)
     {
-        return TryGetOwnRendererBounds(GetOwningSelectable(), out bounds);
+        if (owner == null)
+            return null;
+
+        Vector3 origin = proximal != null
+            ? proximal.transform.position
+            : owner.transform.position;
+        Vector3 axis = owner.transform.TransformDirection(Vector3.forward);
+        if (axis.sqrMagnitude < 1e-8f)
+            axis = Vector3.down;
+        axis.Normalize();
+
+        AttachmentPoint best = null;
+        float bestAlong = 0.05f;
+
+        void Consider(AttachmentPoint ap)
+        {
+            if (ap == null || ap == proximal)
+                return;
+            // Skip measurement helper spheres / deco APs (BoomDropTube aimed at "Sphere").
+            string n = ap.name ?? "";
+            if (n.IndexOf("Sphere", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                return;
+            if (n.IndexOf("Measur", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                return;
+
+            float along = Vector3.Dot(ap.transform.position - origin, axis);
+            if (along < 0f)
+                along = Vector3.Dot(ap.transform.position - origin, -axis);
+            if (along > bestAlong)
+            {
+                bestAlong = along;
+                best = ap;
+            }
+        }
+
+        foreach (var ap in owner.GetComponentsInChildren<AttachmentPoint>(true))
+            Consider(ap);
+
+        if (owner.RelatedSelectables != null)
+        {
+            foreach (var rel in owner.RelatedSelectables)
+            {
+                if (rel == null || rel == owner)
+                    continue;
+                foreach (var ap in rel.GetComponentsInChildren<AttachmentPoint>(true))
+                    Consider(ap);
+            }
+        }
+
+        return best;
     }
 
     /// <summary>
-    /// Place a vertical catalog-length callout on the length owner's own column mesh.
+    /// SINGLE cutsheet length path (tubes and arms): printed value = catalog Size;
+    /// tick span = exactly Size. Vertical tubes: own-mesh top → down × Size (ceiling
+    /// face of the tube column — not parent APs / Sphere helpers). Horizontal arms:
+    /// proximal AP → along reach × Size.
     /// </summary>
-    private bool TryBuildVerticalCatalogCallout(
+    private bool TryBuildCatalogLengthCallout(
         Measurement item,
         Measurer measurer,
         Camera camera,
         float catalogLen,
+        bool vertical,
         ref float heightMod)
     {
         if (catalogLen <= 0f || measurer == null)
             return false;
 
         var owner = GetOwningSelectable();
-        Vector3 top;
-        Vector3 bottom;
-        float meshH = 0f;
-
-        if (TryGetOwnerRendererBounds(out Bounds rb) && rb.size.y > 0.02f)
-        {
-            // Span the full visible own-mesh column. Label still shows catalog Size;
-            // ending mid-tube (catalog-from-top when mesh > Size) looked arbitrary.
-            meshH = rb.max.y - rb.min.y;
-            top = new Vector3(rb.center.x, rb.max.y, rb.center.z);
-            bottom = new Vector3(rb.center.x, rb.min.y, rb.center.z);
-            if (meshH > 0.02f && Mathf.Abs(meshH - catalogLen) > 0.04f)
-            {
-                Debug.Log(
-                    $"[ElevDim] vertical meshH={meshH:F3} vs catalog={catalogLen:F3} " +
-                    $"owner={(owner != null ? owner.name : "null")} — ticks span full own mesh",
-                    this);
-            }
-        }
-        else if (owner != null)
-        {
-            // No own mesh: drop catalog length down the owner's length axis from its pivot.
-            Vector3 origin = owner.transform.position;
-            Vector3 axis = owner.transform.TransformDirection(Vector3.forward);
-            if (axis.sqrMagnitude < 1e-8f)
-                axis = Vector3.down;
-            axis.Normalize();
-            if (Vector3.Dot(axis, Vector3.down) < 0f)
-                axis = -axis;
-            top = origin;
-            bottom = origin + axis * catalogLen;
-            Debug.LogWarning(
-                $"[ElevDim] vertical FALLBACK no own mesh owner={(owner != null ? owner.name : "null")} " +
-                $"catalogMm={Mathf.RoundToInt(catalogLen * 1000f)}",
-                this);
-        }
-        else
+        if (owner == null)
             return false;
 
-        if (bottom.y > top.y)
-            (top, bottom) = (bottom, top);
+        Vector3 featureA;
+        Vector3 featureB;
+        Vector3 axis;
+        string proximalName;
+        string distalName;
 
-        Vector3 right = camera != null ? camera.transform.right : Vector3.right;
-        right.y = 0f;
-        if (right.sqrMagnitude < 1e-6f)
-            right = Vector3.right;
-        right.Normalize();
-
-        // Keep the callout on the side opposite the arm reach so 150 mm never lands
-        // on the elbow (camera-right alone pushed it into the spring-arm in front shots).
-        Vector3 armReach = Vector3.zero;
-        var proximal = GetSegmentProximalAttachmentPoint() ?? HighestAssemblyAttachmentPoint;
-        if (proximal != null)
+        if (vertical && TryGetOwnRendererBounds(owner, out Bounds rb) && rb.size.y > 0.05f)
         {
-            armReach = transform.position - proximal.transform.position;
-            armReach.y = 0f;
-        }
-        if (armReach.sqrMagnitude > 0.01f && Vector3.Dot(right, armReach.normalized) > 0f)
-            right = -right;
+            // Tube column top at the ceiling plate — catalog length down the column.
+            // Own AABB bottom often includes the distal joint; do not span full mesh.
+            axis = Vector3.down;
+            featureA = new Vector3(rb.center.x, rb.max.y, rb.center.z);
+            featureB = featureA + axis * catalogLen;
+            proximalName = "meshTop";
+            distalName = "catalogDown";
 
-        // Prefer curated side lane. Never fall back to heightMod stacking — that shoved
-        // 150 mm tube dims ~0.77 m sideways into the elbow joint.
-        float side = CutsheetLayoutSideMeters > 0.05f
-            ? CutsheetLayoutSideMeters
-            : (CutsheetLengthIsVertical ? 0.48f : 0.42f);
-
-        // Land ticks on the column face toward the dim (not the centerline through the solid).
-        if (TryGetOwnerRendererBounds(out Bounds faceRb) && faceRb.size.y > 0.02f)
-        {
+            // Land leaders on the column face toward the dim lane.
+            Vector3 rightProbe = camera != null ? camera.transform.right : Vector3.right;
+            rightProbe.y = 0f;
+            if (rightProbe.sqrMagnitude < 1e-6f)
+                rightProbe = Vector3.right;
+            rightProbe.Normalize();
             float faceExtent =
-                Mathf.Abs(right.x) * faceRb.extents.x + Mathf.Abs(right.z) * faceRb.extents.z;
-            Vector3 toFace = right * faceExtent;
-            top = new Vector3(faceRb.center.x, top.y, faceRb.center.z) + toFace;
-            bottom = new Vector3(faceRb.center.x, bottom.y, faceRb.center.z) + toFace;
+                Mathf.Abs(rightProbe.x) * rb.extents.x + Mathf.Abs(rightProbe.z) * rb.extents.z;
+            // Face offset applied after lane side is chosen below — stash center for now.
+        }
+        else
+        {
+            AttachmentPoint proximalAp = ResolveProximalForLengthOwner(owner)
+                ?? GetSegmentProximalAttachmentPoint()
+                ?? HighestAssemblyAttachmentPoint;
+            AttachmentPoint distalAp = FindDistalAttachmentPoint(owner, proximalAp);
+
+            Vector3 proximalFeat = proximalAp != null
+                ? proximalAp.transform.position
+                : owner.transform.position;
+
+            axis = owner.transform.TransformDirection(Vector3.forward);
+            if (axis.sqrMagnitude < 1e-8f)
+                axis = vertical ? Vector3.down : Vector3.right;
+            axis.Normalize();
+
+            Vector3 aimPoint = distalAp != null
+                ? distalAp.transform.position
+                : transform.position;
+            Vector3 toward = aimPoint - proximalFeat;
+            if (toward.sqrMagnitude > 1e-6f && Vector3.Dot(axis, toward) < 0f)
+                axis = -axis;
+
+            if (vertical)
+            {
+                if (Mathf.Abs(Vector3.Dot(axis, Vector3.up)) < 0.5f)
+                    axis = Vector3.down;
+                else if (Vector3.Dot(axis, Vector3.down) < 0f)
+                    axis = -axis;
+            }
+            else
+            {
+                axis.y = 0f;
+                if (axis.sqrMagnitude < 1e-6f)
+                {
+                    toward.y = 0f;
+                    axis = toward.sqrMagnitude > 1e-6f ? toward.normalized : Vector3.right;
+                }
+                else
+                    axis.Normalize();
+            }
+
+            featureA = proximalFeat;
+            featureB = featureA + axis * catalogLen;
+            proximalName = proximalAp != null ? proximalAp.name : "pivot";
+            distalName = distalAp != null ? distalAp.name : "aim";
         }
 
-        item.Origin = bottom + right * side;
-        item.HitPoint = top + right * side;
+        Vector3 offset;
+        float lane;
+        if (vertical)
+        {
+            Vector3 right = camera != null ? camera.transform.right : Vector3.right;
+            right.y = 0f;
+            if (right.sqrMagnitude < 1e-6f)
+                right = Vector3.right;
+            right.Normalize();
 
-        if (measurer != null)
-            measurer.ElevationTextLane = Mathf.Max(1, Mathf.RoundToInt(side * 10f));
+            Vector3 armReach = transform.position - featureA;
+            armReach.y = 0f;
+            if (armReach.sqrMagnitude > 0.01f && Vector3.Dot(right, armReach.normalized) > 0f)
+                right = -right;
+
+            lane = CutsheetLayoutSideMeters > 0.05f ? CutsheetLayoutSideMeters : 0.48f;
+            offset = right * lane;
+
+            // Nudge feature points onto the tube face toward the dim (vertical mesh path).
+            if (TryGetOwnRendererBounds(owner, out Bounds faceRb) && faceRb.size.y > 0.05f)
+            {
+                float faceExtent =
+                    Mathf.Abs(right.x) * faceRb.extents.x + Mathf.Abs(right.z) * faceRb.extents.z;
+                Vector3 toFace = right * faceExtent;
+                featureA = new Vector3(faceRb.center.x, featureA.y, faceRb.center.z) + toFace;
+                featureB = new Vector3(faceRb.center.x, featureB.y, faceRb.center.z) + toFace;
+            }
+
+            measurer.ElevationTextLane = Mathf.Max(1, Mathf.RoundToInt(lane * 10f));
+        }
+        else
+        {
+            lane = CutsheetLayoutLiftMeters > 0.05f ? CutsheetLayoutLiftMeters : 0.40f;
+            offset = Vector3.up * lane;
+        }
+
+        item.Origin = featureA + offset;
+        item.HitPoint = featureB + offset;
 
         measurer.gameObject.SetActive(true);
         measurer.UpdateTransform(camera);
 
-        if (!measurer.TryGetLeaderPair(out var lead0, out var lead1))
-            return true;
+        if (measurer.TryGetLeaderPair(out var lead0, out var lead1))
+        {
+            lead0.enabled = true;
+            lead0.positionCount = 2;
+            lead0.SetPosition(0, item.Origin);
+            lead0.SetPosition(1, featureA);
+            lead0.startWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(item.Origin, camera);
+            lead0.endWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(featureA, camera);
+            ForceBlackLeaders(lead0);
 
-        lead0.enabled = true;
-        lead0.positionCount = 2;
-        lead0.SetPosition(0, item.Origin);
-        lead0.SetPosition(1, bottom);
-        lead0.startWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(item.Origin, camera);
-        lead0.endWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(bottom, camera);
-        ForceBlackLeaders(lead0);
+            lead1.enabled = true;
+            lead1.positionCount = 2;
+            lead1.SetPosition(0, item.HitPoint);
+            lead1.SetPosition(1, featureB);
+            lead1.startWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(item.HitPoint, camera);
+            lead1.endWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(featureB, camera);
+            ForceBlackLeaders(lead1);
+        }
 
-        lead1.enabled = true;
-        lead1.positionCount = 2;
-        lead1.SetPosition(0, item.HitPoint);
-        lead1.SetPosition(1, top);
-        lead1.startWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(item.HitPoint, camera);
-        lead1.endWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(top, camera);
-        ForceBlackLeaders(lead1);
+        heightMod += vertical ? 0.16f : 0.32f;
 
-        heightMod += 0.16f;
-
+        float span = Vector3.Distance(item.Origin, item.HitPoint);
+        bool spanOk = Mathf.Abs(span - catalogLen) < 0.002f;
+        if (!spanOk)
+        {
+            Debug.LogWarning(
+                $"[ElevDim] CATALOG PLACE span mismatch owner={owner.name} " +
+                $"catalog={catalogLen:F3} span={span:F3}",
+                this);
+        }
         Debug.Log(
-            $"[ElevDim] VERTICAL PLACE owner={(owner != null ? owner.name : "null")} " +
-            $"catalogMm={Mathf.RoundToInt(catalogLen * 1000f)} " +
-            $"meshH={meshH:F3} topY={top.y:F3} bottomY={bottom.y:F3} span={(top.y - bottom.y):F3} " +
-            $"side={side:F2} xz=({top.x:F2},{top.z:F2})",
+            $"[ElevDim] CATALOG PLACE owner={owner.name} vertical={vertical} " +
+            $"catalogMm={Mathf.RoundToInt(catalogLen * 1000f)} span={span:F3} spanOk={spanOk} " +
+            $"proximal={proximalName} distal={distalName} lane={lane:F2}",
             this);
         return true;
     }
@@ -1234,10 +1314,6 @@ public class Measurable : MonoBehaviour
                         break;
                     }
 
-                    var proximalAp = GetSegmentProximalAttachmentPoint();
-                    if (proximalAp == null)
-                        proximalAp = HighestAssemblyAttachmentPoint;
-
                     var measurer = item.Measurer;
                     if (measurer == null)
                     {
@@ -1246,124 +1322,48 @@ public class Measurable : MonoBehaviour
                         break;
                     }
 
-                    if (!measurer.TryGetLeaderPair(out _, out _))
-                    {
-                        if (Selectable.IsInElevationPhotoMode)
-                        {
-                            Debug.LogWarning(
-                                $"[ElevDim] SKIP ToOrigin (LineRenderers<{2}) measurable={name} " +
-                                $"count={(measurer.LineRenderers != null ? measurer.LineRenderers.Count : 0)}",
-                                this);
-                            // Still place the mm label even if leader ticks are missing.
-                            if (HasOwningCatalogLength())
-                            {
-                                measurer.gameObject.SetActive(true);
-                                measurer.UpdateTransform(camera);
-                            }
-                        }
-                        break;
-                    }
-
-                    // Configurable catalog length with no proximal AP: still label it
-                    // on the owner's own column mesh (ceiling tube/flange) when vertical.
-                    if (proximalAp == null)
-                    {
-                        if (Selectable.IsInElevationPhotoMode && HasOwningCatalogLength())
-                        {
-                            float len = CutsheetCatalogLengthMeters > 0f
-                                ? CutsheetCatalogLengthMeters
-                                : ElevationLengthFormat.ResolveOwnSizeMeters(GetOwningSelectable());
-                            bool vertical = ShouldUseVerticalCatalogCallout(len, 0f);
-                            if (vertical
-                                && TryBuildVerticalCatalogCallout(item, measurer, camera, len, ref heightMod))
-                                break;
-                            // Horizontal with no proximal: cannot place arm-style leaders.
-                        }
-
-                        measurer.gameObject.SetActive(false);
-                        break;
-                    }
-
-                    Vector3 proximalPos = proximalAp.transform.position;
-                    Vector3 distalPos = transform.position;
-                    Vector3 delta = distalPos - proximalPos;
-                    float horiz = new Vector2(delta.x, delta.z).magnitude;
-                    float catalogLen = Selectable.IsInElevationPhotoMode
-                        ? (CutsheetCatalogLengthMeters > 0f
-                            ? CutsheetCatalogLengthMeters
-                            : ElevationLengthFormat.ResolveOwnSizeMeters(GetOwningSelectable()))
-                        : -1f;
-                    // Vertical vs horizontal from geometry + catalog Size — not part names.
-                    bool verticalCallout = Selectable.IsInElevationPhotoMode
-                        && ShouldUseVerticalCatalogCallout(catalogLen, horiz);
-
+                    // Cutsheet: one builder for tubes and arms — Size label, Size tick span.
                     if (Selectable.IsInElevationPhotoMode)
                     {
-                        var owner = GetOwningSelectable();
-                        float upDot = 0f;
-                        float boundsH = 0f;
-                        float boundsXz = 0f;
-                        if (owner != null)
+                        float catalogLen = CutsheetCatalogLengthMeters > 0f
+                            ? CutsheetCatalogLengthMeters
+                            : ElevationLengthFormat.ResolveOwnSizeMeters(GetOwningSelectable());
+                        if (catalogLen <= 0f)
                         {
-                            Vector3 axis = owner.transform.TransformDirection(Vector3.forward);
-                            if (axis.sqrMagnitude > 1e-8f)
-                                upDot = Mathf.Abs(Vector3.Dot(axis.normalized, Vector3.up));
+                            measurer.gameObject.SetActive(false);
+                            break;
                         }
-                        if (TryGetOwnerRendererBounds(out Bounds diagRb))
-                        {
-                            boundsH = diagRb.size.y;
-                            boundsXz = Mathf.Max(diagRb.size.x, diagRb.size.z);
-                        }
-                        Debug.Log(
-                            $"[ElevDim] ToOrigin owner={(owner != null ? owner.name : "null")} " +
-                            $"catalogMm={Mathf.RoundToInt(Mathf.Max(0f, catalogLen) * 1000f)} " +
-                            $"pinnedM={CutsheetCatalogLengthMeters:F3} " +
-                            $"horiz={horiz:F3} upDot={upDot:F2} ownMeshH={boundsH:F3} ownMeshXz={boundsXz:F3} " +
-                            $"vertical={verticalCallout} " +
-                            $"proximal={(proximalAp != null ? proximalAp.name : "null")} " +
-                            $"measurable={name}",
-                            this);
 
-                        if (!verticalCallout && catalogLen > 0f && (horiz < 0.15f || upDot >= 0.5f))
-                        {
-                            Debug.LogWarning(
-                                $"[ElevDim] EXPECTED VERTICAL but got horizontal callout " +
-                                $"owner={(owner != null ? owner.name : "null")} " +
-                                $"catalogMm={Mathf.RoundToInt(catalogLen * 1000f)} " +
-                                $"horiz={horiz:F3} upDot={upDot:F2} ownMeshH={boundsH:F3} ownMeshXz={boundsXz:F3}",
-                                this);
-                        }
+                        float horiz = EstimateProximalHorizontalSpan(GetOwningSelectable());
+                        bool vertical = ShouldUseVerticalCatalogCallout(catalogLen, horiz);
+                        if (!TryBuildCatalogLengthCallout(
+                                item, measurer, camera, catalogLen, vertical, ref heightMod))
+                            measurer.gameObject.SetActive(false);
+                        break;
                     }
 
-                    if (verticalCallout)
+                    // Live (non-elevation) interactive ToOrigin — world proximal→tip.
+                    var proximalAp = GetSegmentProximalAttachmentPoint();
+                    if (proximalAp == null)
+                        proximalAp = HighestAssemblyAttachmentPoint;
+                    if (proximalAp == null)
                     {
-                        if (TryBuildVerticalCatalogCallout(item, measurer, camera, catalogLen, ref heightMod))
-                            break;
-
                         measurer.gameObject.SetActive(false);
                         break;
                     }
 
-                    // Curated lift lane, else a fixed clear band — never heightMod
-                    // (accumulator once left arm dims ~0.1 m up, sitting on the part).
-                    Vector3 addedHeight = Vector3.up * (
-                        CutsheetLayoutLiftMeters > 0.05f
-                            ? CutsheetLayoutLiftMeters
-                            : (Selectable.IsInElevationPhotoMode ? 0.40f : heightMod));
+                    if (!measurer.TryGetLeaderPair(out _, out _))
+                        break;
+
+                    Vector3 addedHeight = Vector3.up * heightMod;
                     Vector3 origin = transform.position;
                     item.HitPoint = proximalAp.transform.position + addedHeight;
                     origin.y = proximalAp.transform.position.y;
                     item.Origin = origin + addedHeight;
 
-                    if (Selectable.IsInElevationPhotoMode)
-                        measurer.gameObject.SetActive(true);
-
-                    if (Selectable.IsInElevationPhotoMode)
-                        measurer.UpdateTransform(camera);
-
                     if (!measurer.TryGetLeaderPair(out var hLead0, out var hLead1))
                     {
-                        heightMod += Selectable.IsInElevationPhotoMode ? 0.32f : 0.22f;
+                        heightMod += 0.22f;
                         break;
                     }
 
@@ -1375,8 +1375,6 @@ public class Measurable : MonoBehaviour
                     hLead0.SetPosition(1, line1End);
                     hLead0.startWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(line1Start, camera);
                     hLead0.endWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(line1End, camera);
-                    if (Selectable.IsInElevationPhotoMode)
-                        ForceBlackLeaders(hLead0);
 
                     hLead1.enabled = true;
                     hLead1.positionCount = 2;
@@ -1386,12 +1384,8 @@ public class Measurable : MonoBehaviour
                     hLead1.SetPosition(1, line2End);
                     hLead1.startWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(line2Start, camera);
                     hLead1.endWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(line2End, camera);
-                    if (Selectable.IsInElevationPhotoMode)
-                        ForceBlackLeaders(hLead1);
 
-                    // Extra vertical separation so elevation PDF dims do not overlap.
-                    heightMod += Selectable.IsInElevationPhotoMode ? 0.32f : 0.22f;
-
+                    heightMod += 0.22f;
                     break;
                 }
             }
@@ -1404,7 +1398,7 @@ public class Measurable : MonoBehaviour
 
         if (!IsActive) return;
         // Cutsheet pass owns Origin/HitPoint/leaders. Re-running here with Camera.main
-        // (and heightMod=0) shoved tube dims into the elbow after a correct VERTICAL PLACE.
+        // (and heightMod=0) shoved tube dims into the elbow after a correct CATALOG PLACE.
         if (Selectable.IsInElevationPhotoMode)
             return;
         float _ = 0;

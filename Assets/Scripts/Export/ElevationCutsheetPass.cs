@@ -136,6 +136,38 @@ public static class ElevationCutsheetPass
             }
         }
 
+        // Dual-select Size owner with empty Measurables: find ToOrigin without relying on
+        // RelatedSelectables (often broken when a light hangs under a boom mount).
+        foreach (var sel in assemblySelectables)
+        {
+            if (sel == null || lengthByOwner.ContainsKey(sel))
+                continue;
+            float sizeM = ElevationLengthFormat.ResolveOwnSizeMeters(sel);
+            if (sizeM <= 0f)
+                continue;
+
+            Measurable borrowed = FindToOriginForSizeOwner(sel, lengthByOwner, assemblySelectables);
+            if (borrowed == null)
+            {
+                Debug.LogWarning(
+                    $"[ElevDim] Size owner still has no ToOrigin after assembly search " +
+                    $"name={sel.name} mm={Mathf.RoundToInt(sizeM * 1000f)} " +
+                    $"stem={DualSelectStem(sel.name)} related=" +
+                    $"{(sel.RelatedSelectables != null ? sel.RelatedSelectables.Count : 0)}",
+                    sel);
+                continue;
+            }
+
+            if (sel.Measurables != null && !sel.Measurables.Contains(borrowed))
+                sel.Measurables.Add(borrowed);
+
+            lengthByOwner[sel] = (borrowed, sizeM);
+            Debug.Log(
+                $"[ElevDim] borrowed ToOrigin for Size owner={sel.name} mm={Mathf.RoundToInt(sizeM * 1000f)} " +
+                $"from measurable={borrowed.name} host={borrowed.transform.name}",
+                sel);
+        }
+
         var sb = new StringBuilder(256);
         sb.Append("[ElevDim] Cutsheet curated lengths=").Append(lengthByOwner.Count)
           .Append(" floors=").Append(floorBySource.Count);
@@ -360,11 +392,178 @@ public static class ElevationCutsheetPass
     }
 
     /// <summary>
-    /// Must match the draw path exactly — see Measurable.ClassifyCutsheetLengthVertical.
+    /// Dual-select strips "(Clone)" / ".001" so ArmDropTube(Clone) matches ArmDropTube.001.
     /// </summary>
-    static bool IsLikelyVerticalLengthOwner(Selectable sel, float catalogLenMeters)
+    static string DualSelectStem(string name)
     {
-        return Measurable.IsVerticalLengthOwner(sel);
+        if (string.IsNullOrEmpty(name))
+            return "";
+        string s = name.Replace("(Clone)", "").Trim();
+        int dot = s.LastIndexOf('.');
+        if (dot > 0)
+        {
+            string suf = s.Substring(dot + 1);
+            bool digits = suf.Length > 0;
+            for (int i = 0; digits && i < suf.Length; i++)
+                digits = char.IsDigit(suf[i]);
+            if (digits)
+                s = s.Substring(0, dot);
+        }
+        return s;
+    }
+
+    static bool HasToOriginType(Measurable m)
+    {
+        if (m == null)
+            return false;
+        if (m.MeasurementTypes != null
+            && m.MeasurementTypes.Contains(MeasurementType.ToArmAssemblyOrigin))
+            return true;
+        return m.Measurements != null
+            && m.Measurements.Any(x =>
+                x != null && x.MeasurementType == MeasurementType.ToArmAssemblyOrigin);
+    }
+
+    /// <summary>
+    /// Find a ToOrigin Measurable for a Size owner whose Measurables list is empty.
+    /// Searches parents (Clone hosts Measurable), same-stem assembly twins, then Related.
+    /// </summary>
+    static Measurable FindToOriginForSizeOwner(
+        Selectable sel,
+        Dictionary<Selectable, (Measurable measurable, float sizeM)> lengthByOwner,
+        IList<Selectable> assemblySelectables)
+    {
+        if (sel == null)
+            return null;
+
+        string stem = DualSelectStem(sel.name);
+
+        bool TryTake(Measurable m, out Measurable taken)
+        {
+            taken = null;
+            // Cutsheet borrow: do not require ShowInElevationPhoto — dual-select hosts
+            // sometimes clear that flag while MeasurementTypes still has ToOrigin.
+            if (m == null || m.Disabled || !HasToOriginType(m))
+                return false;
+            foreach (var existing in lengthByOwner.Values)
+            {
+                if (existing.measurable == m)
+                    return false;
+            }
+            taken = m;
+            return true;
+        }
+
+        foreach (var m in sel.GetComponentsInChildren<Measurable>(true))
+        {
+            if (TryTake(m, out var taken))
+                return taken;
+        }
+
+        // Highest same-stem ancestor (Clone) — Measurable often lives there while Size is on .001.
+        // Also covers sibling dual-select under a shared mount wrapper.
+        Selectable stemRoot = sel;
+        for (Transform t = sel.transform.parent; t != null; t = t.parent)
+        {
+            if (!t.TryGetComponent(out Selectable ancestor))
+                continue;
+            if (DualSelectStem(ancestor.name) == stem)
+            {
+                stemRoot = ancestor;
+                continue;
+            }
+            if (ElevationLengthFormat.ResolveOwnSizeMeters(ancestor) > 0f
+                && DualSelectStem(ancestor.name) != stem)
+                break;
+        }
+
+        if (stemRoot != sel)
+        {
+            foreach (var m in stemRoot.GetComponents<Measurable>())
+            {
+                if (TryTake(m, out var taken))
+                    return taken;
+            }
+            foreach (var m in stemRoot.GetComponentsInChildren<Measurable>(true))
+            {
+                if (TryTake(m, out var taken))
+                    return taken;
+            }
+        }
+
+        // Parent chain components (Measurable on intermediate non-Selectable GO).
+        for (Transform t = sel.transform.parent; t != null; t = t.parent)
+        {
+            foreach (var m in t.GetComponents<Measurable>())
+            {
+                if (TryTake(m, out var taken))
+                    return taken;
+            }
+
+            if (t.TryGetComponent(out Selectable ancestor)
+                && ancestor != sel
+                && ElevationLengthFormat.ResolveOwnSizeMeters(ancestor) > 0f
+                && DualSelectStem(ancestor.name) != stem)
+                break;
+        }
+
+        if (assemblySelectables != null && !string.IsNullOrEmpty(stem))
+        {
+            foreach (var other in assemblySelectables)
+            {
+                if (other == null || other == sel)
+                    continue;
+                if (DualSelectStem(other.name) != stem)
+                    continue;
+                if (lengthByOwner.ContainsKey(other))
+                    continue;
+
+                if (other.Measurables != null)
+                {
+                    foreach (var m in other.Measurables)
+                    {
+                        if (TryTake(m, out var taken))
+                            return taken;
+                    }
+                }
+
+                foreach (var m in other.GetComponentsInChildren<Measurable>(true))
+                {
+                    if (TryTake(m, out var taken))
+                        return taken;
+                }
+
+                foreach (var m in other.GetComponents<Measurable>())
+                {
+                    if (TryTake(m, out var taken))
+                        return taken;
+                }
+            }
+        }
+
+        if (sel.RelatedSelectables != null)
+        {
+            foreach (var rel in sel.RelatedSelectables)
+            {
+                if (rel == null || rel == sel || lengthByOwner.ContainsKey(rel))
+                    continue;
+                if (rel.Measurables != null)
+                {
+                    foreach (var m in rel.Measurables)
+                    {
+                        if (TryTake(m, out var taken))
+                            return taken;
+                    }
+                }
+                foreach (var m in rel.GetComponentsInChildren<Measurable>(true))
+                {
+                    if (TryTake(m, out var taken))
+                        return taken;
+                }
+            }
+        }
+
+        return null;
     }
 
     static int CountActive(Measurable measurable, MeasurementType type)

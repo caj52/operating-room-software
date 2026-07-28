@@ -2374,6 +2374,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             }
         }
 
+        // Size-owner ToOrigin borrow for dual-select lives in ElevationCutsheetPass only.
+
         if (claim != null && !Measurables.Contains(claim))
             Measurables.Add(claim);
 
@@ -2407,16 +2409,26 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         {
             if (rel == null || rel == this)
                 continue;
-            if (rel.ScaleLevels != null && rel.ScaleLevels.Count > 0
-                && rel.Measurables != null && rel.Measurables.Contains(m))
+            // Only block when the other twin actually owns a catalog Size — otherwise the
+            // Size half of a dual-select pair can never recover the shared ToOrigin.
+            if (rel.Measurables != null && rel.Measurables.Contains(m)
+                && ElevationLengthFormat.ResolveOwnSizeMeters(rel) > 0f)
                 return true;
         }
         return false;
     }
 
+    bool IsDualSelectTwin(Selectable other)
+    {
+        if (other == null || RelatedSelectables == null)
+            return false;
+        return RelatedSelectables.Contains(other);
+    }
+
     /// <summary>
     /// True when <paramref name="m"/> sits under a different Selectable that has its own
     /// ScaleLevels — that descendant owns the catalog length, not this parent.
+    /// Dual-select twins are not "other" owners (Measurable often lives on the non-Size half).
     /// </summary>
     bool IsOwnedByOtherLengthSelectable(Measurable m)
     {
@@ -2424,6 +2436,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             return false;
         var nearest = m.GetComponentInParent<Selectable>(true);
         if (nearest == null || nearest == this)
+            return false;
+        if (IsDualSelectTwin(nearest))
             return false;
         return nearest.ScaleLevels != null && nearest.ScaleLevels.Count > 0;
     }
