@@ -2039,6 +2039,9 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         if (camLight != null)
             camLight.gameObject.SetActive(true);
 
+        ServiceHeadOutletFaceAligner.AlignAllInAssembly(_assemblySelectables);
+        ElevationOutletCaptureDiagnostics.LogBeforeRender(_assemblySelectables, camera);
+
         camera.Render();
         camera.enabled = false;
 
@@ -2191,6 +2194,9 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         var camLight = camera.GetComponentInChildren<Light>(true);
         if (camLight != null)
             camLight.gameObject.SetActive(true);
+
+        ServiceHeadOutletFaceAligner.AlignAllInAssembly(_assemblySelectables);
+        ElevationOutletCaptureDiagnostics.LogBeforeRender(_assemblySelectables, camera);
 
         camera.Render();
         camera.enabled = false;
