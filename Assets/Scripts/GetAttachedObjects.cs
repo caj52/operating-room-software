@@ -341,10 +341,17 @@ public class GetAttachedObjects : MonoBehaviour
             bool preserveHierarchy = selectable.ShouldPreserveLiveLengthScale;
             float liveZ = selectable.transform.localScale.z;
 
+            // Per-part authored mesh/tip length — not assembly-wide ModelDefault Size.
+            // Size/globalReferenceSize assumed every mesh was authored at the common
+            // default length, which made mis-authored parts disagree with catalog mm.
+            float authored = selectable.GetAuthoredLengthMeters();
+            if (authored < 1e-4f)
+                authored = globalReferenceSize > 1e-4f ? globalReferenceSize : 1f;
+
             foreach (var level in selectable.ScaleLevels)
             {
                 if (!preserveHierarchy || level.ScaleZ <= 0.0001f)
-                    level.ScaleZ = (globalReferenceSize == 0f) ? 1f : level.Size / globalReferenceSize;
+                    level.ScaleZ = level.Size / authored;
                 level.Selected = false;
                 level.ModelDefault = false;
             }

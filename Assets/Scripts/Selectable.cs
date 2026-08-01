@@ -446,9 +446,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         if (ScaleLevels.Count > 0)
         {
             // Duplicate Instantiate already copied the live hierarchy (tube Z + attach-chain
-            // inverses). Fresh-prefab SetScaleLevel treats ModelDefault (ScaleZ forced to 1)
-            // as baseline while the transform is already at the real length — then
-            // InverseTransformVector rewrites AP locals (e.g. 5 → 3.5) and skews the boom.
+            // inverses). Do not re-bake ScaleZ / SetScaleLevel from ModelDefault on duplicates.
             if (isDuplicated)
             {
                 ScaleAuditLog.Event("Sel.Init.dupSkipSetScale",
@@ -489,38 +487,14 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
             CurrentScaleLevel = ScaleLevels.First(item => item.ModelDefault);
             CurrentPreviewScaleLevel = CurrentScaleLevel;
-            CurrentScaleLevel.ScaleZ = transform.localScale.z;
-
-            //Debug.Log($"Model default scale level is {CurrentScaleLevel.ScaleZ}");
 
             StoreChildScales();
 
-            // Ensure CurrentScaleLevel is updated
-            for (int i = 0; i < ScaleLevels.Count; i++)
-            {
-                var item = ScaleLevels[i];
-
-                if (!item.ModelDefault)
-                {
-                    if (CurrentScaleLevel.Size == 0)
-                    {
-                        Debug.LogError("CurrentScaleLevel.Size is 0! Cannot calculate scale.");
-                        continue;
-                    }
-
-                    float perc = item.Size / CurrentScaleLevel.Size;
-
-                    item.ScaleZ = CurrentScaleLevel.ScaleZ * perc;
-
-                    //  Debug.Log($"Updated ScaleZ for ScaleLevel {i}: {item.ScaleZ}");
-                }
-                else
-                {
-                    item.ScaleZ = 1;
-                }
-            }
-
-
+            // Catalog Size is meters of real length. Bake ScaleZ so visual length at each
+            // level equals Size — do not force ModelDefault to ScaleZ=1 when the authored
+            // mesh/tip at identity is a different length (that made "300 mm" longer than
+            // a calibrated "500 mm").
+            BakeScaleZFromAuthoredLength();
 
             var defaultSelected = ScaleLevels.First(item => item.Selected);
             SetScaleLevel(defaultSelected, true);
@@ -1239,6 +1213,65 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         }
     }
 
+    /// <summary>
+    /// World meters of this part's authored mesh length at localScale.z = 1
+    /// (own renderers only). Catalog <see cref="ScaleLevel.Size"/> is also meters —
+    /// ScaleZ should be Size / authored length.
+    /// </summary>
+    public float GetAuthoredLengthMeters()
+    {
+        Vector3 saved = transform.localScale;
+        bool restored = false;
+        if (Mathf.Abs(saved.z - 1f) > 1e-4f)
+        {
+            transform.localScale = new Vector3(saved.x, saved.y, 1f);
+            Physics.SyncTransforms();
+            restored = true;
+        }
+
+        var probe = ScaleAuditLog.CaptureLengthProbe(transform);
+        // SelfLength stops at child Selectables — never use TipDistance here; that walks
+        // the whole assembly and can inflate authored length after attach (wrong ScaleZ).
+        float meshLen = probe.SelfLength;
+
+        if (restored)
+        {
+            transform.localScale = saved;
+            Physics.SyncTransforms();
+        }
+
+        if (meshLen > 0.05f)
+            return meshLen;
+
+        var md = ScaleLevels?.FirstOrDefault(l => l != null && l.ModelDefault);
+        return md != null && md.Size > 0.05f ? md.Size : 1f;
+    }
+
+    /// <summary>
+    /// Write ScaleZ on every level so Size meters of stretch match authored geometry.
+    /// </summary>
+    public void BakeScaleZFromAuthoredLength()
+    {
+        if (ScaleLevels == null || ScaleLevels.Count == 0)
+            return;
+
+        float authored = GetAuthoredLengthMeters();
+        if (authored < 1e-4f)
+            authored = 1f;
+
+        for (int i = 0; i < ScaleLevels.Count; i++)
+        {
+            var item = ScaleLevels[i];
+            if (item == null || item.Size <= 0f)
+                continue;
+            item.ScaleZ = item.Size / authored;
+        }
+
+        ScaleAuditLog.Event("Sel.BakeScaleZ",
+            $"name={name} authored={authored:G6} " +
+            $"levels={string.Join(",", ScaleLevels.Where(l => l != null).Select(l => $"{l.Size:G4}→{l.ScaleZ:G4}"))}");
+    }
+
     public void SetScaleLevel(ScaleLevel scaleLevel, bool setSelected, bool fireEvent = true)
     {
         if (scaleLevel == null)
@@ -1717,7 +1750,9 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             }
         }
         var unionBounds = unionBoundsNullable ?? GetAssemblyBounds();
-        unionBounds = ClampElevationBoundsToFloor(unionBounds);
+        // Floor bar / ceiling height on the PDF are gospel — never fit Y to the boom AABB
+        // (boom-only used to zoom in and park arms on the floor graphic).
+        unionBounds = LockElevationVerticalToRoom(unionBounds);
 
         // Second pass: capture (front only in fast preview, front+back for real exports)
         for (int i = 0; i < viewCount; i++)
@@ -2121,23 +2156,68 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     }
 
     /// <summary>
-    /// Elevation PDFs stamp a ground graphic under the photos; photo bottoms must
-    /// sit on that graphic's top edge. Clamp so we never frame below the room floor
-    /// surface (otherwise dim lines look like they pierce through the ground mark).
+    /// Widen bounds to include active cutsheet dim lines / labels (after Apply).
+    /// Does not change the room-locked Y span by itself — caller re-locks Y after.
     /// </summary>
-    private static Bounds ClampElevationBoundsToFloor(Bounds bounds)
+    private Bounds ExpandElevationBoundsForCutsheetOverlays(Bounds bounds)
+    {
+        if (_assemblySelectables == null)
+            return bounds;
+
+        const float labelPad = 0.35f;
+        foreach (var item in _assemblySelectables)
+        {
+            if (item?.Measurables == null) continue;
+            foreach (var measurable in item.Measurables)
+            {
+                if (measurable?.Measurements == null) continue;
+                foreach (var measurement in measurable.Measurements)
+                {
+                    if (measurement?.Measurer == null || !measurement.Measurer.gameObject.activeSelf)
+                        continue;
+                    if (measurement.Measurer.Renderer != null)
+                        bounds.Encapsulate(measurement.Measurer.Renderer.bounds);
+                    var text = measurement.Measurer.MeasurementText;
+                    if (text != null && text.gameObject.activeSelf)
+                    {
+                        bounds.Encapsulate(new Bounds(
+                            text.transform.position,
+                            Vector3.one * labelPad * 2f));
+                    }
+                }
+            }
+        }
+        return bounds;
+    }
+
+    /// <summary>
+    /// Elevation PDFs stamp a ground graphic under the photos and list ceiling height —
+    /// those are the vertical scale. Lock photo Y to room floor top → ceiling underside
+    /// so boom-only and boom+light share the same floor-to-ceiling framing. Keep X/Z
+    /// from the assembly (and dim overlays) for horizontal fit.
+    /// </summary>
+    private static Bounds LockElevationVerticalToRoom(Bounds bounds)
     {
         float floorY = 0f;
         var floor = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor);
         if (floor != null)
             floorY = floor.transform.position.y + (floor.transform.localScale.y * 0.5f);
 
-        if (bounds.min.y >= floorY - 0.0001f)
-            return bounds;
+        float ceilingY = floorY + 3f;
+        var ceiling = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling);
+        if (ceiling != null)
+        {
+            float underside = ceiling.transform.position.y - (ceiling.transform.localScale.y * 0.5f);
+            if (underside > floorY + 0.1f)
+                ceilingY = underside;
+            else if (ceiling.Height > 0.1f)
+                ceilingY = floorY + ceiling.Height;
+        }
 
         Vector3 min = bounds.min;
         Vector3 max = bounds.max;
         min.y = floorY;
+        max.y = ceilingY;
         if (max.y < min.y + 0.01f)
             max.y = min.y + 0.01f;
         bounds.SetMinMax(min, max);
@@ -2160,13 +2240,19 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         Vector3 outwardDirection = cameraOriginalPos - transform.position;
         if (invertDirection) outwardDirection = -outwardDirection;
 
-        // Position & aim with fixed bounds
+        // Cutsheet overlays only — never activate Walls/Ceiling / interactive imperial dims.
+        // Aim first so layout uses a sensible camera, then widen XZ for labels (Y stays room-locked).
         camera.transform.position = fixedBounds.center + (outwardDirection.normalized * fixedBounds.extents.magnitude);
         camera.transform.LookAt(fixedBounds.center, Vector3.up);
-        camera.orthographicSize = fixedBounds.extents.y;
+        camera.orthographicSize = Mathf.Max(0.01f, fixedBounds.extents.y);
 
-        // Cutsheet overlays only — never activate Walls/Ceiling / interactive imperial dims.
         ElevationCutsheetPass.Apply(_assemblySelectables, camera);
+        fixedBounds = ExpandElevationBoundsForCutsheetOverlays(fixedBounds);
+        fixedBounds = LockElevationVerticalToRoom(fixedBounds);
+
+        camera.transform.position = fixedBounds.center + (outwardDirection.normalized * fixedBounds.extents.magnitude);
+        camera.transform.LookAt(fixedBounds.center, Vector3.up);
+        camera.orthographicSize = Mathf.Max(0.01f, fixedBounds.extents.y);
 
         // Fit fixed bounds into RT
         int safetyCounter = 1000;

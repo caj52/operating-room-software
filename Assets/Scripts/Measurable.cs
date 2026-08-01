@@ -635,8 +635,26 @@ public class Measurable : MonoBehaviour
         }
         else
         {
+            // Horizontal arm callouts: prefer above the arm, but elevation photos lock Y to
+            // floor→ceiling — lifting past the ceiling crops the dim line and mm label.
             lane = CutsheetLayoutLiftMeters > 0.05f ? CutsheetLayoutLiftMeters : 0.40f;
-            offset = Vector3.up * lane;
+            float armTopY = Mathf.Max(featureA.y, featureB.y);
+            float armBotY = Mathf.Min(featureA.y, featureB.y);
+            float ceilingY = ElevationDimPlacement.CeilingUndersideY();
+            float floorY = ElevationDimPlacement.FloorTopY();
+            float margin = ElevationDimPlacement.CutsheetInFrameMarginMeters;
+            float roomForUp = ceilingY - margin - armTopY;
+            float roomForDown = armBotY - (floorY + margin);
+            if (lane <= roomForUp)
+                offset = Vector3.up * lane;
+            else if (lane <= roomForDown)
+                offset = Vector3.down * lane;
+            else if (roomForUp >= roomForDown && roomForUp > 0.05f)
+                offset = Vector3.up * roomForUp;
+            else if (roomForDown > 0.05f)
+                offset = Vector3.down * roomForDown;
+            else
+                offset = Vector3.up * Mathf.Max(0.05f, roomForUp);
         }
 
         item.Origin = featureA + offset;

@@ -26,6 +26,28 @@ public static class ElevationDimPlacement
         return floor.transform.position.y + floor.transform.localScale.y * 0.5f;
     }
 
+    /// <summary>Room ceiling underside — top of the locked elevation photo frame.</summary>
+    public static float CeilingUndersideY()
+    {
+        float floorY = FloorTopY();
+        var ceiling = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling);
+        if (ceiling == null)
+            return floorY + 3f;
+
+        float underside = ceiling.transform.position.y - ceiling.transform.localScale.y * 0.5f;
+        if (underside > floorY + 0.1f)
+            return underside;
+        if (ceiling.Height > 0.1f)
+            return floorY + ceiling.Height;
+        return floorY + 3f;
+    }
+
+    /// <summary>
+    /// Clearance reserved under the ceiling / above the floor for dim labels inside the
+    /// locked floor→ceiling photo (leaders must not run off the top of the RT crop).
+    /// </summary>
+    public const float CutsheetInFrameMarginMeters = 0.12f;
+
     /// <summary>
     /// True underside of <paramref name="partRoot"/> for floor clearance:
     /// cast upward from just above the floor across the footprint and take the
