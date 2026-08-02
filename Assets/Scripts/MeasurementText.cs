@@ -181,6 +181,8 @@ public class MeasurementText : MonoBehaviour
     {
         bool isFloor = _measurer?.Measurement?.MeasurementType == MeasurementType.Floor;
         int floorLane = isFloor ? Mathf.Max(0, _measurer.ElevationTextLane) : 0;
+        bool preferBelow = !isFloor && _measurer != null && _measurer.ElevationPreferLabelBelow;
+        float outboard = !isFloor && _measurer != null ? _measurer.ElevationLabelSideSign : 0f;
 
         Vector3 onLine = _measurer.TextPosition;
         Vector3 dimDir = _measurer.transform.forward;
@@ -190,7 +192,7 @@ public class MeasurementText : MonoBehaviour
         transform.position = onLine;
         RotateTowardCamera(camera);
         ElevationDimPlacement.PlaceLabel(
-            transform, Text, onLine, dimDir, camera, isFloor, floorLane);
+            transform, Text, onLine, dimDir, camera, isFloor, floorLane, preferBelow, outboard);
         RotateTowardCamera(camera);
     }
 

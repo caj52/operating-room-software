@@ -341,17 +341,33 @@ public class GetAttachedObjects : MonoBehaviour
             bool preserveHierarchy = selectable.ShouldPreserveLiveLengthScale;
             float liveZ = selectable.transform.localScale.z;
 
-            // Per-part authored mesh/tip length — not assembly-wide ModelDefault Size.
-            // Size/globalReferenceSize assumed every mesh was authored at the common
-            // default length, which made mis-authored parts disagree with catalog mm.
-            float authored = selectable.GetAuthoredLengthMeters();
-            if (authored < 1e-4f)
-                authored = globalReferenceSize > 1e-4f ? globalReferenceSize : 1f;
+            // Arms/tubes: ScaleZ = Size / authored mesh. Heads/rails (rows meta): historic
+            // ModelDefault-relative bake (MD ScaleZ=1) — same as pre-mesh-length init.
+            bool rowConfig = selectable.UsesScaleLevelsAsRowConfig();
+            float authored = 1f;
+            float rowRefSize = 1f;
+            if (rowConfig)
+            {
+                var md = selectable.ScaleLevels.FirstOrDefault(l => l != null && l.ModelDefault)
+                    ?? selectable.ScaleLevels.FirstOrDefault(l => l != null && l.Size > 0f);
+                rowRefSize = md != null && md.Size > 1e-4f ? md.Size : 1f;
+            }
+            else
+            {
+                authored = selectable.GetAuthoredLengthMeters();
+                if (authored < 1e-4f)
+                    authored = globalReferenceSize > 1e-4f ? globalReferenceSize : 1f;
+            }
 
             foreach (var level in selectable.ScaleLevels)
             {
                 if (!preserveHierarchy || level.ScaleZ <= 0.0001f)
-                    level.ScaleZ = level.Size / authored;
+                {
+                    if (rowConfig)
+                        level.ScaleZ = (level.ModelDefault || level.Size <= 0f) ? 1f : level.Size / rowRefSize;
+                    else
+                        level.ScaleZ = level.Size / authored;
+                }
                 level.Selected = false;
                 level.ModelDefault = false;
             }
@@ -374,7 +390,17 @@ public class GetAttachedObjects : MonoBehaviour
                 {
                     // Re-bake level ScaleZ from the live tube so Size/ref never collapses
                     // a lengthened arm to ScaleZ=1 (duplicate bug).
-                    if (liveZ > 0.0001f && closest.Size > 0.0001f)
+                    if (rowConfig && closest.Size > 1e-4f)
+                    {
+                        // New ModelDefault is closest — same ratios as historic init.
+                        foreach (var level in selectable.ScaleLevels)
+                        {
+                            if (level == null) continue;
+                            level.ScaleZ = level.Size <= 0f ? 1f : level.Size / closest.Size;
+                        }
+                        closest.ScaleZ = 1f;
+                    }
+                    else if (liveZ > 0.0001f && closest.Size > 0.0001f)
                     {
                         foreach (var level in selectable.ScaleLevels)
                         {
@@ -386,7 +412,7 @@ public class GetAttachedObjects : MonoBehaviour
 
                     ScaleAuditLog.Event("GetAttached.ApplyScaleFilter",
                         $"preserve name={selectable.name} size={closest.Size} liveZ={liveZ:G6} " +
-                        $"scaleZ={closest.ScaleZ:G6} dup={selectable.isDuplicated}");
+                        $"scaleZ={closest.ScaleZ:G6} rowConfig={rowConfig} dup={selectable.isDuplicated}");
                     selectable.RestoreScaleLevelFromSave(closest);
                 }
                 else

@@ -62,19 +62,34 @@ public static class ElevationCutsheetPass
     public static float Apply(IList<Selectable> assemblySelectables, Camera camera)
     {
         Measurable.BeginElevationMeasurementPass();
+        Measurable.ClearCutsheetAssemblyBounds();
         SuppressAllOverlays();
 
         float heightMod = 0.1f;
         if (assemblySelectables == null)
             return heightMod;
 
-        // Prepare links / scale binding once.
-        foreach (var sel in assemblySelectables)
+        // Prepare links / scale binding once (also walks nested Size owners so
+        // BoomSegment_3.001 under BoomSegment_3(Clone) gets ToOrigin before curation).
+        foreach (var root in assemblySelectables)
         {
-            if (sel == null)
+            if (root == null)
                 continue;
-            sel.EnsureCurrentScaleLevelFromCatalog();
-            sel.EnsureMeasurablesLinked();
+            foreach (var sel in root.GetComponentsInChildren<Selectable>(true))
+            {
+                if (sel == null)
+                    continue;
+                sel.EnsureCurrentScaleLevelFromCatalog();
+                sel.EnsureMeasurablesLinked();
+            }
+        }
+
+        // Geometry-only AABB for layout — dims must sit outside this box.
+        if (TryComputeAssemblyGeometryBounds(assemblySelectables, out Bounds asmBounds))
+        {
+            Measurable.SetCutsheetAssemblyBounds(asmBounds);
+            Debug.Log(
+                $"[ElevDim] Assembly geometry bounds center={asmBounds.center} size={asmBounds.size}");
         }
 
         // --- Curate: one length dim per length owner, one floor dim per source ---
@@ -83,14 +98,20 @@ public static class ElevationCutsheetPass
 
         foreach (var sel in assemblySelectables)
         {
+            float sizeM = ElevationLengthFormat.ResolveOwnSizeMeters(sel);
+
+            // Size owners with empty Measurables lists are recovered in the borrow pass.
             if (sel?.Measurables == null || sel.Measurables.Count == 0)
                 continue;
 
-            float sizeM = ElevationLengthFormat.ResolveOwnSizeMeters(sel);
-
             foreach (var measurable in sel.Measurables)
             {
-                if (measurable == null || measurable.Disabled || !measurable.ShowInElevationPhoto)
+                // Length curation: ShowInElevationPhoto preferred, but Size + ToOrigin is
+                // enough — borrow/draw gates handle hosts that cleared the flag.
+                if (measurable == null || measurable.Disabled)
+                    continue;
+                if (!measurable.ShowInElevationPhoto
+                    && !(sizeM > 0f && HasToOriginType(measurable)))
                     continue;
 
                 bool hasToOrigin = measurable.Measurements != null
@@ -145,17 +166,32 @@ public static class ElevationCutsheetPass
             float sizeM = ElevationLengthFormat.ResolveOwnSizeMeters(sel);
             if (sizeM <= 0f)
                 continue;
+            // Row-tier Size on service heads is not a tube/arm length dim.
+            if (sel.GetComponent<BoomHeadScaleHandler>() != null)
+                continue;
 
             Measurable borrowed = FindToOriginForSizeOwner(sel, lengthByOwner, assemblySelectables);
             if (borrowed == null)
             {
-                Debug.LogWarning(
-                    $"[ElevDim] Size owner still has no ToOrigin after assembly search " +
-                    $"name={sel.name} mm={Mathf.RoundToInt(sizeM * 1000f)} " +
-                    $"stem={DualSelectStem(sel.name)} related=" +
-                    $"{(sel.RelatedSelectables != null ? sel.RelatedSelectables.Count : 0)}",
+                // Re-link then install if still missing (e.g. neck under a service head used
+                // to skip ToOrigin when BoomHeadScaleHandler was searched in children).
+                sel.EnsureMeasurablesLinked();
+                borrowed = FindToOriginForSizeOwner(sel, lengthByOwner, assemblySelectables);
+            }
+            if (borrowed == null)
+            {
+                var installed = sel.GetComponent<Measurable>();
+                if (installed == null)
+                    installed = sel.gameObject.AddComponent<Measurable>();
+                installed.EnsureConfiguredAsCatalogLength();
+                sel.EnsureMeasurablesLinked();
+                if (sel.Measurables != null && !sel.Measurables.Contains(installed))
+                    sel.Measurables.Add(installed);
+                borrowed = installed;
+                Debug.Log(
+                    $"[ElevDim] installed ToOrigin during cutsheet for Size owner={sel.name} " +
+                    $"mm={Mathf.RoundToInt(sizeM * 1000f)}",
                     sel);
-                continue;
             }
 
             if (sel.Measurables != null && !sel.Measurables.Contains(borrowed))
@@ -167,6 +203,50 @@ public static class ElevationCutsheetPass
                 $"from measurable={borrowed.name} host={borrowed.transform.name}",
                 sel);
         }
+
+        // Nested Size owners (drop tubes, BoomSegment_3 neck) under assembly roots.
+        foreach (var root in assemblySelectables)
+        {
+            if (root == null) continue;
+            foreach (var sel in root.GetComponentsInChildren<Selectable>(true))
+            {
+                if (sel == null || lengthByOwner.ContainsKey(sel))
+                    continue;
+                sel.EnsureCurrentScaleLevelFromCatalog();
+                float sizeM = ElevationLengthFormat.ResolveOwnSizeMeters(sel);
+                if (sizeM <= 0f)
+                    continue;
+                // Skip service-head row tiers (Size is not tube/arm length).
+                if (sel.GetComponent<BoomHeadScaleHandler>() != null)
+                    continue;
+
+                sel.EnsureMeasurablesLinked();
+                Measurable borrowed = FindToOriginForSizeOwner(sel, lengthByOwner, assemblySelectables);
+                if (borrowed == null)
+                {
+                    var installed = sel.GetComponent<Measurable>();
+                    if (installed == null)
+                        installed = sel.gameObject.AddComponent<Measurable>();
+                    installed.EnsureConfiguredAsCatalogLength();
+                    sel.EnsureMeasurablesLinked();
+                    if (sel.Measurables != null && !sel.Measurables.Contains(installed))
+                        sel.Measurables.Add(installed);
+                    borrowed = installed;
+                }
+                if (sel.Measurables != null && !sel.Measurables.Contains(borrowed))
+                    sel.Measurables.Add(borrowed);
+                lengthByOwner[sel] = (borrowed, sizeM);
+                Debug.Log(
+                    $"[ElevDim] nested Size curated name={sel.name} mm={Mathf.RoundToInt(sizeM * 1000f)} " +
+                    $"via {borrowed.name}",
+                    sel);
+            }
+        }
+
+        // Dual-select twins (Clone / .001) can both carry Size + ToOrigin → two dims for
+        // one physical part, or one twin claiming the Measurable and starving the other.
+        // Industry: one dimension per part. Keep the best Size owner per stem.
+        DedupeLengthOwnersByStem(lengthByOwner);
 
         var sb = new StringBuilder(256);
         sb.Append("[ElevDim] Cutsheet curated lengths=").Append(lengthByOwner.Count)
@@ -201,15 +281,16 @@ public static class ElevationCutsheetPass
             float lift;
             if (vertical)
             {
-                side = 0.48f + vertLane * 0.28f;
+                // Extra clearance beyond AssemblyClearPad — stacked per vertical dim.
+                side = 0.28f + vertLane * 0.22f;
                 lift = 0f;
                 vertLane++;
             }
             else
             {
-                // Clear the tube label band (~tube height + text) then stack arms.
+                // Extra clearance beyond assembly top/bottom — stacked per arm dim.
                 side = 0f;
-                lift = 0.40f + horizLane * 0.32f;
+                lift = 0.28f + horizLane * 0.22f;
                 horizLane++;
             }
             layoutByOwner[sel] = (vertical, side, lift);
@@ -378,6 +459,7 @@ public static class ElevationCutsheetPass
     public static void EndCaptureCleanup()
     {
         SuppressAllOverlays();
+        Measurable.ClearCutsheetAssemblyBounds();
         foreach (var measurable in Object.FindObjectsByType<Measurable>(
                      FindObjectsInactive.Include, FindObjectsSortMode.None))
         {
@@ -391,25 +473,69 @@ public static class ElevationCutsheetPass
         SuppressAllOverlays();
     }
 
+    static string DualSelectStem(string name) => Measurable.DualSelectStem(name);
+
     /// <summary>
-    /// Dual-select strips "(Clone)" / ".001" so ArmDropTube(Clone) matches ArmDropTube.001.
+    /// One catalog length dim per dual-select stem (Clone/.001 share a stem).
+    /// Prefers the twin that has own mesh bounds, then larger Size.
     /// </summary>
-    static string DualSelectStem(string name)
+    static void DedupeLengthOwnersByStem(
+        Dictionary<Selectable, (Measurable measurable, float sizeM)> lengthByOwner)
     {
-        if (string.IsNullOrEmpty(name))
-            return "";
-        string s = name.Replace("(Clone)", "").Trim();
-        int dot = s.LastIndexOf('.');
-        if (dot > 0)
+        if (lengthByOwner == null || lengthByOwner.Count < 2)
+            return;
+
+        var groups = lengthByOwner.Keys
+            .Where(s => s != null)
+            .GroupBy(s => DualSelectStem(s.name))
+            .Where(g => !string.IsNullOrEmpty(g.Key) && g.Count() > 1)
+            .ToList();
+
+        foreach (var g in groups)
         {
-            string suf = s.Substring(dot + 1);
-            bool digits = suf.Length > 0;
-            for (int i = 0; digits && i < suf.Length; i++)
-                digits = char.IsDigit(suf[i]);
-            if (digits)
-                s = s.Substring(0, dot);
+            Selectable keep = g
+                .OrderByDescending(s => Measurable.TryGetOwnRendererBounds(s, out _) ? 1 : 0)
+                .ThenByDescending(s => lengthByOwner[s].sizeM)
+                .ThenBy(s => s.name)
+                .First();
+            foreach (var s in g)
+            {
+                if (s == keep) continue;
+                Debug.Log(
+                    $"[ElevDim] Deduped dual-select stem={g.Key}: keep={keep.name} " +
+                    $"drop={s.name} mm={Mathf.RoundToInt(lengthByOwner[s].sizeM * 1000f)}");
+                lengthByOwner.Remove(s);
+            }
         }
-        return s;
+    }
+
+    /// <summary>
+    /// Union of assembly mesh bounds (each selectable's own + dual-select twins).
+    /// Used as the silhouette dims must clear — not for tick span.
+    /// </summary>
+    static bool TryComputeAssemblyGeometryBounds(IList<Selectable> assembly, out Bounds bounds)
+    {
+        bounds = default;
+        if (assembly == null)
+            return false;
+
+        bool any = false;
+        var seen = new HashSet<Selectable>();
+        foreach (var sel in assembly)
+        {
+            if (sel == null || !seen.Add(sel))
+                continue;
+            if (!Measurable.TryGetOwnRendererBounds(sel, out Bounds b))
+                continue;
+            if (!any)
+            {
+                bounds = b;
+                any = true;
+            }
+            else
+                bounds.Encapsulate(b);
+        }
+        return any;
     }
 
     static bool HasToOriginType(Measurable m)
@@ -450,10 +576,23 @@ public static class ElevationCutsheetPass
                 if (existing.measurable == m)
                     return false;
             }
+            // Never steal a descendant Size-owner's ToOrigin (BoomDropTube used to claim
+            // an arm Measurable via GetComponentsInChildren → misaligned 100mm ticks).
+            var nearest = m.GetComponentInParent<Selectable>(true);
+            if (nearest != null && nearest != sel
+                && DualSelectStem(nearest.name) != stem
+                && ElevationLengthFormat.ResolveOwnSizeMeters(nearest) > 0f)
+                return false;
             taken = m;
             return true;
         }
 
+        // Prefer own / same-stem measurables before walking all descendants.
+        foreach (var m in sel.GetComponents<Measurable>())
+        {
+            if (TryTake(m, out var taken))
+                return taken;
+        }
         foreach (var m in sel.GetComponentsInChildren<Measurable>(true))
         {
             if (TryTake(m, out var taken))

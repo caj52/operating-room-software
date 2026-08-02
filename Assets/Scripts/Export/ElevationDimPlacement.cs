@@ -10,12 +10,17 @@ public static class ElevationDimPlacement
 {
     /// <summary>
     /// Clearance from dim line to the nearest edge of the mm glyph.
-    /// Same for floor clearances and catalog lengths — never lane-stacked.
+    /// Sized so rotated vertical labels clear the dimension line itself.
     /// </summary>
-    public const float LabelGapMeters = 0.06f;
+    public const float LabelGapMeters = 0.035f;
 
     /// <summary>Half-length of floor/tube end ticks (independent of label gap).</summary>
     public const float TickHalfLengthMeters = 0.06f;
+
+    /// <summary>
+    /// Clearance outside the assembly AABB before the first dim lane starts.
+    /// </summary>
+    public const float AssemblyClearPadMeters = 0.22f;
 
     /// <summary>Decorative PDF floor top (matches ground graphic).</summary>
     public static float FloorTopY()
@@ -240,8 +245,9 @@ public static class ElevationDimPlacement
     }
 
     /// <summary>
-    /// Place cutsheet mm label beside/above the dim line. One gap for all types;
-    /// floor lane only flips side, never inflates distance.
+    /// Place cutsheet mm label beside/above the dim line.
+    /// Floor lane flips side; horizontal dims near the ceiling lock place text below
+    /// the line so room-locked framing cannot crop the glyph.
     /// </summary>
     public static void PlaceLabel(
         Transform label,
@@ -250,7 +256,9 @@ public static class ElevationDimPlacement
         Vector3 dimDirection,
         Camera camera,
         bool isFloor,
-        int floorLane)
+        int floorLane,
+        bool preferLabelBelow = false,
+        float verticalOutboardSign = 0f)
     {
         if (label == null || camera == null)
             return;
@@ -268,6 +276,10 @@ public static class ElevationDimPlacement
         float sideSign = 1f;
         if (!horizontalOnPage && isFloor)
             sideSign = (Mathf.Max(0, floorLane) % 2 == 0) ? 1f : -1f;
+        else if (!horizontalOnPage && Mathf.Abs(verticalOutboardSign) > 0.1f)
+            sideSign = Mathf.Sign(verticalOutboardSign);
+        else if (horizontalOnPage && preferLabelBelow)
+            sideSign = -1f;
 
         // Near-edge clearance: put the closest glyph edge exactly LabelGapMeters from
         // the line. Using halfExtent assumed symmetric bounds and made long labels

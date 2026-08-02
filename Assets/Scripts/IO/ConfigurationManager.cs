@@ -89,7 +89,18 @@ public class ConfigurationManager : MonoBehaviour
             path = "/";
         else if (path[0] != '/')
             path = "/" + path;
-        return path;
+        return NormalizeLoadPathNames(path);
+    }
+
+    /// <summary>
+    /// Bundled FBX meshes still use the typo "BoomSegement"; project prefabs / saves may
+    /// already say "BoomSegment". Normalize before path compares so service heads parent.
+    /// </summary>
+    private static string NormalizeLoadPathNames(string path)
+    {
+        if (string.IsNullOrEmpty(path))
+            return path;
+        return path.Replace("Segement", "Segment");
     }
 
     private void Awake()
@@ -1349,7 +1360,10 @@ public class ConfigurationManager : MonoBehaviour
         if (string.IsNullOrEmpty(rawPath) || _newObjects == null)
             return null;
 
-        string pathWithSlash = rawPath[0] == '/' ? rawPath : "/" + rawPath;
+        string pathWithSlash = NormalizeLoadPathNames(rawPath[0] == '/' ? rawPath : "/" + rawPath);
+        GameObject loose = null;
+        int looseSegments = 0;
+
         foreach (TrackedObject to in _newObjects)
         {
             if (to == null)
@@ -1357,11 +1371,72 @@ public class ConfigurationManager : MonoBehaviour
 
             foreach (Transform t in to.GetComponentsInChildren<Transform>(true))
             {
-                if (GetLoadComparablePath(t.gameObject) == pathWithSlash)
+                // GetLoadComparablePath already normalizes Segement→Segment.
+                string live = GetLoadComparablePath(t.gameObject);
+                if (live == pathWithSlash)
                     return t.gameObject;
+
+                // During pass 2, later parts are still sandbox siblings — their live path is
+                // rooted at their own prefab (`/BoomSegment...(Clone)/...`) while the save
+                // path includes the full assembly prefix. Accept a unique-enough suffix match
+                // (never bare `/AttachPoint` — many boom nodes share that name).
+                if (TryGetUniquePathSuffixMatch(pathWithSlash, live, out int segments) &&
+                    segments > looseSegments)
+                {
+                    looseSegments = segments;
+                    loose = t.gameObject;
+                }
             }
         }
-        return null;
+
+        return loose;
+    }
+
+    /// <summary>
+    /// True when <paramref name="saved"/> ends with <paramref name="live"/> (or vice versa)
+    /// and the shorter path has enough segments to be unique in a boom tree.
+    /// </summary>
+    private static bool TryGetUniquePathSuffixMatch(string saved, string live, out int segments)
+    {
+        segments = 0;
+        if (string.IsNullOrEmpty(saved) || string.IsNullOrEmpty(live))
+            return false;
+
+        string shorter;
+        string longer;
+        if (saved.Length >= live.Length)
+        {
+            longer = saved;
+            shorter = live;
+        }
+        else
+        {
+            longer = live;
+            shorter = saved;
+        }
+
+        segments = CountPathSegments(shorter);
+        if (segments < 3)
+            return false;
+
+        return longer.EndsWith(shorter, StringComparison.Ordinal)
+               && (longer.Length == shorter.Length || longer[longer.Length - shorter.Length - 1] == '/');
+    }
+
+    private static int CountPathSegments(string path)
+    {
+        if (string.IsNullOrEmpty(path))
+            return 0;
+        int count = 0;
+        for (int i = 0; i < path.Length; i++)
+        {
+            if (path[i] == '/')
+                continue;
+            count++;
+            while (i < path.Length && path[i] != '/')
+                i++;
+        }
+        return count;
     }
 
     private GameObject ProcessEmbeddedSelectable(TrackedObject.Data to)
@@ -1491,6 +1566,25 @@ public class ConfigurationManager : MonoBehaviour
                 catch (Exception ex)
                 {
                     Debug.LogWarning($"[FixLoadedNonUniformDropTubeScales] reapply {sel.name}: {ex.Message}");
+                }
+            }
+        }
+
+        // FBX parent shells (no Selectable) often restore non-unit — BoomDropTube z=0.8,
+        // BoomSegment_3 (0.83,1.25,1.25). Unitize + re-bake so world mesh length == Size.
+        // Runs after Reapply so a second pass catches mesh≠Size left by stale ScaleZ.
+        foreach (TrackedObject to in _newObjects)
+        {
+            if (to == null)
+                continue;
+            foreach (Selectable sel in to.GetComponentsInChildren<Selectable>(true))
+            {
+                if (sel == null)
+                    continue;
+                try { sel.FixLengthOwnerParentShellAfterLoad(); }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[FixLoadedNonUniformDropTubeScales] lengthShell {sel.name}: {ex.Message}");
                 }
             }
         }
@@ -1960,7 +2054,53 @@ public class ConfigurationManager : MonoBehaviour
     }
 
     private void LogData(Selectable s, TrackedObject.Data to) => s.GetComponent<TrackedObject>().StoreValues(to);
-    private GameObject GetRoot() => _newObjects.SingleOrDefault(x => x.transform == x.transform.root)?.gameObject;
+
+    /// <summary>
+    /// Returns the loaded assembly root. Arm configs often orphan parts when parent paths
+    /// cannot resolve (missing catalog items / prefab renames); never throw on multiples.
+    /// </summary>
+    private GameObject GetRoot()
+    {
+        if (_newObjects == null || _newObjects.Count == 0)
+            return null;
+
+        var roots = new List<TrackedObject>();
+        foreach (TrackedObject x in _newObjects)
+        {
+            if (x != null && x.transform == x.transform.root)
+                roots.Add(x);
+        }
+
+        if (roots.Count == 0)
+            return null;
+        if (roots.Count == 1)
+            return roots[0].gameObject;
+
+        TrackedObject best = null;
+        int bestScore = int.MinValue;
+        foreach (TrackedObject r in roots)
+        {
+            int score = r.GetComponentsInChildren<TrackedObject>(true).Length;
+            if (r.GetComponent<Selectable>() != null)
+                score += 100;
+            if (r.HasStoredValues
+                && string.IsNullOrEmpty(r.data.parentGuid)
+                && string.IsNullOrEmpty(r.data.parentPath)
+                && string.IsNullOrEmpty(r.data.parent))
+                score += 10000;
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                best = r;
+            }
+        }
+
+        Debug.LogWarning(
+            $"[LoadArmAssembly] Expected one root, found {roots.Count}. Using '{best?.name}'. " +
+            "Check console for [RoomLoad] Orphaned parent-resolve failures.");
+        return best != null ? best.gameObject : null;
+    }
 
     public static bool IsRoomBoundary(string guid) => guid == "Wall_N" || guid == "Wall_S" || guid == "Wall_E" || guid == "Wall_W" || guid == "Ceil" || guid == "Floor";
     public static bool IsBaseboard(string guid) => guid.StartsWith("Baseboard");

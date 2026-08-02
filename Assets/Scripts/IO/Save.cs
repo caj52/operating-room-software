@@ -8,7 +8,8 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Toolbar save: the main Save button always saves the room (OS dialog → AppData Saved).
+/// Toolbar save: the main Save button opens an OS save dialog and writes the room JSON
+/// to the chosen path (load uses the matching OS open dialog).
 /// A separate Save Configuration button appears when a configurable object is selected;
 /// configs are named in-app and always written to AppData Saved/Configs (where ObjectMenu loads them).
 /// </summary>
@@ -546,15 +547,12 @@ public class Save : MonoBehaviour
         if (item == null || string.IsNullOrWhiteSpace(item.Name))
             return;
 
-        // Dialog is name-only — always write under AppData Saved so the load UI
-        // can reopen the file after a cold start.
-        string pickedName = Path.GetFileName(item.Name.Trim());
-        if (string.IsNullOrWhiteSpace(pickedName))
+        string path = item.Name.Trim();
+        if (string.IsNullOrWhiteSpace(path))
             return;
-        if (!pickedName.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
-            pickedName += ".json";
+        if (!path.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+            path += ".json";
 
-        string path = Path.Combine(ConfigurationManager.GetSavedRoomsFolder(), pickedName);
         StartCoroutine(SaveRoomToPathCoroutine(path));
     }
 

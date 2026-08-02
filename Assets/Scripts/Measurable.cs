@@ -109,6 +109,26 @@ public class Measurable : MonoBehaviour
     /// <summary>Cutsheet pass gate — UpdateMeasurements must not revive Floor during length pass.</summary>
     public bool CutsheetAllowFloorDraw { get; set; } = true;
 
+    /// <summary>
+    /// Assembly geometry AABB for this elevation pass (no dim overlays). Dim bodies are
+    /// placed outside this box so lines/labels never sit on the boom silhouette.
+    /// </summary>
+    public static Bounds CutsheetAssemblyBounds { get; private set; }
+
+    public static bool CutsheetAssemblyBoundsValid { get; private set; }
+
+    public static void SetCutsheetAssemblyBounds(Bounds bounds)
+    {
+        CutsheetAssemblyBounds = bounds;
+        CutsheetAssemblyBoundsValid = bounds.size.sqrMagnitude > 1e-6f;
+    }
+
+    public static void ClearCutsheetAssemblyBounds()
+    {
+        CutsheetAssemblyBoundsValid = false;
+        CutsheetAssemblyBounds = default;
+    }
+
     private Selectable proxyAlertWithORTABLE;
     public bool IsActive { get; private set; }
     [SerializeField] float minThreshold = 1;
@@ -350,6 +370,12 @@ public class Measurable : MonoBehaviour
         if (lengthAxis.sqrMagnitude > 1e-8f)
             upDot = Mathf.Abs(Vector3.Dot(lengthAxis.normalized, Vector3.up));
 
+        // Drop / ceiling tubes are always vertical catalog callouts — attach parents
+        // often leave local forward horizontal so axis-first would mis-classify them.
+        string ownerName = owner.name ?? "";
+        if (IsDropTubeName(ownerName))
+            return true;
+
         // Axis-first.
         if (upDot >= 0.75f)
             return true;
@@ -413,11 +439,59 @@ public class Measurable : MonoBehaviour
         return null;
     }
 
+    public static bool IsDropTubeName(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return false;
+        return name.IndexOf("DropTube", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("BoomDrop", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("ArmDrop", System.StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
     /// <summary>
-    /// World bounds of the length owner's own meshes only — never child Selectables.
-    /// Used for V/H classify proportions only — not for tick span.
+    /// Ensure this Measurable is a catalog length (ToOrigin) source. Used when a
+    /// ScaleLevels Selectable shipped without a Measurable in its prefab/bundle.
     /// </summary>
-    public static bool TryGetOwnRendererBounds(Selectable owner, out Bounds bounds)
+    public void EnsureConfiguredAsCatalogLength()
+    {
+        if (MeasurementTypes == null)
+            MeasurementTypes = new List<MeasurementType>();
+        if (!MeasurementTypes.Contains(MeasurementType.ToArmAssemblyOrigin))
+            MeasurementTypes.Add(MeasurementType.ToArmAssemblyOrigin);
+        ShowInElevationPhoto = true;
+        Disabled = false;
+    }
+
+    /// <summary>
+    /// Dual-select strips "(Clone)" / ".001" so ArmDropTube(Clone) matches ArmDropTube.001.
+    /// Also normalizes the FBX typo "BoomSegement" → "BoomSegment" so dual-select twins
+    /// share one stem (saved configs may still carry the misspelled GO name).
+    /// </summary>
+    public static string DualSelectStem(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return "";
+        string s = name.Replace("(Clone)", "").Trim();
+        s = s.Replace("Segement", "Segment");
+        int dot = s.LastIndexOf('.');
+        if (dot > 0)
+        {
+            string suf = s.Substring(dot + 1);
+            bool digits = suf.Length > 0;
+            for (int i = 0; digits && i < suf.Length; i++)
+                digits = char.IsDigit(suf[i]);
+            if (digits)
+                s = s.Substring(0, dot);
+        }
+        return s;
+    }
+
+    /// <summary>
+    /// World bounds of ONLY this Size owner's meshes (nearest Selectable == owner).
+    /// Excludes dual-select twins / child arms — those inflated BoomDropTube ticks
+    /// into the flange and elbow.
+    /// </summary>
+    public static bool TryGetStrictOwnRendererBounds(Selectable owner, out Bounds bounds)
     {
         bounds = default;
         if (owner == null)
@@ -428,7 +502,6 @@ public class Measurable : MonoBehaviour
         {
             if (r == null || !r.enabled || !r.gameObject.activeInHierarchy)
                 continue;
-
             var nearestSel = r.GetComponentInParent<Selectable>(true);
             if (nearestSel != owner)
                 continue;
@@ -448,6 +521,89 @@ public class Measurable : MonoBehaviour
         }
 
         return any;
+    }
+
+    /// <summary>
+    /// World bounds of the length owner's meshes, including same-stem dual-select twins
+    /// (Size on .001, mesh on Clone). Never includes unrelated child Selectables.
+    /// </summary>
+    public static bool TryGetOwnRendererBounds(Selectable owner, out Bounds bounds)
+    {
+        bounds = default;
+        if (owner == null)
+            return false;
+
+        var owners = new System.Collections.Generic.HashSet<Selectable> { owner };
+        string stem = DualSelectStem(owner.name);
+        if (!string.IsNullOrEmpty(stem))
+        {
+            if (owner.RelatedSelectables != null)
+            {
+                foreach (var rel in owner.RelatedSelectables)
+                {
+                    if (rel != null && DualSelectStem(rel.name) == stem)
+                        owners.Add(rel);
+                }
+            }
+
+            // Sibling / parent twins under a shared mount (Related list often empty).
+            Transform walk = owner.transform.parent;
+            for (int depth = 0; walk != null && depth < 6; depth++, walk = walk.parent)
+            {
+                foreach (var sib in walk.GetComponentsInChildren<Selectable>(true))
+                {
+                    if (sib != null && DualSelectStem(sib.name) == stem)
+                        owners.Add(sib);
+                }
+            }
+        }
+
+        bool any = false;
+        foreach (var sel in owners)
+        {
+            if (sel == null) continue;
+            foreach (var r in sel.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r == null || !r.enabled || !r.gameObject.activeInHierarchy)
+                    continue;
+
+                var nearestSel = r.GetComponentInParent<Selectable>(true);
+                if (nearestSel == null || !owners.Contains(nearestSel))
+                    continue;
+
+                float h = r.bounds.size.y;
+                float xz = Mathf.Max(r.bounds.size.x, r.bounds.size.z);
+                if (h < 0.01f && xz < 0.05f)
+                    continue;
+
+                if (!any)
+                {
+                    bounds = r.bounds;
+                    any = true;
+                }
+                else
+                    bounds.Encapsulate(r.bounds);
+            }
+        }
+
+        return any;
+    }
+
+    /// <summary>
+    /// True when <paramref name="ap"/> belongs to <paramref name="owner"/> (or same-stem
+    /// dual-select twin), not a descendant arm/head Selectable. Critical for drop tubes:
+    /// the whole boom hangs under the tip AP, so naive GetComponentsInChildren finds RailPlate.
+    /// </summary>
+    public static bool AttachmentPointOwnedByLengthOwner(AttachmentPoint ap, Selectable owner)
+    {
+        if (ap == null || owner == null)
+            return false;
+        var nearest = ap.GetComponentInParent<Selectable>(true);
+        if (nearest == null)
+            return false;
+        if (nearest == owner)
+            return true;
+        return DualSelectStem(nearest.name) == DualSelectStem(owner.name);
     }
 
     /// <summary>
@@ -480,6 +636,8 @@ public class Measurable : MonoBehaviour
                 return;
             if (n.IndexOf("Measur", System.StringComparison.OrdinalIgnoreCase) >= 0)
                 return;
+            if (!AttachmentPointOwnedByLengthOwner(ap, owner))
+                return;
 
             float along = Vector3.Dot(ap.transform.position - origin, axis);
             if (along < 0f)
@@ -500,6 +658,8 @@ public class Measurable : MonoBehaviour
             {
                 if (rel == null || rel == owner)
                     continue;
+                if (DualSelectStem(rel.name) != DualSelectStem(owner.name))
+                    continue;
                 foreach (var ap in rel.GetComponentsInChildren<AttachmentPoint>(true))
                     Consider(ap);
             }
@@ -509,10 +669,62 @@ public class Measurable : MonoBehaviour
     }
 
     /// <summary>
-    /// SINGLE cutsheet length path (tubes and arms): printed value = catalog Size;
-    /// tick span = exactly Size. Vertical tubes: own-mesh top → down × Size (ceiling
-    /// face of the tube column — not parent APs / Sphere helpers). Horizontal arms:
-    /// proximal AP → along reach × Size.
+    /// Vertical catalog ticks = Size-owner mesh top/bottom. Upstream length isolation must
+    /// make mesh height == Size; this path does not invent tip+catalog spans.
+    /// Read-only — no scale/hide.
+    /// </summary>
+    static bool TryBuildVerticalCatalogYTicks(
+        Selectable owner,
+        float catalogLen,
+        out Vector3 featureA,
+        out Vector3 featureB,
+        out string proximalName,
+        out string distalName)
+    {
+        featureA = featureB = default;
+        proximalName = distalName = "";
+        if (owner == null || catalogLen < 0.02f)
+            return false;
+        if (!TryGetStrictOwnRendererBounds(owner, out Bounds rb) || rb.size.y < 0.02f)
+            return false;
+
+        float cx = rb.center.x;
+        float cz = rb.center.z;
+        featureA = new Vector3(cx, rb.max.y, cz);
+        featureB = new Vector3(cx, rb.min.y, cz);
+        if (featureA.y < featureB.y)
+        {
+            Vector3 swap = featureA;
+            featureA = featureB;
+            featureB = swap;
+        }
+        proximalName = "tubeMeshTop";
+        distalName = "tubeMeshTip";
+
+        float meshMm = rb.size.y * 1000f;
+        float catalogMm = catalogLen * 1000f;
+        if (Mathf.Abs(rb.size.y - catalogLen) > 0.02f)
+        {
+            Debug.LogWarning(
+                $"[ElevDim] VERT TUBE length-contract broken owner={owner.name} " +
+                $"catalogMm={Mathf.RoundToInt(catalogMm)} meshMm={Mathf.RoundToInt(meshMm)} " +
+                $"(ticks follow mesh; fix ScaleZ/parent shell upstream)",
+                owner);
+        }
+        else
+        {
+            Debug.Log(
+                $"[ElevDim] VERT TUBE owner={owner.name} catalogMm={Mathf.RoundToInt(catalogMm)} " +
+                $"meshMm={Mathf.RoundToInt(meshMm)} topY={featureA.y:F3} tipY={featureB.y:F3} " +
+                $"anchors={proximalName}→{distalName}",
+                owner);
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// SINGLE cutsheet length path (tubes and arms): printed mm = catalog Size;
+    /// tick ends = Size-owner mesh ends (drop tubes: world-Y mesh top/tip).
     /// </summary>
     private bool TryBuildCatalogLengthCallout(
         Measurement item,
@@ -535,25 +747,13 @@ public class Measurable : MonoBehaviour
         string proximalName;
         string distalName;
 
-        if (vertical && TryGetOwnRendererBounds(owner, out Bounds rb) && rb.size.y > 0.05f)
+        // Vertical tubes/necks: ticks = Size-owner mesh ends (length isolation ⇒ mesh == Size).
+        // Must run BEFORE distal-AP aim — that used to lock onto RailPlate.
+        if (vertical
+            && TryBuildVerticalCatalogYTicks(
+                owner, catalogLen, out featureA, out featureB, out proximalName, out distalName))
         {
-            // Tube column top at the ceiling plate — catalog length down the column.
-            // Own AABB bottom often includes the distal joint; do not span full mesh.
             axis = Vector3.down;
-            featureA = new Vector3(rb.center.x, rb.max.y, rb.center.z);
-            featureB = featureA + axis * catalogLen;
-            proximalName = "meshTop";
-            distalName = "catalogDown";
-
-            // Land leaders on the column face toward the dim lane.
-            Vector3 rightProbe = camera != null ? camera.transform.right : Vector3.right;
-            rightProbe.y = 0f;
-            if (rightProbe.sqrMagnitude < 1e-6f)
-                rightProbe = Vector3.right;
-            rightProbe.Normalize();
-            float faceExtent =
-                Mathf.Abs(rightProbe.x) * rb.extents.x + Mathf.Abs(rightProbe.z) * rb.extents.z;
-            // Face offset applied after lane side is chosen below — stash center for now.
         }
         else
         {
@@ -601,10 +801,58 @@ public class Measurable : MonoBehaviour
             featureB = featureA + axis * catalogLen;
             proximalName = proximalAp != null ? proximalAp.name : "pivot";
             distalName = distalAp != null ? distalAp.name : "aim";
+
+            bool haveMesh = vertical
+                ? TryGetStrictOwnRendererBounds(owner, out Bounds meshRb)
+                : TryGetOwnRendererBounds(owner, out meshRb);
+            if (haveMesh && meshRb.size.sqrMagnitude > 1e-4f)
+            {
+                Vector3 center = meshRb.center;
+                float cAlong = Vector3.Dot(center, axis);
+                float meshMin = ProjectBoundsMin(meshRb, axis);
+                float meshMax = ProjectBoundsMax(meshRb, axis);
+                featureA = center + axis * (meshMin - cAlong);
+                featureB = center + axis * (meshMax - cAlong);
+                if (Vector3.Dot(featureB - featureA, axis) < 0f)
+                {
+                    Vector3 swap = featureA;
+                    featureA = featureB;
+                    featureB = swap;
+                }
+
+                if (vertical)
+                {
+                    if (featureA.y < featureB.y)
+                    {
+                        Vector3 swap = featureA;
+                        featureA = featureB;
+                        featureB = swap;
+                    }
+                    proximalName = "meshTop";
+                    distalName = "meshTip";
+                }
+                else
+                {
+                    float armY = meshRb.center.y;
+                    featureA.y = armY;
+                    featureB.y = armY;
+                    proximalName = "meshNear";
+                    distalName = "meshFar";
+                }
+            }
         }
 
+        // --- Layout: offset MUST be perpendicular to the length axis ---
+        // Lateral offset along the arm collapses leaders into the body (single line
+        // through the tube with no end ticks). Horizontal → up/down; vertical → cam-right.
         Vector3 offset;
         float lane;
+        bool labelBelow = false;
+        float labelSideSign = 0f;
+        Bounds asmBounds = CutsheetAssemblyBoundsValid
+            ? CutsheetAssemblyBounds
+            : (TryGetOwnRendererBounds(owner, out Bounds ownB) ? ownB : new Bounds(featureA, Vector3.one * 0.2f));
+
         if (vertical)
         {
             Vector3 right = camera != null ? camera.transform.right : Vector3.right;
@@ -613,20 +861,47 @@ public class Measurable : MonoBehaviour
                 right = Vector3.right;
             right.Normalize();
 
-            Vector3 armReach = transform.position - featureA;
-            armReach.y = 0f;
-            if (armReach.sqrMagnitude > 0.01f && Vector3.Dot(right, armReach.normalized) > 0f)
-                right = -right;
+            // Short tubes: keep leaders shorter than the dim span so a 100mm callout
+            // does not draw as a wide empty rectangle beside the tube (0.18m leaders
+            // on a 0.10m span looked like a floating box).
+            bool shortTube = catalogLen <= 0.35f || IsDropTubeName(owner.name);
+            lane = shortTube
+                ? Mathf.Clamp(catalogLen * 0.35f, 0.03f, 0.08f)
+                : (CutsheetLayoutSideMeters > 0.05f ? CutsheetLayoutSideMeters : 0.28f);
+            float pad = shortTube ? 0.02f : ElevationDimPlacement.AssemblyClearPadMeters;
+            Bounds tubeBounds = asmBounds;
+            if (TryGetStrictOwnRendererBounds(owner, out Bounds colB) && colB.size.y > 0.02f)
+                tubeBounds = colB;
+            else if (TryGetOwnRendererBounds(owner, out Bounds ownTube) && ownTube.size.sqrMagnitude > 1e-4f)
+                tubeBounds = ownTube;
 
-            lane = CutsheetLayoutSideMeters > 0.05f ? CutsheetLayoutSideMeters : 0.48f;
-            offset = right * lane;
+            float tubeMinR = ProjectBoundsMin(tubeBounds, right);
+            float tubeMaxR = ProjectBoundsMax(tubeBounds, right);
+            float featR = Vector3.Dot(featureA, right);
+            Vector3 reach = transform.position - featureA;
+            reach.y = 0f;
+            bool preferNeg = true;
+            if (reach.sqrMagnitude > 0.01f && Vector3.Dot(right, reach.normalized) < -0.15f)
+                preferNeg = false;
+            float targetR = preferNeg
+                ? tubeMinR - pad - lane
+                : tubeMaxR + pad + lane;
+            offset = right * (targetR - featR);
+            float maxLeader = shortTube
+                ? Mathf.Clamp(catalogLen * 0.55f, 0.035f, 0.08f)
+                : 0.45f;
+            float leader = Mathf.Abs(targetR - featR);
+            if (leader > maxLeader)
+                offset = right * ((preferNeg ? -1f : 1f) * maxLeader);
+            labelSideSign = preferNeg ? -1f : 1f;
 
-            // Nudge feature points onto the tube face toward the dim (vertical mesh path).
-            if (TryGetOwnRendererBounds(owner, out Bounds faceRb) && faceRb.size.y > 0.05f)
+            // Extension-line feet on the tube's outboard face (drafting: leaders meet the part).
+            Bounds faceRb = tubeBounds;
+            if (faceRb.size.y > 0.02f)
             {
                 float faceExtent =
                     Mathf.Abs(right.x) * faceRb.extents.x + Mathf.Abs(right.z) * faceRb.extents.z;
-                Vector3 toFace = right * faceExtent;
+                Vector3 toFace = right * (preferNeg ? -faceExtent : faceExtent);
                 featureA = new Vector3(faceRb.center.x, featureA.y, faceRb.center.z) + toFace;
                 featureB = new Vector3(faceRb.center.x, featureB.y, faceRb.center.z) + toFace;
             }
@@ -635,57 +910,79 @@ public class Measurable : MonoBehaviour
         }
         else
         {
-            // Horizontal arm callouts: prefer above the arm, but elevation photos lock Y to
-            // floor→ceiling — lifting past the ceiling crops the dim line and mm label.
-            lane = CutsheetLayoutLiftMeters > 0.05f ? CutsheetLayoutLiftMeters : 0.40f;
-            float armTopY = Mathf.Max(featureA.y, featureB.y);
-            float armBotY = Mathf.Min(featureA.y, featureB.y);
+            // Always offset along world up (⊥ arm axis in elevation) so leaders form end ticks.
+            lane = CutsheetLayoutLiftMeters > 0.05f ? CutsheetLayoutLiftMeters : 0.28f;
+            float pad = ElevationDimPlacement.AssemblyClearPadMeters;
             float ceilingY = ElevationDimPlacement.CeilingUndersideY();
             float floorY = ElevationDimPlacement.FloorTopY();
             float margin = ElevationDimPlacement.CutsheetInFrameMarginMeters;
-            float roomForUp = ceilingY - margin - armTopY;
-            float roomForDown = armBotY - (floorY + margin);
-            if (lane <= roomForUp)
-                offset = Vector3.up * lane;
-            else if (lane <= roomForDown)
-                offset = Vector3.down * lane;
-            else if (roomForUp >= roomForDown && roomForUp > 0.05f)
-                offset = Vector3.up * roomForUp;
-            else if (roomForDown > 0.05f)
-                offset = Vector3.down * roomForDown;
+            float featureY = 0.5f * (featureA.y + featureB.y);
+            float armTopY = featureY;
+            float armBotY = featureY;
+            if (TryGetOwnRendererBounds(owner, out Bounds armRb) && armRb.size.y > 0.01f)
+            {
+                armTopY = armRb.max.y;
+                armBotY = armRb.min.y;
+            }
+            float labelBand = ElevationDimPlacement.LabelGapMeters + 0.08f;
+            // Clear THIS arm (not full assembly top — flange always blocks "above").
+            float aboveY = armTopY + pad + lane;
+            float belowY = armBotY - pad - lane;
+
+            if (aboveY + labelBand <= ceilingY - margin)
+            {
+                offset = Vector3.up * (aboveY - featureY);
+                labelBelow = false;
+            }
+            else if (belowY - labelBand >= floorY + margin)
+            {
+                offset = Vector3.up * (belowY - featureY);
+                labelBelow = true;
+            }
             else
-                offset = Vector3.up * Mathf.Max(0.05f, roomForUp);
+            {
+                float y = Mathf.Max(floorY + margin + labelBand, armBotY - pad - Mathf.Min(lane, 0.2f));
+                offset = Vector3.up * (y - featureY);
+                labelBelow = true;
+            }
+
+            // Guaranteed ⊥ to horizontal length axis — never collapse the U.
+            if (Mathf.Abs(offset.y) < 0.05f)
+            {
+                offset = Vector3.down * (pad + lane);
+                labelBelow = true;
+            }
         }
 
+        measurer.ElevationPreferLabelBelow = labelBelow;
+        measurer.ElevationLabelSideSign = labelSideSign;
+
+        // Body outside the silhouette; extension lines stub to mesh ends.
+        // Label always prints catalog mm (Measurer), even when drawn span follows mesh.
         item.Origin = featureA + offset;
         item.HitPoint = featureB + offset;
 
+        measurer.ElevationLeaderFeatureA = featureA;
+        measurer.ElevationLeaderFeatureB = featureB;
+        measurer.ElevationLeadersValid = true;
+
         measurer.gameObject.SetActive(true);
         measurer.UpdateTransform(camera);
-
+        // UpdateTransform LookAt/scale runs after SetActive — re-assert extension legs.
+        measurer.RefreshCutsheetLeaders(camera, _lineRendererSizeScalar);
         if (measurer.TryGetLeaderPair(out var lead0, out var lead1))
         {
-            lead0.enabled = true;
-            lead0.positionCount = 2;
-            lead0.SetPosition(0, item.Origin);
-            lead0.SetPosition(1, featureA);
-            lead0.startWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(item.Origin, camera);
-            lead0.endWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(featureA, camera);
             ForceBlackLeaders(lead0);
-
-            lead1.enabled = true;
-            lead1.positionCount = 2;
-            lead1.SetPosition(0, item.HitPoint);
-            lead1.SetPosition(1, featureB);
-            lead1.startWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(item.HitPoint, camera);
-            lead1.endWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(featureB, camera);
             ForceBlackLeaders(lead1);
         }
 
         heightMod += vertical ? 0.16f : 0.32f;
 
         float span = Vector3.Distance(item.Origin, item.HitPoint);
-        bool spanOk = Mathf.Abs(span - catalogLen) < 0.002f;
+        bool meshExtent = distalName != null
+            && (distalName.StartsWith("mesh", System.StringComparison.Ordinal)
+                || distalName.IndexOf("Far", System.StringComparison.Ordinal) >= 0);
+        bool spanOk = meshExtent || Mathf.Abs(span - catalogLen) < 0.002f;
         if (!spanOk)
         {
             Debug.LogWarning(
@@ -696,9 +993,91 @@ public class Measurable : MonoBehaviour
         Debug.Log(
             $"[ElevDim] CATALOG PLACE owner={owner.name} vertical={vertical} " +
             $"catalogMm={Mathf.RoundToInt(catalogLen * 1000f)} span={span:F3} spanOk={spanOk} " +
-            $"proximal={proximalName} distal={distalName} lane={lane:F2}",
+            $"proximal={proximalName} distal={distalName} lane={lane:F2} labelBelow={labelBelow} " +
+            $"leaderLen0={Vector3.Distance(item.Origin, featureA):F3} " +
+            $"leaderLen1={Vector3.Distance(item.HitPoint, featureB):F3} " +
+            $"asm={(CutsheetAssemblyBoundsValid ? CutsheetAssemblyBounds.size.ToString("F2") : "none")}",
             this);
         return true;
+    }
+
+    /// <summary>
+    /// Column bounds for a drop tube: own/dual-select first, else any renderer under the
+    /// stem root (last resort so ArmDropTube still gets a vertical callout).
+    /// </summary>
+    static bool TryGetDropTubeColumnBounds(Selectable owner, out Bounds bounds)
+    {
+        // Prefer strict Size-owner mesh — twin encapsulate is for arms, not tube ticks.
+        if (TryGetStrictOwnRendererBounds(owner, out bounds) && bounds.size.y > 0.02f)
+            return true;
+        if (TryGetOwnRendererBounds(owner, out bounds) && bounds.size.y > 0.02f)
+            return true;
+
+        bounds = default;
+        if (owner == null)
+            return false;
+
+        Transform root = owner.transform;
+        string stem = DualSelectStem(owner.name);
+        for (Transform t = owner.transform.parent; t != null; t = t.parent)
+        {
+            if (!t.TryGetComponent(out Selectable anc))
+                continue;
+            if (DualSelectStem(anc.name) == stem)
+                root = t;
+            else
+                break;
+        }
+
+        bool any = false;
+        foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+        {
+            if (r == null || !r.enabled || !r.gameObject.activeInHierarchy)
+                continue;
+            if (r.bounds.size.y < 0.02f)
+                continue;
+            // Skip huge assembly leftovers — keep column-like pieces.
+            if (r.bounds.size.y < Mathf.Max(r.bounds.size.x, r.bounds.size.z) * 0.8f)
+                continue;
+            if (!any)
+            {
+                bounds = r.bounds;
+                any = true;
+            }
+            else
+                bounds.Encapsulate(r.bounds);
+        }
+        return any && bounds.size.y > 0.02f;
+    }
+
+    static float ProjectBoundsMin(Bounds b, Vector3 axis)
+    {
+        Vector3 c = b.center;
+        Vector3 e = b.extents;
+        float min = float.MaxValue;
+        for (int ix = -1; ix <= 1; ix += 2)
+        for (int iy = -1; iy <= 1; iy += 2)
+        for (int iz = -1; iz <= 1; iz += 2)
+        {
+            Vector3 corner = c + new Vector3(ix * e.x, iy * e.y, iz * e.z);
+            min = Mathf.Min(min, Vector3.Dot(corner, axis));
+        }
+        return min;
+    }
+
+    static float ProjectBoundsMax(Bounds b, Vector3 axis)
+    {
+        Vector3 c = b.center;
+        Vector3 e = b.extents;
+        float max = float.MinValue;
+        for (int ix = -1; ix <= 1; ix += 2)
+        for (int iy = -1; iy <= 1; iy += 2)
+        for (int iz = -1; iz <= 1; iz += 2)
+        {
+            Vector3 corner = c + new Vector3(ix * e.x, iy * e.y, iz * e.z);
+            max = Mathf.Max(max, Vector3.Dot(corner, axis));
+        }
+        return max;
     }
 
     /// <summary>
@@ -769,10 +1148,12 @@ public class Measurable : MonoBehaviour
                 && ShowInElevationPhoto
                 && !ShouldSkipElevationFloorDim();
 
+            // Pinned cutsheet length (incl. dual-select borrow) wins over the host
+            // Measurable's ShowInElevationPhoto flag — borrow already curated the owner.
             bool cutsheetLength = drawLength
                 && item.MeasurementType == MeasurementType.ToArmAssemblyOrigin
-                && ShowInElevationPhoto
-                && catalogLen > 0f;
+                && catalogLen > 0f
+                && (ShowInElevationPhoto || CutsheetCatalogLengthMeters > 0f);
 
             if (!cutsheetFloor && !cutsheetLength)
             {
@@ -812,6 +1193,8 @@ public class Measurable : MonoBehaviour
                 continue;
 
             item.Measurer.UpdateTransform(camera);
+            if (item.MeasurementType == MeasurementType.ToArmAssemblyOrigin)
+                item.Measurer.RefreshCutsheetLeaders(camera, _lineRendererSizeScalar);
             if (item.Measurer.MeasurementText != null)
                 item.Measurer.MeasurementText.UpdateVisibilityAndPosition(camera, force: true);
 
@@ -837,9 +1220,10 @@ public class Measurable : MonoBehaviour
             }
         }
 
+        bool lengthGate = ShowInElevationPhoto || CutsheetCatalogLengthMeters > 0f;
         if (drawLength
             && catalogLen <= 0f
-            && ShowInElevationPhoto
+            && lengthGate
             && Measurements.Any(m => m != null && m.MeasurementType == MeasurementType.ToArmAssemblyOrigin))
         {
             Debug.LogWarning(
@@ -850,7 +1234,7 @@ public class Measurable : MonoBehaviour
         }
         else if (drawLength
                  && catalogLen > 0f
-                 && ShowInElevationPhoto
+                 && lengthGate
                  && Measurements.Any(m => m != null
                      && m.MeasurementType == MeasurementType.ToArmAssemblyOrigin
                      && m.Measurer != null
@@ -909,6 +1293,16 @@ public class Measurable : MonoBehaviour
         CutsheetAllowFloorDraw = true;
         ArmAssemblyActiveInElevationPhotoMode = false;
         IsActive = false;
+        if (Measurements != null)
+        {
+            foreach (var m in Measurements)
+            {
+                if (m?.Measurer == null) continue;
+                m.Measurer.ElevationPreferLabelBelow = false;
+                m.Measurer.ElevationLabelSideSign = 0f;
+                m.Measurer.ElevationLeadersValid = false;
+            }
+        }
         if (Measurements == null)
             return;
         foreach (var item in Measurements)
@@ -1122,6 +1516,7 @@ public class Measurable : MonoBehaviour
     private static void ForceBlackLeaders(LineRenderer lr)
     {
         if (lr == null) return;
+        lr.useWorldSpace = true;
         lr.startColor = Color.black;
         lr.endColor = Color.black;
         var grad = new Gradient();

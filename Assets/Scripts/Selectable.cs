@@ -591,13 +591,48 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     /// <summary>
     /// Clears selection highlights/gizmos for photo/PDF capture.
     /// Unlike <see cref="DeselectAll"/>, does not bail when a gizmo was used last frame.
+    /// Also force-clears HighlightPlus on every active selectable — service-head outlet
+    /// panels can stay highlighted after Deselect and paint green boxes into the RT.
     /// </summary>
     public static void ClearSelectionForCapture()
     {
-        if (SelectedSelectables.Count == 0)
-            return;
+        while (SelectedSelectables.Count > 0)
+        {
+            var sel = SelectedSelectables[0];
+            if (sel == null)
+            {
+                SelectedSelectables.RemoveAt(0);
+                continue;
+            }
+            sel.Deselect(fireEvent: false);
+            break;
+        }
+        SelectedSelectables.Clear();
 
-        SelectedSelectables[0].Deselect();
+        foreach (var s in ActiveSelectables)
+        {
+            if (s == null || s._highlightEffect == null)
+                continue;
+            s._highlightEffect.highlighted = false;
+        }
+    }
+
+    /// <summary>Force HighlightPlus off for an elevation assembly (and all children).</summary>
+    public static void SuppressHighlightsForCapture(IList<Selectable> assembly)
+    {
+        ClearSelectionForCapture();
+        if (assembly == null)
+            return;
+        foreach (var s in assembly)
+        {
+            if (s == null)
+                continue;
+            foreach (var h in s.GetComponentsInChildren<HighlightEffect>(true))
+            {
+                if (h != null)
+                    h.highlighted = false;
+            }
+        }
     }
 
     /// <summary>
@@ -1248,12 +1283,59 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     }
 
     /// <summary>
-    /// Write ScaleZ on every level so Size meters of stretch match authored geometry.
+    /// Service heads / SH rails carry row-count metadata on ScaleLevels. Those still use
+    /// normal <see cref="SetScaleLevel"/> (git: OnScaleChange → ReassembleRows) but must
+    /// bake ScaleZ from ModelDefault Size ratios — not mesh length (Size is a tier proxy).
+    /// </summary>
+    public bool UsesScaleLevelsAsRowConfig()
+    {
+        if (GetComponent<BoomHeadScaleHandler>() != null)
+            return true;
+        if (ScaleLevels == null || ScaleLevels.Count == 0)
+            return false;
+        for (int i = 0; i < ScaleLevels.Count; i++)
+        {
+            var level = ScaleLevels[i];
+            if (level != null && level.TryGetValue("rows", out _))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Write ScaleZ on every level. Arms/tubes: Size / authored mesh meters.
+    /// Row-config heads/rails: Size / ModelDefault.Size with MD ScaleZ=1 (historic init).
     /// </summary>
     public void BakeScaleZFromAuthoredLength()
     {
         if (ScaleLevels == null || ScaleLevels.Count == 0)
             return;
+
+        // Historic InitializeAfterStart for boom heads: ModelDefault.ScaleZ = 1,
+        // others ScaleZ = Size / ModelDefault.Size. Do not use mesh AABB — Size tiers
+        // track rows (and legacy "Service Head Lengths"), not authored mesh meters.
+        if (UsesScaleLevelsAsRowConfig())
+        {
+            var md = ScaleLevels.FirstOrDefault(l => l != null && l.ModelDefault)
+                ?? ScaleLevels.FirstOrDefault(l => l != null && l.Size > 0f);
+            float refSize = md != null && md.Size > 1e-4f ? md.Size : 1f;
+            for (int i = 0; i < ScaleLevels.Count; i++)
+            {
+                var item = ScaleLevels[i];
+                if (item == null)
+                    continue;
+                if (item.ModelDefault || item.Size <= 0f)
+                    item.ScaleZ = 1f;
+                else
+                    item.ScaleZ = item.Size / refSize;
+            }
+            if (md != null)
+                md.ScaleZ = 1f;
+            ScaleAuditLog.Event("Sel.BakeScaleZ.rowConfig",
+                $"name={name} mdRef={refSize:G4} " +
+                $"levels={string.Join(",", ScaleLevels.Where(l => l != null).Select(l => $"{l.Size:G4}→{l.ScaleZ:G4}"))}");
+            return;
+        }
 
         float authored = GetAuthoredLengthMeters();
         if (authored < 1e-4f)
@@ -1595,7 +1677,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         {
             var camera = GetComponentInChildren<Camera>();
             ActiveCameraRenderTextureElevation = camera;
-            ClearSelectionForCapture();
+            SuppressHighlightsForCapture(_assemblySelectables);
 
             // Hide the 3D floor mesh during capture — the PDF ground graphic is the floor.
             floorBoundary = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor);
@@ -1820,7 +1902,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             {
                 var camera = GetComponentInChildren<Camera>();
                 ActiveCameraRenderTextureElevation = camera;
-                ClearSelectionForCapture();
+                SuppressHighlightsForCapture(_assemblySelectables);
 
                 floorBoundary = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor);
                 if (floorBoundary != null)
@@ -1885,7 +1967,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                     }
                 }
 
-                RestoreArmAssemblyRotations();
+                    RestoreArmAssemblyRotations();
                 if (_assemblySelectables != null)
                     _assemblySelectables.ForEach(x => { if (x != null) x.FaceZTowardGround(); });
                 if (floorBoundary != null)
@@ -1921,7 +2003,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             {
                 var camera = GetComponentInChildren<Camera>();
                 ActiveCameraRenderTextureElevation = camera;
-                ClearSelectionForCapture();
+                SuppressHighlightsForCapture(_assemblySelectables);
 
                 floorBoundary = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor);
                 if (floorBoundary != null)
@@ -1958,7 +2040,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                     }
                 }
 
-                RestoreArmAssemblyRotations();
+                    RestoreArmAssemblyRotations();
                 if (_assemblySelectables != null)
                 {
                     _assemblySelectables.ForEach(x =>
@@ -2014,6 +2096,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         camera.orthographicSize = bounds.extents.y;
 
         // Cutsheet overlays only — never activate Walls / imperial then erase.
+        // Re-clear highlights immediately before RT — outlet panels can stay green.
+        SuppressHighlightsForCapture(_assemblySelectables);
         ElevationCutsheetPass.Apply(_assemblySelectables, camera);
 
         if (_assemblySelectables != null)
@@ -2116,6 +2200,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         camera.transform.LookAt(bounds.center, Vector3.up);
         camera.orthographicSize = bounds.extents.y;
 
+        SuppressHighlightsForCapture(_assemblySelectables);
         ElevationCutsheetPass.Apply(_assemblySelectables, camera);
         // Expand bounds from active cutsheet measurers only.
         if (_assemblySelectables != null)
@@ -2164,7 +2249,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         if (_assemblySelectables == null)
             return bounds;
 
-        const float labelPad = 0.35f;
+        const float labelPad = 0.40f;
         foreach (var item in _assemblySelectables)
         {
             if (item?.Measurables == null) continue;
@@ -2246,6 +2331,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         camera.transform.LookAt(fixedBounds.center, Vector3.up);
         camera.orthographicSize = Mathf.Max(0.01f, fixedBounds.extents.y);
 
+        SuppressHighlightsForCapture(_assemblySelectables);
         ElevationCutsheetPass.Apply(_assemblySelectables, camera);
         fixedBounds = ExpandElevationBoundsForCutsheetOverlays(fixedBounds);
         fixedBounds = LockElevationVerticalToRoom(fixedBounds);
@@ -2416,6 +2502,10 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         // Drop null slots left by missing nested prefab refs.
         Measurables.RemoveAll(m => m == null);
 
+        // FBX typo BoomSegement_* breaks dual-select stem matching vs BoomSegment_*(Clone).
+        if (name != null && name.IndexOf("Segement", StringComparison.Ordinal) >= 0)
+            gameObject.name = name.Replace("Segement", "Segment");
+
         foreach (var m in GetComponents<Measurable>())
             TryAddCutsheetMeasurable(m);
 
@@ -2423,10 +2513,26 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         if (!isLengthOwner)
             return;
 
+        // Service-head ScaleLevels are row tiers, not catalog length.
+        // Must be on THIS selectable — GetComponentInChildren would hit a head hanging
+        // under BoomSegment_3 and skip installing the neck's ToOrigin.
+        if (GetComponent<BoomHeadScaleHandler>() != null)
+            return;
+
+        // Length owners: unitize non-selectable FBX parent shells (load/init only, never export).
+        EnsureLengthOwnerParentShellNormalized();
+
         bool alreadyHasToOrigin = Measurables.Any(m =>
             m != null && MeasurableHasType(m, MeasurementType.ToArmAssemblyOrigin));
         if (alreadyHasToOrigin)
+        {
+            foreach (var m in Measurables)
+            {
+                if (m != null && MeasurableHasType(m, MeasurementType.ToArmAssemblyOrigin))
+                    m.EnsureConfiguredAsCatalogLength();
+            }
             return;
+        }
 
         // Only when this length owner has no ToOrigin yet — claim one from dual-select
         // related group or unowned children. Never steal a descendant Size-owner's ToOrigin
@@ -2466,10 +2572,25 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             }
         }
 
-        // Size-owner ToOrigin borrow for dual-select lives in ElevationCutsheetPass only.
-
         if (claim != null && !Measurables.Contains(claim))
             Measurables.Add(claim);
+
+        // Invariant: every length ScaleLevels owner has a ToOrigin Measurable.
+        // Prefab/bundle omissions (BoomSegment_3 shipped with Measurables []) are fixed
+        // here once — not re-synthesized per cutsheet pass.
+        if (!Measurables.Any(m => m != null && MeasurableHasType(m, MeasurementType.ToArmAssemblyOrigin)))
+        {
+            var installed = GetComponent<Measurable>();
+            if (installed == null)
+                installed = gameObject.AddComponent<Measurable>();
+            installed.EnsureConfiguredAsCatalogLength();
+            TryAddCutsheetMeasurable(installed);
+            Debug.Log(
+                $"[ElevDim] installed missing ToOrigin on Size owner={name} " +
+                $"mm={Mathf.RoundToInt(ElevationLengthFormat.ResolveOwnSizeMeters(this) * 1000f)} " +
+                $"(prefab/bundle had none)",
+                this);
+        }
 
         if (Selectable.IsInElevationPhotoMode
             && !Measurables.Any(m => m != null && MeasurableHasType(m, MeasurementType.ToArmAssemblyOrigin)))
@@ -2542,6 +2663,125 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             && !MeasurableHasType(m, MeasurementType.Floor))
             return;
         Measurables.Add(m);
+    }
+
+    /// <summary>
+    /// Place/init: vertical length owners only — unitize non-selectable FBX parent shell
+    /// so Size→world length is exact. Never touches horizontal arms. Skipped during
+    /// elevation / config load (load uses <see cref="FixLengthOwnerParentShellAfterLoad"/>).
+    /// </summary>
+    public void EnsureLengthOwnerParentShellNormalized()
+    {
+        if (IsInElevationPhotoMode || ConfigurationManager.IsLoading)
+            return;
+        NormalizeVerticalLengthOwnerParentShell(rebakeAndApply: true);
+    }
+
+    /// <summary>Legacy name — same as <see cref="EnsureLengthOwnerParentShellNormalized"/>.</summary>
+    public void EnsureDropTubeLengthMeshOwnership() => EnsureLengthOwnerParentShellNormalized();
+
+    /// <summary>
+    /// After config restore: vertical length owners under non-selectable FBX shells
+    /// (BoomDropTube z=0.8, BoomSegment_3 parent 1.25) must unitize the shell and
+    /// re-bake ScaleZ. Horizontal arms are never mutated here — a prior AABB.y check
+    /// wrongly re-scaled BoomSegment_1-2 / MCP and broke the live scene.
+    /// </summary>
+    public void FixLengthOwnerParentShellAfterLoad()
+    {
+        NormalizeVerticalLengthOwnerParentShell(rebakeAndApply: true);
+    }
+
+    /// <summary>Legacy name — same as <see cref="FixLengthOwnerParentShellAfterLoad"/>.</summary>
+    public void FixDropTubeShellAfterLoad() => FixLengthOwnerParentShellAfterLoad();
+
+    /// <summary>
+    /// True for catalog parts whose length axis is world-vertical (drop tube / neck).
+    /// Horizontal boom arms must not enter parent-shell repair.
+    /// </summary>
+    bool IsVerticalCatalogLengthOwner()
+    {
+        if (Measurable.IsDropTubeName(name))
+            return true;
+        if (name != null && name.IndexOf("BoomSegment_3", StringComparison.OrdinalIgnoreCase) >= 0)
+            return true;
+        if (UsesScaleLevelsAsRowConfig())
+            return false;
+        Vector3 axis = transform.TransformDirection(Vector3.forward);
+        if (axis.sqrMagnitude < 1e-8f)
+            return false;
+        return Mathf.Abs(Vector3.Dot(axis.normalized, Vector3.up)) >= 0.75f;
+    }
+
+    /// <summary>
+    /// Vertical length owners only: non-selectable parent shell → identity; drop-tube dual
+    /// mesh hides shell renderer; then BakeScaleZ + SetScaleLevel when shell/mesh disagree
+    /// with Size. Returns true when shell scale changed.
+    /// </summary>
+    bool NormalizeVerticalLengthOwnerParentShell(bool rebakeAndApply)
+    {
+        if (ScaleLevels == null || ScaleLevels.Count == 0)
+            return false;
+        if (UsesScaleLevelsAsRowConfig())
+            return false;
+        if (!IsVerticalCatalogLengthOwner())
+            return false;
+
+        Transform shell = transform.parent;
+        if (shell == null || shell.GetComponent<Selectable>() != null)
+            return false;
+
+        // Drop-tube FBX = shell mesh (no Size) + child Size owner. Prefab usually disables
+        // the shell; re-assert so a restored enable does not draw a second column.
+        if (Measurable.IsDropTubeName(name))
+        {
+            foreach (var r in shell.GetComponents<Renderer>())
+            {
+                if (r != null && r.enabled)
+                    r.enabled = false;
+            }
+        }
+
+        Vector3 ps = shell.localScale;
+        bool shellWasWrong =
+            Mathf.Abs(ps.x - 1f) > 0.01f
+            || Mathf.Abs(ps.y - 1f) > 0.01f
+            || Mathf.Abs(ps.z - 1f) > 0.01f;
+        if (shellWasWrong)
+        {
+            shell.localScale = Vector3.one;
+            Physics.SyncTransforms();
+        }
+
+        if (!rebakeAndApply)
+            return shellWasWrong;
+
+        float sizeM = ElevationLengthFormat.ResolveOwnSizeMeters(this);
+        bool meshWrong = false;
+        if (sizeM > 0.05f
+            && Measurable.TryGetStrictOwnRendererBounds(this, out Bounds rb)
+            && rb.size.y > 0.02f)
+        {
+            meshWrong = Mathf.Abs(rb.size.y - sizeM) > 0.02f;
+        }
+
+        if (!shellWasWrong && !meshWrong)
+            return false;
+
+        BakeScaleZFromAuthoredLength();
+        var level = CurrentScaleLevel
+            ?? ScaleLevels.FirstOrDefault(s => s != null && s.Selected && s.Size > 0f)
+            ?? ScaleLevels.FirstOrDefault(s => s != null && s.Size > 0f);
+        if (level == null || level.ScaleZ <= 0.0001f)
+            return shellWasWrong;
+
+        SetScaleLevel(level, setSelected: false, fireEvent: false);
+        EnsureAttachChainScaleCompensation(reapplyMeshIsolation: false);
+        Debug.Log(
+            $"[ElevDim] vertical length-owner shell repaired name={name} " +
+            $"shellWasWrong={shellWasWrong} meshWrong={meshWrong} " +
+            $"shellWas={ps} sizeMm={Mathf.RoundToInt(sizeM * 1000f)} scaleZ={level.ScaleZ:F4}",
+            this);
+        return shellWasWrong || meshWrong;
     }
 
    public void ToggleMeasurableActiveStatesWhilePlacing(bool enable)

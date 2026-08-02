@@ -22,6 +22,23 @@ public class Measurer : MonoBehaviour
 
     /// <summary>Elevation floor-label lane (0,1,2…) for text side/offset — dim line stays on part.</summary>
     public int ElevationTextLane { get; set; }
+
+    /// <summary>
+    /// Horizontal catalog dims placed below the arm: put mm under the line so
+    /// room-locked ceiling framing cannot crop the glyph.
+    /// </summary>
+    public bool ElevationPreferLabelBelow { get; set; }
+
+    /// <summary>
+    /// Vertical catalog dims: +1 / -1 along camera-right for the outboard label side
+    /// (away from the boom silhouette). 0 = default.
+    /// </summary>
+    public float ElevationLabelSideSign { get; set; }
+
+    /// <summary>World features for cutsheet extension lines (reapplied after UpdateTransform).</summary>
+    public Vector3 ElevationLeaderFeatureA { get; set; }
+    public Vector3 ElevationLeaderFeatureB { get; set; }
+    public bool ElevationLeadersValid { get; set; }
     //public bool AllowInElevationPhotoMode => Measurement != null && Measurement.Measurable.ArmAssemblyActiveInElevationPhotoMode && Measurement.MeasurementType == MeasurementType.ToArmAssemblyOrigin;
     public Measurable.Measurement Measurement { get; private set; }
     public string Distance { get; private set; } = string.Empty;
@@ -88,11 +105,20 @@ public class Measurer : MonoBehaviour
     {
         if (Measurement?.Measurable == null)
             return false;
-        if (!Measurement.Measurable.ShowInElevationPhoto)
-            return false;
 
         if (Measurement.MeasurementType == MeasurementType.ToArmAssemblyOrigin)
-            return TryGetOwningCatalogLengthMeters() > 0f;
+        {
+            // Cutsheet-pinned lengths (dual-select borrow) draw even when the host
+            // Measurable cleared ShowInElevationPhoto.
+            if (TryGetOwningCatalogLengthMeters() > 0f
+                && (Measurement.Measurable.ShowInElevationPhoto
+                    || Measurement.Measurable.CutsheetCatalogLengthMeters > 0f))
+                return true;
+            return false;
+        }
+
+        if (!Measurement.Measurable.ShowInElevationPhoto)
+            return false;
 
         return Measurement.MeasurementType == MeasurementType.Floor;
     }
@@ -509,6 +535,51 @@ public class Measurer : MonoBehaviour
         a = LineRenderers[0];
         b = LineRenderers[1];
         return a != null && b != null;
+    }
+
+    /// <summary>
+    /// Re-assert extension lines after UpdateTransform (LookAt/scale must not leave a
+    /// body-only chord without end ticks — ASME-style dimension legs).
+    /// </summary>
+    public void RefreshCutsheetLeaders(Camera camera, float widthScalar)
+    {
+        if (!ElevationLeadersValid || Measurement == null)
+            return;
+        if (!TryGetLeaderPair(out var lead0, out var lead1))
+            return;
+
+        Vector3 origin = Measurement.Origin;
+        Vector3 hit = Measurement.HitPoint;
+        Vector3 featA = ElevationLeaderFeatureA;
+        Vector3 featB = ElevationLeaderFeatureB;
+
+        lead0.useWorldSpace = true;
+        lead0.enabled = true;
+        lead0.positionCount = 2;
+        lead0.SetPosition(0, origin);
+        lead0.SetPosition(1, featA);
+        float w0 = widthScalar * Mathf.Max(0.001f,
+            camera != null
+                ? Mathf.Abs(Vector3.Dot(origin - camera.transform.position, camera.transform.forward))
+                : 1f);
+        lead0.startWidth = w0;
+        lead0.endWidth = w0;
+        lead0.startColor = Color.black;
+        lead0.endColor = Color.black;
+
+        lead1.useWorldSpace = true;
+        lead1.enabled = true;
+        lead1.positionCount = 2;
+        lead1.SetPosition(0, hit);
+        lead1.SetPosition(1, featB);
+        float w1 = widthScalar * Mathf.Max(0.001f,
+            camera != null
+                ? Mathf.Abs(Vector3.Dot(hit - camera.transform.position, camera.transform.forward))
+                : 1f);
+        lead1.startWidth = w1;
+        lead1.endWidth = w1;
+        lead1.startColor = Color.black;
+        lead1.endColor = Color.black;
     }
 
     private void OnDestroy()

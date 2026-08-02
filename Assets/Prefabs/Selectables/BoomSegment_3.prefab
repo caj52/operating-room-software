@@ -63,6 +63,10 @@ PrefabInstance:
       propertyPath: m_Layer
       value: 6
       objectReference: {fileID: 0}
+    - target: {fileID: -3055339225612236393, guid: 73c05d71b6c331745ba4693a9f1059ee, type: 3}
+      propertyPath: m_Name
+      value: BoomSegment_3.001
+      objectReference: {fileID: 0}
     - target: {fileID: 919132149155446097, guid: 73c05d71b6c331745ba4693a9f1059ee, type: 3}
       propertyPath: m_Name
       value: BoomSegment_3
@@ -231,9 +235,10 @@ MonoBehaviour:
     metadata: []
   <UseLossyScale>k__BackingField: 0
   <ZAlwaysFacesGround>k__BackingField: 0
-  <ZAlwaysFacesGroundElevationOnly>k__BackingField: 0
+  <ZAlwaysFacesGroundElevationOnly>k__BackingField: 1
   <ZAlignUpIsParentForward>k__BackingField: 0
-  <Measurables>k__BackingField: []
+  <Measurables>k__BackingField:
+  - {fileID: 6184029173846251801}
   Measurers: []
   measurements: []
   <AlignForElevationPhoto>k__BackingField: 0
@@ -271,6 +276,25 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 96ecab8b3abe5c342960b84000c38872, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!114 &6184029173846251801
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8989538764398302107}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 533802ce717278149876c674f9f556b7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  <MeasurementTypes>k__BackingField: 03000000
+  <ForwardOnly>k__BackingField: 1
+  <ShowInElevationPhoto>k__BackingField: 1
+  minThreshold: 1
+  maxThreshold: 2
+  isAdjustmentNeeded: 0
+  <Disabled>k__BackingField: 0
 --- !u!114 &3577282033252816624
 MonoBehaviour:
   m_ObjectHideFlags: 0
