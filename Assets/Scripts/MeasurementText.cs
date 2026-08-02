@@ -191,9 +191,20 @@ public class MeasurementText : MonoBehaviour
 
         transform.position = onLine;
         RotateTowardCamera(camera);
+        Vector3 spanA = default;
+        Vector3 spanB = default;
+        if (!isFloor && _measurer.Measurement != null)
+        {
+            spanA = _measurer.Measurement.Origin;
+            spanB = _measurer.Measurement.HitPoint;
+        }
         ElevationDimPlacement.PlaceLabel(
-            transform, Text, onLine, dimDir, camera, isFloor, floorLane, preferBelow, outboard);
+            transform, Text, onLine, dimDir, camera, isFloor, floorLane, preferBelow, outboard,
+            spanA, spanB);
+        // Rotation can change glyph world extents — clamp after final orient.
         RotateTowardCamera(camera);
+        if (!isFloor)
+            ElevationDimPlacement.ClampLabelInsideDimSpan(transform, Text, spanA, spanB);
     }
 
     /// <summary>

@@ -17,7 +17,7 @@ public static class DownloadPlaceableCdnBundles
     private const string CatalogAssetPath = "Assets/SelectableAssetBundles.asset";
     private const string OutputFolder = "TestData/CdnMirror";
 
-    [MenuItem("Tools/Operating Room/Download Placeable CDN Bundles")]
+    [MenuItem("Tools/Operating Room/Download Placeable CDN Bundles", false, 100)]
     private static void DownloadFromMenu()
     {
         if (Application.isPlaying)

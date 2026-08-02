@@ -2700,7 +2700,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     /// </summary>
     bool IsVerticalCatalogLengthOwner()
     {
-        if (Measurable.IsDropTubeName(name))
+        if (Measurable.IsVerticalHangLengthName(name))
             return true;
         if (name != null && name.IndexOf("BoomSegment_3", StringComparison.OrdinalIgnoreCase) >= 0)
             return true;
@@ -2732,7 +2732,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         // Drop-tube FBX = shell mesh (no Size) + child Size owner. Prefab usually disables
         // the shell; re-assert so a restored enable does not draw a second column.
-        if (Measurable.IsDropTubeName(name))
+        if (Measurable.IsDropTubeName(name) || Measurable.IsVerticalHangLengthName(name))
         {
             foreach (var r in shell.GetComponents<Renderer>())
             {

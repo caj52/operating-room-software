@@ -449,6 +449,28 @@ public class Measurable : MonoBehaviour
     }
 
     /// <summary>
+    /// Vertical hang lengths that must sit flush under a ceiling plate / flange face:
+    /// drop tubes, SimFlex tube, ceiling flange.
+    /// </summary>
+    public static bool IsVerticalHangLengthName(string name)
+    {
+        if (IsDropTubeName(name))
+            return true;
+        if (string.IsNullOrEmpty(name))
+            return false;
+        return name.IndexOf("SimFlexTube", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("CielingFlange", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("CeilingFlange", System.StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    public static bool IsCeilingMountName(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return false;
+        return name.IndexOf("CeilingMount", System.StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    /// <summary>
     /// Ensure this Measurable is a catalog length (ToOrigin) source. Used when a
     /// ScaleLevels Selectable shipped without a Measurable in its prefab/bundle.
     /// </summary>
@@ -669,9 +691,9 @@ public class Measurable : MonoBehaviour
     }
 
     /// <summary>
-    /// Vertical catalog ticks = Size-owner mesh top/bottom. Upstream length isolation must
-    /// make mesh height == Size; this path does not invent tip+catalog spans.
-    /// Read-only — no scale/hide.
+    /// Vertical catalog ticks = Size-owner mesh top/bottom. Hang AP local Z on the ceiling
+    /// mount prefab (Blender plate thickness) must place the socket on the underside so
+    /// mesh top == free-hang start. Read-only — no runtime transform guessing.
     /// </summary>
     static bool TryBuildVerticalCatalogYTicks(
         Selectable owner,
@@ -703,12 +725,41 @@ public class Measurable : MonoBehaviour
 
         float meshMm = rb.size.y * 1000f;
         float catalogMm = catalogLen * 1000f;
-        if (Mathf.Abs(rb.size.y - catalogLen) > 0.02f)
+        bool sizeMismatch = Mathf.Abs(rb.size.y - catalogLen) > 0.02f;
+
+        AttachmentPoint hang = null;
+        if (owner.ParentAttachmentPoint != null)
+            hang = owner.ParentAttachmentPoint;
+        else if (owner.RelatedSelectables != null)
+        {
+            for (int i = 0; i < owner.RelatedSelectables.Count; i++)
+            {
+                var rel = owner.RelatedSelectables[i];
+                if (rel != null && rel.ParentAttachmentPoint != null)
+                {
+                    hang = rel.ParentAttachmentPoint;
+                    break;
+                }
+            }
+        }
+
+        float hangInsetM = 0f;
+        bool hangInsetBroken = false;
+        if (hang != null)
+        {
+            hangInsetM = featureA.y - hang.transform.position.y;
+            hangInsetBroken = hangInsetM > 0.02f;
+        }
+
+        if (sizeMismatch || hangInsetBroken)
         {
             Debug.LogWarning(
                 $"[ElevDim] VERT TUBE length-contract broken owner={owner.name} " +
                 $"catalogMm={Mathf.RoundToInt(catalogMm)} meshMm={Mathf.RoundToInt(meshMm)} " +
-                $"(ticks follow mesh; fix ScaleZ/parent shell upstream)",
+                $"topY={featureA.y:F3} tipY={featureB.y:F3} " +
+                $"hangInsetMm={Mathf.RoundToInt(hangInsetM * 1000f)} " +
+                $"(sizeMismatch={sizeMismatch} hangInset={hangInsetBroken}; " +
+                $"fix ScaleZ / hang AP local Z on ceiling mount prefab)",
                 owner);
         }
         else

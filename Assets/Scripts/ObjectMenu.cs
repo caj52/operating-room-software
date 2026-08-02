@@ -523,6 +523,17 @@ public class ObjectMenu : MonoBehaviour
             // If anything still baked an inverse onto the new root, strip it now that it is a child.
             Selectable.EnsureAttachChainForAttachmentPoint(_attachmentPoint);
 
+            selectable.EnsureLengthOwnerParentShellNormalized();
+            if (selectable.RelatedSelectables != null)
+            {
+                foreach (var rel in selectable.RelatedSelectables)
+                {
+                    if (rel == null || rel == selectable)
+                        continue;
+                    rel.EnsureLengthOwnerParentShellNormalized();
+                }
+            }
+
             PlacementLoadOptimizer.FinalizeInstanceColliders(obj);
             PlacementLoadOptimizer.RestoreInstanceCollidersAfterLoad(obj);
 

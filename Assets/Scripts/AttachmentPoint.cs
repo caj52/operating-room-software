@@ -61,6 +61,13 @@ public partial class AttachmentPoint : MonoBehaviour
     public bool TreatAsTopMost { get; private set; }
 
     /// <summary>
+    /// Structural role for length parts: tip of measurable length vs hinge/joint vs mount.
+    /// Used by editor tooling and future solid-stack length contracts — not for row-config heads.
+    /// </summary>
+    [field: SerializeField]
+    public AttachPointRole Role { get; private set; } = AttachPointRole.Unspecified;
+
+    /// <summary>
     /// Allows the attachment point to have multiple attached selectables, otherwise attachpoint will disable once an attachment is selected
     /// </summary>
     [field: SerializeField] 
@@ -460,6 +467,20 @@ public partial class AttachmentPoint : MonoBehaviour
             }
         }
     }
+}
+
+/// <summary>
+/// How this attach point relates to the parent part's length / joints.
+/// </summary>
+public enum AttachPointRole
+{
+    Unspecified = 0,
+    /// <summary>Distal end of a measurable length part — next solid should hang here.</summary>
+    LengthTip = 1,
+    /// <summary>Hinge / joint socket (often short local Z and tilted).</summary>
+    Joint = 2,
+    /// <summary>Mount / flange face — not a length tip.</summary>
+    Mount = 3,
 }
 
 [Serializable]

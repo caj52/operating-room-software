@@ -258,7 +258,9 @@ public static class ElevationDimPlacement
         bool isFloor,
         int floorLane,
         bool preferLabelBelow = false,
-        float verticalOutboardSign = 0f)
+        float verticalOutboardSign = 0f,
+        Vector3 dimSpanA = default,
+        Vector3 dimSpanB = default)
     {
         if (label == null || camera == null)
             return;
@@ -286,9 +288,11 @@ public static class ElevationDimPlacement
         // ("1772 mm") sit much farther out than short ones ("150 mm").
         float minAlong = 0f;
         float maxAlong = 0f;
+        Vector3[] localCorners = null;
+        RectTransform rt = null;
         if (text != null)
         {
-            var rt = text.rectTransform;
+            rt = text.rectTransform;
             rt.pivot = new Vector2(0.5f, 0.5f);
             rt.anchoredPosition = Vector2.zero;
             label.position = onLine;
@@ -296,7 +300,7 @@ public static class ElevationDimPlacement
             Bounds glyphBounds = text.textBounds;
             Vector3 c = glyphBounds.center;
             Vector3 e = glyphBounds.extents;
-            Vector3[] localCorners =
+            localCorners = new[]
             {
                 c + new Vector3(-e.x, -e.y, 0f),
                 c + new Vector3(-e.x,  e.y, 0f),
@@ -321,5 +325,54 @@ public static class ElevationDimPlacement
         float nearEdge = sideSign > 0f ? minAlong : maxAlong;
         float shift = sideSign * LabelGapMeters - nearEdge;
         label.position = onLine + perp * shift;
+
+        if (!isFloor && !horizontalOnPage)
+            ClampLabelInsideDimSpan(label, text, dimSpanA, dimSpanB);
+    }
+
+    /// <summary>
+    /// Short vertical dims: rotated "100 mm" is taller than half the span, so a centered
+    /// label parks glyph tops in the ceiling plate. Keep corners inside the dim Y span.
+    /// </summary>
+    public static void ClampLabelInsideDimSpan(
+        Transform label, TextMeshProUGUI text, Vector3 dimSpanA, Vector3 dimSpanB)
+    {
+        if (label == null || text == null || (dimSpanA - dimSpanB).sqrMagnitude < 1e-6f)
+            return;
+
+        var rt = text.rectTransform;
+        text.ForceMeshUpdate();
+        Bounds glyphBounds = text.textBounds;
+        Vector3 c = glyphBounds.center;
+        Vector3 e = glyphBounds.extents;
+        Vector3[] localCorners =
+        {
+            c + new Vector3(-e.x, -e.y, 0f),
+            c + new Vector3(-e.x,  e.y, 0f),
+            c + new Vector3( e.x, -e.y, 0f),
+            c + new Vector3( e.x,  e.y, 0f),
+        };
+
+        float spanMinY = Mathf.Min(dimSpanA.y, dimSpanB.y) + 0.008f;
+        float spanMaxY = Mathf.Max(dimSpanA.y, dimSpanB.y) - 0.008f;
+        if (spanMaxY <= spanMinY)
+            return;
+
+        float gMinY = float.MaxValue;
+        float gMaxY = float.MinValue;
+        for (int i = 0; i < 4; i++)
+        {
+            float y = rt.TransformPoint(localCorners[i]).y;
+            gMinY = Mathf.Min(gMinY, y);
+            gMaxY = Mathf.Max(gMaxY, y);
+        }
+
+        float dy = 0f;
+        if (gMaxY > spanMaxY)
+            dy = spanMaxY - gMaxY;
+        else if (gMinY < spanMinY)
+            dy = spanMinY - gMinY;
+        if (Mathf.Abs(dy) > 1e-5f)
+            label.position += Vector3.up * dy;
     }
 }
