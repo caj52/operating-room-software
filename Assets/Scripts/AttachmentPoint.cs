@@ -151,6 +151,14 @@ public partial class AttachmentPoint : MonoBehaviour
     {
         if (!ConfigurationManager.IsLoading)
             SetToProperParent();
+        RefreshSolidCoverPlateVisibility();
+        // Room-load / already-parented accessories: same face contract as SetAttachedSelectable.
+        RemoveNullSelectables();
+        if (AttachedSelectable != null)
+        {
+            for (int i = 0; i < AttachedSelectable.Count; i++)
+                EnsureBoomHeadAccessoryFacesCover(AttachedSelectable[i]);
+        }
     }
 
     private void OnDestroy()
@@ -218,6 +226,8 @@ public partial class AttachmentPoint : MonoBehaviour
         selectable.SelectableDestroyed.AddListener(() => OnAttachedSelectableDestroyed(selectable));
         EndHoverStateIfHovered();
         UpdateComponentStatus();
+        RefreshSolidCoverPlateVisibility();
+        EnsureBoomHeadAccessoryFacesCover(selectable);
     }
 
     private void OnAttachedSelectableDestroyed(Selectable selectable)
@@ -228,7 +238,148 @@ public partial class AttachmentPoint : MonoBehaviour
             AttachedSelectable.TrimExcess();
             RemoveNullSelectables();
             UpdateComponentStatus();
+            RefreshSolidCoverPlateVisibility();
         }
+    }
+
+    /// <summary>
+    /// Boom-head HV/LV plates are solid meshes with no cutouts. When any AP under
+    /// that attachment has accessories, hide the plate so outlets are visible in
+    /// the live room and elevation.
+    /// </summary>
+    void RefreshSolidCoverPlateVisibility()
+    {
+        Transform t = transform;
+        while (t != null)
+        {
+            if (t.name.StartsWith("BoomHeadAttachment_", StringComparison.Ordinal) &&
+                t.TryGetComponent(out MeshRenderer cover))
+            {
+                bool populated = false;
+                foreach (var ap in t.GetComponentsInChildren<AttachmentPoint>(true))
+                {
+                    if (ap == null)
+                        continue;
+                    ap.RemoveNullSelectables();
+                    if (ap.AttachedSelectable != null && ap.AttachedSelectable.Count > 0)
+                    {
+                        populated = true;
+                        break;
+                    }
+                }
+                cover.enabled = !populated;
+                return;
+            }
+            t = t.parent;
+        }
+    }
+
+    /// <summary>
+    /// CDN/local outlet meshes often face into the head (elev logs: cover towardCam≈+0.7,
+    /// GasOutletPlate towardCam≈−0.4, cull Back). Flip once so the accessory face matches
+    /// the cover outward normal — attach/load contract, not elevation capture.
+    /// </summary>
+    void EnsureBoomHeadAccessoryFacesCover(Selectable accessory)
+    {
+        if (accessory == null)
+            return;
+
+        MeshRenderer cover = FindBoomHeadCoverRenderer();
+        if (cover == null)
+            return;
+
+        MeshRenderer face = FindPreferredOutletFaceRenderer(accessory);
+        if (face == null)
+            return;
+
+        Vector3 coverOut = AverageWorldNormal(cover);
+        Vector3 faceOut = AverageWorldNormal(face);
+        if (coverOut.sqrMagnitude < 1e-6f || faceOut.sqrMagnitude < 1e-6f)
+            return;
+
+        float coverVsFace = Vector3.Dot(faceOut.normalized, coverOut.normalized);
+        if (coverVsFace >= 0f)
+        {
+            Debug.Log(
+                $"[ElevOutletDiag] AttachmentPoint face-ok '{accessory.name}' " +
+                $"coverVsFaceDot={coverVsFace:F3}",
+                accessory);
+            return;
+        }
+
+        Transform meshRoot = face.transform;
+        while (meshRoot.parent != null && meshRoot.parent != accessory.transform)
+            meshRoot = meshRoot.parent;
+
+        meshRoot.Rotate(0f, 180f, 0f, Space.Self);
+
+        float after = Vector3.Dot(AverageWorldNormal(face).normalized, coverOut.normalized);
+        Debug.Log(
+            $"[ElevOutletDiag] AttachmentPoint face-fix '{accessory.name}' " +
+            $"coverVsFaceDot {coverVsFace:F3} -> {after:F3} (meshRoot={meshRoot.name})",
+            accessory);
+    }
+
+    MeshRenderer FindBoomHeadCoverRenderer()
+    {
+        Transform t = transform;
+        while (t != null)
+        {
+            if (t.name.StartsWith("BoomHeadAttachment_", StringComparison.Ordinal) &&
+                t.TryGetComponent(out MeshRenderer cover))
+                return cover;
+            t = t.parent;
+        }
+        return null;
+    }
+
+    static MeshRenderer FindPreferredOutletFaceRenderer(Selectable accessory)
+    {
+        MeshRenderer idPlate = null;
+        MeshRenderer fallback = null;
+        foreach (var mr in accessory.GetComponentsInChildren<MeshRenderer>(true))
+        {
+            if (mr == null || !mr.enabled)
+                continue;
+            if (mr.gameObject.name.StartsWith("Sphere", StringComparison.Ordinal))
+                continue;
+
+            if (mr.sharedMaterials != null)
+            {
+                foreach (var mat in mr.sharedMaterials)
+                {
+                    if (mat != null && mat.name.StartsWith("GasOutletPlate_", StringComparison.Ordinal))
+                    {
+                        idPlate = mr;
+                        break;
+                    }
+                }
+            }
+            if (idPlate != null)
+                break;
+            if (fallback == null)
+                fallback = mr;
+        }
+        return idPlate != null ? idPlate : fallback;
+    }
+
+    static Vector3 AverageWorldNormal(MeshRenderer mr)
+    {
+        var mf = mr.GetComponent<MeshFilter>();
+        var mesh = mf != null ? mf.sharedMesh : null;
+        if (mesh == null || mesh.normals == null || mesh.normals.Length == 0)
+            return mr.transform.forward;
+
+        var norms = mesh.normals;
+        var acc = Vector3.zero;
+        int step = Mathf.Max(1, norms.Length / 64);
+        int n = 0;
+        for (int i = 0; i < norms.Length; i += step)
+        {
+            acc += mr.transform.TransformDirection(norms[i]);
+            n++;
+        }
+        return n > 0 ? acc / n : mr.transform.forward;
     }
 
     public void MarkParentNormalized() => _hasNormalizedParent = true;
@@ -241,6 +392,7 @@ public partial class AttachmentPoint : MonoBehaviour
         RemoveNullSelectables(); // Clean up after detach
         SetToOriginalParent();
         UpdateComponentStatus();
+        RefreshSolidCoverPlateVisibility();
     }
 
     private void RemoveNullSelectables()
@@ -432,6 +584,21 @@ public partial class AttachmentPoint : MonoBehaviour
         bool isMouseOverAnyParentSelectable = ParentSelectables.Any(item => item != null && item.IsMouseOver);
         bool areAnyParentSelectablesSelected = AreAnyParentSelectablesSelected;
         bool showInteractable = AttachedSelectable.Count <= multiAllowed && !areAnyParentSelectablesSelected;
+
+        // Never draw AP placeholder meshes / hover FX into elevation or PDF captures.
+        if (Selectable.IsInElevationPhotoMode)
+        {
+            if (Renderer != null)
+                Renderer.enabled = false;
+            if (HighlightHovered != null)
+                HighlightHovered.highlighted = false;
+            if (_collider == null)
+                _collider = GetComponentInChildren<Collider>(true);
+            if (_collider != null)
+                _collider.enabled = false;
+            StatusUpdated?.Invoke(AttachedSelectable.Count > 0);
+            return;
+        }
 
         if (Renderer != null)
             Renderer.enabled = (isMouseOverAnyParentSelectable || _attachmentPointHovered) && showInteractable;

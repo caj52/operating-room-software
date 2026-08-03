@@ -129,10 +129,12 @@ public static class ElevationCutsheetPass
                     && measurable.MeasurementTypes.Contains(MeasurementType.Floor))
                     hasFloor = true;
 
-                if (hasToOrigin && sizeM > 0f)
+                if (hasToOrigin && sizeM > 0f
+                    && !Measurable.IsServiceHeadAccessoryDimOwner(sel))
                 {
                     // One catalog length per length owner — never stack dual-select copies.
                     // Also skip if this Measurable is already claimed (dual-select shares one).
+                    // Rear_Rail Size is not an arm/tube length (was drawing 600 mm mid-head).
                     bool measurableClaimed = false;
                     foreach (var existing in lengthByOwner.Values)
                     {
@@ -148,9 +150,10 @@ public static class ElevationCutsheetPass
                         lengthByOwner[sel] = (measurable, sizeM);
                 }
 
-                if (hasFloor)
+                if (hasFloor && !Measurable.IsServiceHeadAccessoryDimOwner(sel))
                 {
                     // One floor ray per source selectable. Skip decision happens at draw time.
+                    // Rails under the head are skipped — clearance uses the head body.
                     if (!floorBySource.ContainsKey(sel))
                         floorBySource[sel] = measurable;
                 }
@@ -168,6 +171,8 @@ public static class ElevationCutsheetPass
                 continue;
             // Row-tier Size on service heads is not a tube/arm length dim.
             if (sel.GetComponent<BoomHeadScaleHandler>() != null)
+                continue;
+            if (Measurable.IsServiceHeadAccessoryDimOwner(sel))
                 continue;
 
             Measurable borrowed = FindToOriginForSizeOwner(sel, lengthByOwner, assemblySelectables);
@@ -218,6 +223,9 @@ public static class ElevationCutsheetPass
                     continue;
                 // Skip service-head row tiers (Size is not tube/arm length).
                 if (sel.GetComponent<BoomHeadScaleHandler>() != null)
+                    continue;
+                // Rails/shelves under the head — Size is accessory height, not a catalog tube.
+                if (Measurable.IsServiceHeadAccessoryDimOwner(sel))
                     continue;
 
                 sel.EnsureMeasurablesLinked();

@@ -617,7 +617,10 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         }
     }
 
-    /// <summary>Force HighlightPlus off for an elevation assembly (and all children).</summary>
+    /// <summary>
+    /// Force HighlightPlus off and hide AttachPoint placeholder meshes for elevation capture.
+    /// AP Sphere renderers otherwise stay visible while the mouse is over a parent selectable.
+    /// </summary>
     public static void SuppressHighlightsForCapture(IList<Selectable> assembly)
     {
         ClearSelectionForCapture();
@@ -631,6 +634,11 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             {
                 if (h != null)
                     h.highlighted = false;
+            }
+            foreach (var ap in s.GetComponentsInChildren<AttachmentPoint>(true))
+            {
+                if (ap != null)
+                    ap.RefreshStatusForLoad();
             }
         }
     }
@@ -2158,9 +2166,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         if (camLight != null)
             camLight.gameObject.SetActive(true);
 
-        ServiceHeadOutletFaceAligner.AlignAllInAssembly(_assemblySelectables);
         ElevationOutletCaptureDiagnostics.LogBeforeRender(_assemblySelectables, camera);
-
         camera.Render();
         camera.enabled = false;
 
@@ -2367,9 +2373,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         if (camLight != null)
             camLight.gameObject.SetActive(true);
 
-        ServiceHeadOutletFaceAligner.AlignAllInAssembly(_assemblySelectables);
         ElevationOutletCaptureDiagnostics.LogBeforeRender(_assemblySelectables, camera);
-
         camera.Render();
         camera.enabled = false;
 

@@ -4,7 +4,7 @@ using UnityEngine;
 
 /// <summary>
 /// Logs outlet/cover facing state before elevation <c>camera.Render()</c>.
-/// Face alignment runs in <see cref="Selectable"/> immediately before this.
+/// Facing must already be correct from attach/load (<see cref="AttachmentPoint"/>).
 /// </summary>
 public static class ElevationOutletCaptureDiagnostics
 {
@@ -21,6 +21,7 @@ public static class ElevationOutletCaptureDiagnostics
 
         int selectableLayer = LayerMask.NameToLayer("Selectable");
         int reported = 0;
+        int culledPlates = 0;
 
         foreach (var sel in assemblySelectables)
         {
@@ -89,6 +90,7 @@ public static class ElevationOutletCaptureDiagnostics
                 string mats = "";
                 int cull = -1;
                 Color baseCol = default;
+                bool isGasPlate = false;
                 if (mr.sharedMaterials != null)
                 {
                     for (int i = 0; i < mr.sharedMaterials.Length; i++)
@@ -100,6 +102,8 @@ public static class ElevationOutletCaptureDiagnostics
                             continue;
                         }
                         mats += mat.name;
+                        if (mat.name.StartsWith("GasOutletPlate_", System.StringComparison.Ordinal))
+                            isGasPlate = true;
                         if (mat.HasProperty("_Cull"))
                             cull = Mathf.RoundToInt(mat.GetFloat("_Cull"));
                         if (mat.HasProperty("_BaseColor"))
@@ -108,6 +112,9 @@ public static class ElevationOutletCaptureDiagnostics
                             mats += "|";
                     }
                 }
+
+                if (isGasPlate && mr.enabled && towardCam < 0f && cull == 2)
+                    culledPlates++;
 
                 sb.AppendLine(
                     $"  MR go={mr.gameObject.name} path={GetPath(mr.transform)} " +
@@ -122,7 +129,12 @@ public static class ElevationOutletCaptureDiagnostics
             }
         }
 
-        sb.AppendLine($"[ElevOutletDiag] reportedMeshRenderers={reported} selectableLayer={selectableLayer}");
+        sb.AppendLine(
+            $"[ElevOutletDiag] reportedMeshRenderers={reported} selectableLayer={selectableLayer} " +
+            $"gasPlatesFacingAwayWithBackCull={culledPlates}");
+        if (culledPlates > 0)
+            sb.AppendLine(
+                "[ElevOutletDiag] FAIL: GasOutletPlate(s) face away from camera with Cull Back — will be missing in PDF");
         Debug.Log(sb.ToString());
     }
 

@@ -1512,6 +1512,18 @@ public class Measurable : MonoBehaviour
                 $"measurable={name} allRenderers=True",
                 this);
         }
+        else if (TryGetServiceHeadFloorRoot(owner, out Transform headRoot))
+        {
+            // Rails/shelves under the head must not own the clearance tick — use the full
+            // head mesh (lowest vertex) so the dim reads floor → service-head bottom.
+            root = headRoot;
+            allowParentSelectable = false;
+            allRenderersUnderRoot = true;
+            Debug.Log(
+                $"[ElevDim] FLOOR ROOT serviceHead owner={owner.name} " +
+                $"head={headRoot.name} measurable={name} allRenderers=True",
+                this);
+        }
         else if (owner != null)
         {
             root = owner.transform;
@@ -1604,6 +1616,63 @@ public class Measurable : MonoBehaviour
             || n.IndexOf("CeilingCover", StringComparison.OrdinalIgnoreCase) >= 0
             || n.IndexOf("TandemCover", StringComparison.OrdinalIgnoreCase) >= 0)
             return true;
+
+        // Rear_Rail / shelves: their Floor measurables parked ticks mid-head. One clearance
+        // dim on the service-head body (allRenderers) is enough.
+        if (IsServiceHeadAccessoryDimOwner(sel))
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Rails/shelves/drawers under a service head — not tube/arm length, not floor clearance.
+    /// </summary>
+    public static bool IsServiceHeadAccessoryDimOwner(Selectable sel)
+    {
+        if (sel == null)
+            return false;
+        // The head body itself (row-tier ScaleLevels) is not an accessory.
+        if (sel.GetComponent<BoomHeadScaleHandler>() != null)
+            return false;
+        if (!TryGetServiceHeadFloorRoot(sel, out _))
+            return false;
+
+        string n = sel.name;
+        return n.IndexOf("Rail", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("Shelf", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("Drawer", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("Basket", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    /// <summary>
+    /// Selectable / parent that owns the service-head body (BoomHeadScaleHandler or SH name).
+    /// </summary>
+    public static bool TryGetServiceHeadFloorRoot(Selectable owner, out Transform headRoot)
+    {
+        headRoot = null;
+        if (owner == null)
+            return false;
+
+        var handler = owner.GetComponent<BoomHeadScaleHandler>()
+            ?? owner.GetComponentInParent<BoomHeadScaleHandler>();
+        if (handler != null)
+        {
+            headRoot = handler.transform;
+            return true;
+        }
+
+        for (Transform t = owner.transform; t != null; t = t.parent)
+        {
+            string n = t.name;
+            if (n.IndexOf("SpringBottom", StringComparison.OrdinalIgnoreCase) >= 0
+                || n.IndexOf("1000SH", StringComparison.OrdinalIgnoreCase) >= 0
+                || n.IndexOf("ServiceHead", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                headRoot = t;
+                return true;
+            }
+        }
 
         return false;
     }
