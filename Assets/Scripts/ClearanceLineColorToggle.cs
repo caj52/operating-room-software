@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 
 [DisallowMultipleComponent]
 [RequireComponent(typeof(Collider))]
@@ -116,7 +116,7 @@ public class ClearanceLineColorToggle : MonoBehaviour
 
     void TryShowProximityAlert(string message)
     {
-        if (!UI_ToggleProximityAlerts.IsActive) return;
+        if (!UI_ToggleProximityAlerts.IsActive || Selectable.IsInElevationPhotoMode) return;
 
         UI_DialogPrompt.Open(message,
             new ButtonAction

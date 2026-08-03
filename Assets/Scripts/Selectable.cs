@@ -1683,6 +1683,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         }
 
         IsInElevationPhotoMode = true;
+        UI_ToggleProximityAlerts.BeginCaptureSuppress();
         bool floorWasActive = true;
         RoomBoundary floorBoundary = null;
         List<(Selectable selectable, bool wasActive)> visibilitySnapshot = null;
@@ -1764,6 +1765,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             // revive measurement labels in the live room.
             ElevationCutsheetPass.SuppressAllOverlays();
             ActiveCameraRenderTextureElevation = null;
+            UI_ToggleProximityAlerts.EndCaptureSuppress();
 
             // Always complete — PdfBatchExporter waits on this callback; skipping it hangs
             // the multipage export so later assemblies never get a page.
@@ -1822,6 +1824,11 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             FaceAllTowardGround();
             // Colliders lag transforms after articulation — floor underside casts must
             // see the pose that renderers already show (else ticks float under raised arms).
+            Physics.SyncTransforms();
+
+            // After pitch snaps: yaw any plan-end-on arms so reach reads in profile.
+            ApplyElevationProfileYaw(invertDirection: i == 1);
+            FaceAllTowardGround();
             Physics.SyncTransforms();
         }
 
@@ -1908,6 +1915,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
             // this obj is the ceiling mount
             IsInElevationPhotoMode = true;
+            UI_ToggleProximityAlerts.BeginCaptureSuppress();
             bool floorWasActive = true;
             RoomBoundary floorBoundary = null;
             List<(Selectable selectable, bool wasActive)> visibilitySnapshot = null;
@@ -1991,6 +1999,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 ElevationCutsheetPass.EndCaptureCleanup();
                 ElevationCutsheetPass.SuppressAllOverlays();
                 ActiveCameraRenderTextureElevation = null;
+                UI_ToggleProximityAlerts.EndCaptureSuppress();
             }
         }
     }
@@ -2009,6 +2018,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
             // this obj is the ceiling mount
             IsInElevationPhotoMode = true;
+            UI_ToggleProximityAlerts.BeginCaptureSuppress();
             bool floorWasActive = true;
             RoomBoundary floorBoundary = null;
             List<(Selectable selectable, bool wasActive)> visibilitySnapshot = null;
@@ -2069,6 +2079,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 ElevationCutsheetPass.EndCaptureCleanup();
                 ElevationCutsheetPass.SuppressAllOverlays();
                 ActiveCameraRenderTextureElevation = null;
+                UI_ToggleProximityAlerts.EndCaptureSuppress();
             }
         }
 
@@ -2117,6 +2128,160 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             outward = -outward;
 
         return outward;
+    }
+
+    /// <summary>
+    /// Elev-only plan yaw: when dual arms sit at right angles, the elev camera's shorter
+    /// plan axis makes one arm end-on (no length sense). Rotate horizontal arm roots so
+    /// their reach shares one profile direction (existing profile arms, else ±45° to view).
+    /// Restored via <see cref="_originalRotations"/> after capture.
+    /// </summary>
+    void ApplyElevationProfileYaw(bool invertDirection)
+    {
+        if (_assemblySelectables == null || _assemblySelectables.Count == 0)
+            return;
+
+        Bounds poseBounds = GetAssemblyBounds();
+        Vector3 authored = Vector3.forward;
+        Vector3 viewFlat = GetElevationViewOutwardDirection(poseBounds, authored, invertDirection);
+        viewFlat.y = 0f;
+        if (viewFlat.sqrMagnitude < 1e-8f)
+            return;
+        viewFlat.Normalize();
+
+        Vector3 profileDir = Vector3.Cross(Vector3.up, viewFlat);
+        if (profileDir.sqrMagnitude < 1e-8f)
+            profileDir = Vector3.right;
+        profileDir.Normalize();
+
+        var arms = new List<(Selectable sel, Vector3 reach, float span)>();
+        foreach (var sel in _assemblySelectables)
+        {
+            if (!TryGetElevationPlanReach(sel, out Vector3 reach, out float span))
+                continue;
+            arms.Add((sel, reach, span));
+        }
+        if (arms.Count == 0)
+            return;
+
+        // Prefer the mean reach of arms already readable in profile; else 45° to the view.
+        Vector3 target = Vector3.zero;
+        int profileCount = 0;
+        foreach (var a in arms)
+        {
+            float endOn = Mathf.Abs(Vector3.Dot(a.reach, viewFlat));
+            if (endOn > 0.72f)
+                continue;
+            Vector3 r = a.reach;
+            if (Vector3.Dot(r, profileDir) < 0f)
+                r = -r;
+            target += r;
+            profileCount++;
+        }
+
+        if (profileCount > 0)
+            target.Normalize();
+        else
+        {
+            // Everything end-on or ambiguous — fan to 45° so length reads on the sheet.
+            target = (profileDir + viewFlat).normalized;
+            if (target.sqrMagnitude < 1e-6f)
+                target = profileDir;
+        }
+
+        int yawed = 0;
+        foreach (var a in arms)
+        {
+            float aligned = Mathf.Abs(Vector3.Dot(a.reach, target));
+            if (aligned > 0.97f)
+                continue;
+
+            float ang = Vector3.SignedAngle(a.reach, target, Vector3.up);
+            float angNeg = Vector3.SignedAngle(a.reach, -target, Vector3.up);
+            if (Mathf.Abs(angNeg) < Mathf.Abs(ang))
+                ang = angNeg;
+            if (Mathf.Abs(ang) < 4f)
+                continue;
+
+            if (!_originalRotations.ContainsKey(a.sel))
+                _originalRotations[a.sel] = a.sel.transform.localRotation;
+
+            a.sel.transform.Rotate(Vector3.up, ang, Space.World);
+            yawed++;
+        }
+
+        if (yawed > 0)
+        {
+            Debug.Log(
+                $"[ElevDim] Profile yaw applied count={yawed} target=({target.x:F2},{target.z:F2}) " +
+                $"view=({viewFlat.x:F2},{viewFlat.z:F2}) arms={arms.Count}");
+        }
+    }
+
+    /// <summary>
+    /// Horizontal boom/light arm length owners with real plan reach — not drop tubes.
+    /// </summary>
+    static bool TryGetElevationPlanReach(Selectable sel, out Vector3 reachDir, out float span)
+    {
+        reachDir = Vector3.zero;
+        span = 0f;
+        if (sel == null)
+            return false;
+
+        string n = sel.name ?? string.Empty;
+        // Drop tubes / hang columns — same silhouette every elev angle; never profile-yaw.
+        if (Measurable.IsDropTubeName(n) || Measurable.IsVerticalHangLengthName(n))
+            return false;
+        if (n.IndexOf("Ceiling Tube", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("Deckentr", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("TurningCover", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("CeilingCover", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            return false;
+
+        // Prefer catalog length owners (arm segments / Sim.FLEX).
+        float catalogM = ElevationLengthFormat.ResolveOwnSizeMeters(sel);
+
+        bool nameLooksHorizontal =
+            n.IndexOf("BoomSegment_1", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("TopArm", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("ArmSegment_1", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("Sim.FLEX", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("SimFLEX", System.StringComparison.OrdinalIgnoreCase) >= 0;
+
+        // Distal pitch segments / heads follow the proximal arm — do not yaw them alone.
+        if (n.IndexOf("BoomSegment_2", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("BoomSegment_3", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("ArmSegment_2", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("ArmSegment_3", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            return false;
+
+        if (catalogM < 0.2f && !nameLooksHorizontal)
+            return false;
+
+        // Mesh plan axis: longest horizontal AABB edge of own renderers.
+        if (!Measurable.TryGetOwnRendererBounds(sel, out Bounds rb) || rb.size.sqrMagnitude < 1e-6f)
+            return false;
+
+        float sx = rb.size.x;
+        float sy = rb.size.y;
+        float sz = rb.size.z;
+        float horizMax = Mathf.Max(sx, sz);
+        if (horizMax < 0.18f)
+            return false;
+        // Mostly vertical column — skip.
+        if (sy > horizMax * 1.35f && horizMax < 0.35f)
+            return false;
+
+        // Length axis: boom arms extend along local forward; fall back to long AABB plan axis.
+        Vector3 fwd = sel.transform.forward;
+        fwd.y = 0f;
+        if (fwd.sqrMagnitude > 1e-4f)
+            reachDir = fwd.normalized;
+        else
+            reachDir = sx >= sz ? Vector3.right : Vector3.forward;
+
+        span = Mathf.Max(catalogM, horizMax);
+        return span >= 0.2f;
     }
 
     /// <summary>
@@ -2237,6 +2402,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     /// Detaches the elev cam from non-uniform assembly parents for the render —
     /// scale_audit showed Camera_RenderTexture_ElevationView lossy z=0.7 under
     /// ceiling covers, which skews ortho depth vs the unscaled game camera.
+    /// Single-pass only — a URP second pass was clearing the color RT and wiping
+    /// equipment. Dims stay on top via <see cref="ElevOverlayDrawOrder"/> (ZTest Always).
     /// </summary>
     private static void RenderElevationCamera(Camera camera, Bounds framedBounds)
     {
@@ -2269,7 +2436,19 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         camera.nearClipPlane = Mathf.Max(0.01f, camDist - radius - 0.5f);
         camera.farClipPlane = camDist + radius + 0.5f;
 
-        camera.Render();
+        ElevOverlayDrawOrder.BeginCanvasForElevation(
+            camera, out Canvas elevCanvas, out Camera prevWorldCam,
+            out bool prevOverride, out int prevOrder);
+
+        try
+        {
+            camera.Render();
+        }
+        finally
+        {
+            ElevOverlayDrawOrder.EndCanvasForElevation(
+                elevCanvas, prevWorldCam, prevOverride, prevOrder);
+        }
 
         camera.nearClipPlane = prevNear;
         camera.farClipPlane = prevFar;
@@ -2504,11 +2683,11 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         {
             if (rootObj == gameObject)
             {
-                _assemblySelectables.ForEach(item =>
+                foreach (var kv in _originalRotations)
                 {
-                    if (item.AlignForElevationPhoto || item.ChangeHeightForElevationPhoto || item.ZAlwaysFacesGroundElevationOnly)
-                        item.transform.localRotation = _originalRotations[item];
-                });
+                    if (kv.Key != null)
+                        kv.Key.transform.localRotation = kv.Value;
+                }
             }
             else
             {

@@ -18,9 +18,15 @@ public static class ElevationDimPlacement
     public const float TickHalfLengthMeters = 0.06f;
 
     /// <summary>
-    /// Clearance outside the assembly AABB before the first dim lane starts.
+    /// Clearance outside the part AABB before the dim line.
     /// </summary>
-    public const float AssemblyClearPadMeters = 0.22f;
+    public const float AssemblyClearPadMeters = 0.06f;
+
+    /// <summary>Default offset from the part for the first length dim lane.</summary>
+    public const float CutsheetLaneBaseMeters = 0.14f;
+
+    /// <summary>Lane step between stacked length dims of the same orientation.</summary>
+    public const float CutsheetLaneStepMeters = 0.22f;
 
     /// <summary>Decorative PDF floor top (matches ground graphic).</summary>
     public static float FloorTopY()
@@ -54,41 +60,19 @@ public static class ElevationDimPlacement
     public const float CutsheetInFrameMarginMeters = 0.12f;
 
     /// <summary>
-    /// True underside of <paramref name="partRoot"/> for floor clearance:
-    /// cast upward from just above the floor across the footprint and take the
-    /// lowest equipment hit. Down-casts from above hit internal colliders and
-    /// parked the tick mid-service-head.
+    /// Lowest equipment underside under a product root.
+    /// Product-scoped: meshes owned by the product Selectable (plus rail/shelf accessories).
+    /// Nested product heads are excluded — SH+monitor previously shared one xz when
+    /// allRenderersUnderRoot skipped Selectable filtering.
     /// </summary>
     public static Vector3 UndersideOrigin(
         Transform partRoot,
         Vector3 fallback,
-        bool allowParentSelectable = true,
-        bool allRenderersUnderRoot = false)
+        Selectable productOwner,
+        bool includeAccessories = true)
     {
         if (partRoot == null)
             return fallback;
-
-        // Own selectable only — never child heads/lights under a boom arm (that parked
-        // floor ticks mid-service-head when the arm's Floor measurable owned the dim).
-        // Lights pass allRenderersUnderRoot so the head is included with the yoke.
-        Selectable ownerSel = null;
-        if (!allRenderersUnderRoot)
-        {
-            ownerSel = partRoot.GetComponent<Selectable>();
-            if (ownerSel == null && allowParentSelectable)
-                ownerSel = partRoot.GetComponentInParent<Selectable>();
-            if (ownerSel == null)
-            {
-                foreach (var s in partRoot.GetComponentsInChildren<Selectable>(true))
-                {
-                    if (s != null)
-                    {
-                        ownerSel = s;
-                        break;
-                    }
-                }
-            }
-        }
 
         Renderer lowestRenderer = null;
         float lowestBoundsY = float.MaxValue;
@@ -101,12 +85,8 @@ public static class ElevationDimPlacement
                 continue;
             if (r.bounds.size.sqrMagnitude < 1e-8f)
                 continue;
-            if (ownerSel != null)
-            {
-                var nearest = r.GetComponentInParent<Selectable>(true);
-                if (nearest != ownerSel)
-                    continue;
-            }
+            if (!RendererBelongsToProductFloor(r, productOwner, includeAccessories))
+                continue;
 
             if (r.bounds.min.y < lowestBoundsY)
             {
@@ -114,7 +94,6 @@ public static class ElevationDimPlacement
                 lowestRenderer = r;
             }
 
-            // Tilted lights: AABB center at minY is empty space — use the true lowest vertex.
             if (TryLowestMeshVertex(r, out Vector3 meshPt))
             {
                 if (!haveMeshPoint || meshPt.y < lowestMeshPoint.y)
@@ -129,7 +108,6 @@ public static class ElevationDimPlacement
             return fallback;
 
         Bounds lb = lowestRenderer.bounds;
-        // Prefer real mesh tip; else bottom of the lowest renderer (not combined AABB center).
         Vector3 tip = haveMeshPoint
             ? lowestMeshPoint
             : new Vector3(lb.center.x, lb.min.y, lb.center.z);
@@ -141,7 +119,6 @@ public static class ElevationDimPlacement
         Vector3 best = tip;
         bool hitAny = false;
 
-        // Cast only under the lowest renderer's footprint — find surface at the tip.
         const int samples = 5;
         for (int ix = 0; ix < samples; ix++)
         {
@@ -153,7 +130,8 @@ public static class ElevationDimPlacement
                 float z = Mathf.Lerp(lb.min.z, lb.max.z, v);
                 Vector3 start = new Vector3(x, floorTop + 0.02f, z);
                 float maxDist = Mathf.Max(0.05f, lb.max.y - floorTop + 0.5f);
-                if (!TryHitOwnSurface(start, Vector3.up, maxDist, partRoot, ownerSel, out Vector3 surface))
+                if (!TryHitOwnSurface(start, Vector3.up, maxDist, partRoot, productOwner,
+                        includeAccessories, out Vector3 surface))
                     continue;
                 hitAny = true;
                 if (surface.y < bestY)
@@ -167,13 +145,95 @@ public static class ElevationDimPlacement
         float visualMinY = haveMeshPoint ? lowestMeshPoint.y : lb.min.y;
         if (hitAny)
         {
-            // Collider below visible tip (stale articulation) or internal shelf above tip.
             if (bestY < visualMinY - 0.015f || bestY > visualMinY + 0.06f)
                 return tip;
             return best;
         }
 
         return tip;
+    }
+
+    public static bool RendererBelongsToProductFloor(
+        Renderer r, Selectable productOwner, bool includeAccessories)
+    {
+        if (r == null)
+            return false;
+        if (productOwner == null)
+            return true;
+
+        var nearest = r.GetComponentInParent<Selectable>(true);
+        if (nearest == null)
+            return r.transform.IsChildOf(productOwner.transform)
+                || r.transform == productOwner.transform;
+        if (nearest == productOwner)
+            return true;
+        if (!nearest.transform.IsChildOf(productOwner.transform))
+            return false;
+
+        // Arms / drop tubes never contribute to a product-head underside.
+        if (Measurable.IsSkippedMidArmFloorName(nearest))
+            return false;
+        if (Measurable.IsDropTubeName(nearest.name)
+            || Measurable.IsVerticalHangLengthName(nearest.name))
+            return false;
+
+        // Light product: include yoke/head child Selectables under the same light root.
+        if (Measurable.IsLightProductFloorOwner(productOwner))
+        {
+            if (Measurable.IsMonitorBoomProductHead(nearest))
+                return false;
+            if (Measurable.TryGetServiceHeadFloorRoot(nearest, out _)
+                && !Measurable.IsLightProductFloorOwner(nearest))
+                return false;
+            return true;
+        }
+
+        // Monitor boom head: only this head (+ non-product children), never a sibling SH.
+        if (Measurable.IsMonitorBoomProductHead(productOwner))
+        {
+            if (Measurable.IsFloorClearanceProductHead(nearest)
+                && !Measurable.IsMonitorBoomProductHead(nearest))
+                return false;
+            if (includeAccessories && Measurable.IsServiceHeadAccessoryDimOwner(nearest))
+                return true;
+            return ElevationLengthFormat.ResolveOwnSizeMeters(nearest) <= 0f;
+        }
+
+        // Service-head cabinet: include body/rails/shelves under BoomHeadScaleHandler.
+        // (Spring-arm products are not floor owners — see IsFloorClearanceProductHead.)
+        if (productOwner.GetComponent<BoomHeadScaleHandler>() != null
+            || Measurable.TryGetServiceHeadFloorRoot(productOwner, out _))
+        {
+            if (Measurable.IsMonitorBoomProductHead(nearest))
+                return false;
+            if (Measurable.IsLightProductFloorOwner(nearest))
+                return false;
+            return true;
+        }
+
+        // Fallback: accessories + non-length children.
+        if (Measurable.IsFloorClearanceProductHead(nearest))
+            return false;
+        if (includeAccessories && Measurable.IsServiceHeadAccessoryDimOwner(nearest))
+            return true;
+        return ElevationLengthFormat.ResolveOwnSizeMeters(nearest) <= 0f;
+    }
+
+    /// <summary>Legacy callers — resolve product Selectable, always product-scoped.</summary>
+    public static Vector3 UndersideOrigin(
+        Transform partRoot,
+        Vector3 fallback,
+        bool allowParentSelectable = true,
+        bool allRenderersUnderRoot = false)
+    {
+        Selectable product = null;
+        if (partRoot != null)
+        {
+            product = partRoot.GetComponent<Selectable>();
+            if (product == null && allowParentSelectable)
+                product = partRoot.GetComponentInParent<Selectable>();
+        }
+        return UndersideOrigin(partRoot, fallback, product, includeAccessories: true);
     }
 
     /// <summary>
@@ -215,7 +275,8 @@ public static class ElevationDimPlacement
     }
 
     public static bool TryHitOwnSurface(
-        Vector3 start, Vector3 dir, float maxDist, Transform root, Selectable ownerSel, out Vector3 point)
+        Vector3 start, Vector3 dir, float maxDist, Transform root, Selectable productOwner,
+        bool includeAccessories, out Vector3 point)
     {
         point = start;
         var hits = Physics.RaycastAll(start, dir, maxDist, ~0, QueryTriggerInteraction.Ignore);
@@ -232,16 +293,39 @@ public static class ElevationDimPlacement
             var t = hit.collider.transform;
             if (t != root && !t.IsChildOf(root))
                 continue;
-            if (ownerSel != null)
+            if (productOwner != null)
             {
                 var nearest = t.GetComponentInParent<Selectable>(true);
-                if (nearest != ownerSel)
+                if (nearest == productOwner)
+                {
+                    // ok
+                }
+                else if (nearest != null
+                    && nearest.transform.IsChildOf(productOwner.transform)
+                    && includeAccessories
+                    && Measurable.IsServiceHeadAccessoryDimOwner(nearest))
+                {
+                    // ok — rail/shelf under product
+                }
+                else if (nearest == null
+                    && (t.IsChildOf(productOwner.transform) || t == productOwner.transform))
+                {
+                    // ok — mesh with no Selectable
+                }
+                else
                     continue;
             }
             point = hit.point;
             return true;
         }
         return false;
+    }
+
+    /// <summary>Legacy signature — product-scoped hits only.</summary>
+    public static bool TryHitOwnSurface(
+        Vector3 start, Vector3 dir, float maxDist, Transform root, Selectable ownerSel, out Vector3 point)
+    {
+        return TryHitOwnSurface(start, dir, maxDist, root, ownerSel, includeAccessories: true, out point);
     }
 
     /// <summary>

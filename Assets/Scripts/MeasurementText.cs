@@ -3,6 +3,7 @@ using System;
 using System.Globalization;
 using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class MeasurementText : MonoBehaviour
 {
@@ -14,6 +15,9 @@ public class MeasurementText : MonoBehaviour
     private Material _defaultSharedMaterial;
     private Material _elevationSharedMaterial;
     private bool _elevationStyleApplied;
+    private Image _elevTextBacking;
+    private Canvas _elevTextCanvas;
+    private static Sprite _elevWhiteSprite;
 
     private void Awake()
     {
@@ -31,8 +35,15 @@ public class MeasurementText : MonoBehaviour
     private void OnDestroy()
     {
         Measurable.ActiveMeasurablesChanged.RemoveListener(CheckActiveState);
+        DestroyElevTextBacking();
         if (_elevationSharedMaterial != null)
             Destroy(_elevationSharedMaterial);
+    }
+
+    private void OnDisable()
+    {
+        // Plate is a canvas sibling — deactivating this label must hide it too.
+        HideElevTextBacking();
     }
 
     public static MeasurementText GetMeasurementText(Measurer measurer)
@@ -50,7 +61,10 @@ public class MeasurementText : MonoBehaviour
         if (Selectable.IsInElevationPhotoMode)
         {
             if (_measurer == null || !_measurer.ShouldDrawInElevationPhoto())
+            {
+                HideElevTextBacking();
                 gameObject.SetActive(false);
+            }
             return;
         }
 
@@ -58,6 +72,8 @@ public class MeasurementText : MonoBehaviour
             && _measurer.Measurement?.Measurable != null
             && _measurer.Measurement.Measurable.IsActive;
 
+        if (!active)
+            HideElevTextBacking();
         gameObject.SetActive(active);
     }
 
@@ -110,6 +126,7 @@ public class MeasurementText : MonoBehaviour
     {
         if (_measurer == null)
         {
+            HideElevTextBacking();
             gameObject.SetActive(false);
             return;
         }
@@ -118,6 +135,7 @@ public class MeasurementText : MonoBehaviour
             Text = GetComponent<TextMeshProUGUI>();
         if (Text == null)
         {
+            HideElevTextBacking();
             gameObject.SetActive(false);
             return;
         }
@@ -140,6 +158,7 @@ public class MeasurementText : MonoBehaviour
         {
             if (!_measurer.ShouldDrawInElevationPhoto())
             {
+                HideElevTextBacking();
                 gameObject.SetActive(false);
                 return;
             }
@@ -148,6 +167,7 @@ public class MeasurementText : MonoBehaviour
             if (Text.text != null && Text.text.IndexOf('\'') >= 0
                 && Text.text.IndexOf("mm", StringComparison.OrdinalIgnoreCase) < 0)
             {
+                HideElevTextBacking();
                 gameObject.SetActive(false);
                 return;
             }
@@ -158,7 +178,9 @@ public class MeasurementText : MonoBehaviour
             return;
         }
 
+        HideElevTextBacking();
         RestoreDefaultTextStyle();
+        ClearElevTextCanvasOverride();
 
         if (camera == null)
             return;
@@ -205,6 +227,181 @@ public class MeasurementText : MonoBehaviour
         RotateTowardCamera(camera);
         if (!isFloor)
             ElevationDimPlacement.ClampLabelInsideDimSpan(transform, Text, spanA, spanB);
+        // Ortho depth stack: white plate (near), then mm text (closer to camera).
+        Vector3 pagePos = transform.position;
+        if (Selectable.IsInElevationPhotoMode && camera != null)
+        {
+            transform.position = ElevOverlayDrawOrder.NudgeTowardCamera(
+                pagePos, camera, ElevOverlayDrawOrder.TextTowardCameraMeters);
+        }
+        EnsureElevTextBacking(camera, pagePos);
+    }
+
+    /// <summary>
+    /// Tight white plate under elev mm text. Sibling of the label (not TMP child) so
+    /// glyphs paint on top; nested text canvas sorting keeps mm above plates.
+    /// </summary>
+    void EnsureElevTextBacking(Camera camera, Vector3 pagePos)
+    {
+        if (Text == null)
+            return;
+
+        if (_elevTextBacking == null)
+        {
+            var go = new GameObject("ElevTextBacking", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            go.layer = gameObject.layer;
+            _elevTextBacking = go.GetComponent<Image>();
+            _elevTextBacking.raycastTarget = false;
+            // Milky frosted plate: white-on-white vanishes; over gear you still see a wash of it.
+            _elevTextBacking.color = new Color(1f, 1f, 1f, 0.78f);
+            if (_elevWhiteSprite == null)
+                _elevWhiteSprite = CreateElevFrostedSprite();
+            _elevTextBacking.sprite = _elevWhiteSprite;
+            _elevTextBacking.type = Image.Type.Sliced;
+            _elevTextBacking.pixelsPerUnitMultiplier = 1f;
+        }
+
+        Transform canvasParent = transform.parent;
+        if (canvasParent != null)
+        {
+            if (_elevTextBacking.transform.parent != canvasParent)
+                _elevTextBacking.transform.SetParent(canvasParent, false);
+            // Hierarchy alone is unreliable once many labels reshuffle — still keep plate
+            // immediately under this label, then force text above via nested canvas order.
+            PlaceBackingUnderLabel();
+        }
+
+        EnsureElevTextCanvasOverride();
+
+        _elevTextBacking.gameObject.SetActive(true);
+        _elevTextBacking.color = new Color(1f, 1f, 1f, 0.78f);
+        if (_elevWhiteSprite == null)
+            _elevWhiteSprite = CreateElevFrostedSprite();
+        if (_elevTextBacking.sprite != _elevWhiteSprite)
+        {
+            _elevTextBacking.sprite = _elevWhiteSprite;
+            _elevTextBacking.type = Image.Type.Sliced;
+        }
+        Text.ForceMeshUpdate();
+        Bounds gb = Text.textBounds;
+        var brt = _elevTextBacking.rectTransform;
+        brt.anchorMin = new Vector2(0.5f, 0.5f);
+        brt.anchorMax = new Vector2(0.5f, 0.5f);
+        brt.pivot = new Vector2(0.5f, 0.5f);
+        brt.localScale = transform.localScale;
+        brt.localRotation = Quaternion.identity;
+
+        const float pad = 6f;
+        brt.sizeDelta = new Vector2(gb.size.x + pad, gb.size.y + pad);
+
+        Vector3 glyphCenterPage = pagePos + transform.TransformVector(gb.center);
+        if (Selectable.IsInElevationPhotoMode && camera != null)
+        {
+            _elevTextBacking.transform.SetPositionAndRotation(
+                ElevOverlayDrawOrder.NudgeTowardCamera(
+                    glyphCenterPage, camera, ElevOverlayDrawOrder.BackingTowardCameraMeters),
+                transform.rotation);
+        }
+        else
+        {
+            _elevTextBacking.transform.SetPositionAndRotation(glyphCenterPage, transform.rotation);
+        }
+    }
+
+    void PlaceBackingUnderLabel()
+    {
+        int labelIdx = transform.GetSiblingIndex();
+        int backIdx = _elevTextBacking.transform.GetSiblingIndex();
+        if (backIdx > labelIdx)
+        {
+            // Insert before label (label shifts right).
+            _elevTextBacking.transform.SetSiblingIndex(labelIdx);
+        }
+        else if (backIdx < labelIdx - 1)
+        {
+            _elevTextBacking.transform.SetSiblingIndex(labelIdx - 1);
+        }
+
+        // Never leave the plate after the label.
+        if (transform.GetSiblingIndex() < _elevTextBacking.transform.GetSiblingIndex())
+            transform.SetSiblingIndex(_elevTextBacking.transform.GetSiblingIndex());
+    }
+
+    void EnsureElevTextCanvasOverride()
+    {
+        if (_elevTextCanvas == null)
+        {
+            _elevTextCanvas = GetComponent<Canvas>();
+            if (_elevTextCanvas == null)
+                _elevTextCanvas = gameObject.AddComponent<Canvas>();
+        }
+        _elevTextCanvas.overrideSorting = true;
+        _elevTextCanvas.sortingOrder = ElevOverlayDrawOrder.TextSortingOrder;
+    }
+
+    void ClearElevTextCanvasOverride()
+    {
+        if (_elevTextCanvas != null)
+            _elevTextCanvas.overrideSorting = false;
+    }
+
+    /// <summary>Hide/destroy elev plate leftovers (sibling of label, not auto-disabled with it).</summary>
+    public void HideElevOverlays()
+    {
+        HideElevTextBacking();
+        ClearElevTextCanvasOverride();
+    }
+
+    void HideElevTextBacking()
+    {
+        if (_elevTextBacking != null)
+            _elevTextBacking.gameObject.SetActive(false);
+    }
+
+    void DestroyElevTextBacking()
+    {
+        if (_elevTextBacking == null)
+            return;
+        Destroy(_elevTextBacking.gameObject);
+        _elevTextBacking = null;
+    }
+
+    /// <summary>
+    /// Soft-edged white sprite for elev label plates. Alpha falls off at the border so
+    /// plates read as frosted pads (equipment washes through) instead of hard boxes.
+    /// </summary>
+    static Sprite CreateElevFrostedSprite()
+    {
+        const int size = 64;
+        const int border = 14;
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false)
+        {
+            name = "ElevFrostedPlate",
+            wrapMode = TextureWrapMode.Clamp,
+            filterMode = FilterMode.Bilinear,
+            hideFlags = HideFlags.HideAndDontSave
+        };
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float dx = Mathf.Min(x + 1, size - x) / (float)border;
+                float dy = Mathf.Min(y + 1, size - y) / (float)border;
+                float a = Mathf.Clamp01(Mathf.Min(dx, dy));
+                a = a * a * (3f - 2f * a); // smoothstep
+                tex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+            }
+        }
+        tex.Apply(false, true);
+        return Sprite.Create(
+            tex,
+            new Rect(0, 0, size, size),
+            new Vector2(0.5f, 0.5f),
+            100f,
+            0,
+            SpriteMeshType.FullRect,
+            new Vector4(border, border, border, border));
     }
 
     /// <summary>

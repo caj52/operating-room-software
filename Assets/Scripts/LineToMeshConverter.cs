@@ -197,7 +197,7 @@ public class LineToMeshConverter : MonoBehaviour
                 SetRendererColor(this, new Color(1f, 0f, 0f, 0.5f)); // Red
                 SetRendererColor(other.GetComponent<LineToMeshConverter>(), new Color(1f, 0f, 0f, 0.5f));
 
-                if (UI_ToggleProximityAlerts.IsActive)
+                if (UI_ToggleProximityAlerts.IsActive && !Selectable.IsInElevationPhotoMode)
                 {
                     if (sameParentTandem)
                     {
@@ -234,7 +234,7 @@ public class LineToMeshConverter : MonoBehaviour
             Debug.Log("Anas => Touching the Wall!");
             SetRendererColor(this, new Color(1f, 0f, 0f, 0.5f));
 
-            if (UI_ToggleProximityAlerts.IsActive)
+            if (UI_ToggleProximityAlerts.IsActive && !Selectable.IsInElevationPhotoMode)
             {
            UI_DialogPrompt.Open($"{selectable.UIButtonName} is touching the wall!",
            new ButtonAction

@@ -58,13 +58,13 @@ public class Measurable : MonoBehaviour
 
     public static UnityEvent ActiveMeasurablesChanged { get; } = new UnityEvent();
     private static readonly float _lineRendererSizeScalar = 0.005f;
-    /// <summary>Floor-dim mm values already placed this elevation capture (dedupe note 1).</summary>
-    private static readonly HashSet<int> _elevationFloorMmUsed = new();
+    /// <summary>Floor product heads already cleared this elevation capture (one floor dim each).</summary>
+    private static readonly HashSet<int> _elevationFloorHeadIdsUsed = new();
     private static int _elevationFloorSepIndex;
 
     public static void BeginElevationMeasurementPass()
     {
-        _elevationFloorMmUsed.Clear();
+        _elevationFloorHeadIdsUsed.Clear();
         _elevationFloorSepIndex = 0;
     }
 
@@ -485,6 +485,23 @@ public class Measurable : MonoBehaviour
     }
 
     /// <summary>
+    /// Cutsheet floor pass: allow Floor draw even when the prefab left ShowInElevationPhoto off.
+    /// </summary>
+    public void EnsureConfiguredAsElevationFloor()
+    {
+        if (MeasurementTypes == null)
+            MeasurementTypes = new List<MeasurementType>();
+        if (!MeasurementTypes.Contains(MeasurementType.Floor))
+            MeasurementTypes.Add(MeasurementType.Floor);
+        ShowInElevationPhoto = true;
+        Disabled = false;
+        // Types alone are not enough once Measurements has already been initialized.
+        SyncMissingMeasurementsFromTypes();
+        foreach (var m in Measurements)
+            m?.EnsureMeasurerExists();
+    }
+
+    /// <summary>
     /// Dual-select strips "(Clone)" / ".001" so ArmDropTube(Clone) matches ArmDropTube.001.
     /// Also normalizes the FBX typo "BoomSegement" → "BoomSegment" so dual-select twins
     /// share one stem (saved configs may still carry the misspelled GO name).
@@ -547,7 +564,8 @@ public class Measurable : MonoBehaviour
 
     /// <summary>
     /// World bounds of the length owner's meshes, including same-stem dual-select twins
-    /// (Size on .001, mesh on Clone). Never includes unrelated child Selectables.
+    /// (Size on .001, mesh on Clone) that share this arm's parent — never cousin arms
+    /// under a shared ceiling mount (that lumped two Sim.FLEX reaches into one dim).
     /// </summary>
     public static bool TryGetOwnRendererBounds(Selectable owner, out Bounds bounds)
     {
@@ -568,14 +586,16 @@ public class Measurable : MonoBehaviour
                 }
             }
 
-            // Sibling / parent twins under a shared mount (Related list often empty).
-            Transform walk = owner.transform.parent;
-            for (int depth = 0; walk != null && depth < 6; depth++, walk = walk.parent)
+            // Dual-select Clone/.001 under the same arm parent only — do not walk
+            // grandparents (that pulled sibling Sim.FLEX arms into one AABB).
+            Transform parent = owner.transform.parent;
+            if (parent != null)
             {
-                foreach (var sib in walk.GetComponentsInChildren<Selectable>(true))
+                foreach (var sib in parent.GetComponentsInChildren<Selectable>(true))
                 {
-                    if (sib != null && DualSelectStem(sib.name) == stem)
-                        owners.Add(sib);
+                    if (sib == null || DualSelectStem(sib.name) != stem)
+                        continue;
+                    owners.Add(sib);
                 }
             }
         }
@@ -893,6 +913,28 @@ public class Measurable : MonoBehaviour
             }
         }
 
+        // Head-on skip is for boom arms only — drop tubes / vertical hang lengths look
+        // the same from every elev angle, so never hide them for "page span".
+        if (camera != null
+            && !vertical
+            && !IsDropTubeName(owner.name)
+            && !IsVerticalHangLengthName(owner.name))
+        {
+            Vector3 pageDelta = Vector3.ProjectOnPlane(
+                featureB - featureA, camera.transform.forward);
+            float pageSpan = pageDelta.magnitude;
+            float minPage = Mathf.Max(0.12f, catalogLen * 0.4f);
+            if (pageSpan < minPage)
+            {
+                Debug.Log(
+                    $"[ElevDim] skip head-on length owner={owner.name} " +
+                    $"catalogMm={Mathf.RoundToInt(catalogLen * 1000f)} " +
+                    $"pageSpan={pageSpan:F3} min={minPage:F3}",
+                    this);
+                return false;
+            }
+        }
+
         // --- Layout: offset MUST be perpendicular to the length axis ---
         // Lateral offset along the arm collapses leaders into the body (single line
         // through the tube with no end ticks). Horizontal → up/down; vertical → cam-right.
@@ -912,14 +954,17 @@ public class Measurable : MonoBehaviour
                 right = Vector3.right;
             right.Normalize();
 
-            // Short tubes: keep leaders shorter than the dim span so a 100mm callout
-            // does not draw as a wide empty rectangle beside the tube (0.18m leaders
-            // on a 0.10m span looked like a floating box).
+            // Short tubes normally keep compact leaders; crowded cutsheet lanes win so
+            // stacked 50–100 mm callouts at a joint still clear the assembly.
             bool shortTube = catalogLen <= 0.35f || IsDropTubeName(owner.name);
-            lane = shortTube
-                ? Mathf.Clamp(catalogLen * 0.35f, 0.03f, 0.08f)
-                : (CutsheetLayoutSideMeters > 0.05f ? CutsheetLayoutSideMeters : 0.28f);
-            float pad = shortTube ? 0.02f : ElevationDimPlacement.AssemblyClearPadMeters;
+            float layoutSide = CutsheetLayoutSideMeters > 0.05f
+                ? CutsheetLayoutSideMeters
+                : ElevationDimPlacement.CutsheetLaneBaseMeters;
+            float compactLane = Mathf.Clamp(catalogLen * 0.35f, 0.03f, 0.08f);
+            lane = shortTube ? Mathf.Max(compactLane, layoutSide) : layoutSide;
+            float pad = (shortTube && layoutSide < 0.35f)
+                ? 0.02f
+                : ElevationDimPlacement.AssemblyClearPadMeters;
             Bounds tubeBounds = asmBounds;
             if (TryGetStrictOwnRendererBounds(owner, out Bounds colB) && colB.size.y > 0.02f)
                 tubeBounds = colB;
@@ -962,7 +1007,9 @@ public class Measurable : MonoBehaviour
         else
         {
             // Always offset along world up (⊥ arm axis in elevation) so leaders form end ticks.
-            lane = CutsheetLayoutLiftMeters > 0.05f ? CutsheetLayoutLiftMeters : 0.28f;
+            lane = CutsheetLayoutLiftMeters > 0.05f
+                ? CutsheetLayoutLiftMeters
+                : ElevationDimPlacement.CutsheetLaneBaseMeters;
             float pad = ElevationDimPlacement.AssemblyClearPadMeters;
             float ceilingY = ElevationDimPlacement.CeilingUndersideY();
             float floorY = ElevationDimPlacement.FloorTopY();
@@ -1007,6 +1054,12 @@ public class Measurable : MonoBehaviour
 
         measurer.ElevationPreferLabelBelow = labelBelow;
         measurer.ElevationLabelSideSign = labelSideSign;
+        if (offset.sqrMagnitude > 1e-8f)
+            measurer.ElevationOutboardDir = offset.normalized;
+        else if (vertical && camera != null)
+            measurer.ElevationOutboardDir = camera.transform.right * (labelSideSign != 0f ? labelSideSign : 1f);
+        else
+            measurer.ElevationOutboardDir = labelBelow ? Vector3.down : Vector3.up;
 
         // Body outside the silhouette; extension lines stub to mesh ends.
         // Label always prints catalog mm (Measurer), even when drawn span follows mesh.
@@ -1140,8 +1193,16 @@ public class Measurable : MonoBehaviour
         if (Disabled)
             return;
 
+        if (Measurements == null)
+            return;
+
+        // Types can gain Floor/ToOrigin after the first Initialize() (cutsheet ensure helpers).
+        // NewBoomHead log: curated FLR but drewFloor=0 — Floor was in MeasurementTypes,
+        // Measurements still had no Floor entry so Apply never enabled a floor measurer.
         if (Measurements.Count == 0 && MeasurementTypes != null && MeasurementTypes.Count > 0)
             Initialize();
+        else
+            SyncMissingMeasurementsFromTypes();
 
         foreach (var m in Measurements)
             m?.EnsureMeasurerExists();
@@ -1150,6 +1211,34 @@ public class Measurable : MonoBehaviour
         // (deferred init / dual-selectables can leave CurrentScaleLevel null).
         var owner = GetOwningSelectable();
         owner?.EnsureCurrentScaleLevelFromCatalog();
+    }
+
+    /// <summary>
+    /// Add any MeasurementTypes that are missing from the live Measurements list.
+    /// Initialize() no-ops when Count &gt; 0, so type mutations must sync here.
+    /// </summary>
+    void SyncMissingMeasurementsFromTypes()
+    {
+        if (MeasurementTypes == null || MeasurementTypes.Count == 0)
+            return;
+
+        foreach (var type in MeasurementTypes)
+        {
+            if (type == MeasurementType.Walls)
+                continue; // wall set is multi-entry; cutsheet never draws walls
+            bool have = false;
+            for (int i = 0; i < Measurements.Count; i++)
+            {
+                if (Measurements[i] != null && Measurements[i].MeasurementType == type)
+                {
+                    have = true;
+                    break;
+                }
+            }
+            if (have)
+                continue;
+            Measurements.Add(new Measurement(this) { MeasurementType = type });
+        }
     }
 
     /// <summary>
@@ -1196,7 +1285,7 @@ public class Measurable : MonoBehaviour
 
             bool cutsheetFloor = drawFloor
                 && item.MeasurementType == MeasurementType.Floor
-                && ShowInElevationPhoto
+                && (ShowInElevationPhoto || CutsheetAllowFloorDraw)
                 && !ShouldSkipElevationFloorDim();
 
             // Pinned cutsheet length (incl. dual-select borrow) wins over the host
@@ -1493,40 +1582,45 @@ public class Measurable : MonoBehaviour
             return fallback;
 
         Transform root = null;
-        bool allowParentSelectable = true;
-        bool allRenderersUnderRoot = false;
+        Selectable productOwner = null;
 
         // Light product roots (U202 / Simeon_*): Floor measurable is a child of the root
         // Selectable, while LightFactory + head meshes live under a *different* child
         // Selectable. Parent/self factory search always missed, so UndersideOrigin filtered
-        // to yoke-only meshes and the tick sat on the arm. Include every renderer under
-        // the light root. Boom/Arm names are excluded so hanging lights don't steal boom floors.
+        // to yoke-only meshes and the tick sat on the arm. Include accessories under the
+        // light root; exclude nested other product heads.
         var owner = GetOwningSelectable() ?? GetComponentInParent<Selectable>();
         if (IsLightProductFloorOwner(owner))
         {
             root = owner.transform;
-            allowParentSelectable = false;
-            allRenderersUnderRoot = true;
+            productOwner = owner;
             Debug.Log(
                 $"[ElevDim] FLOOR ROOT lightProduct owner={owner.name} " +
-                $"measurable={name} allRenderers=True",
+                $"measurable={name}",
+                this);
+        }
+        else if (IsMonitorBoomProductHead(owner))
+        {
+            root = owner.transform;
+            productOwner = owner;
+            Debug.Log(
+                $"[ElevDim] FLOOR ROOT monitorBoom owner={owner.name} " +
+                $"measurable={name}",
                 this);
         }
         else if (TryGetServiceHeadFloorRoot(owner, out Transform headRoot))
         {
-            // Rails/shelves under the head must not own the clearance tick — use the full
-            // head mesh (lowest vertex) so the dim reads floor → service-head bottom.
             root = headRoot;
-            allowParentSelectable = false;
-            allRenderersUnderRoot = true;
+            productOwner = headRoot.GetComponent<Selectable>() ?? owner;
             Debug.Log(
                 $"[ElevDim] FLOOR ROOT serviceHead owner={owner.name} " +
-                $"head={headRoot.name} measurable={name} allRenderers=True",
+                $"head={headRoot.name} measurable={name}",
                 this);
         }
         else if (owner != null)
         {
             root = owner.transform;
+            productOwner = owner;
         }
 
         if (root == null)
@@ -1534,7 +1628,7 @@ public class Measurable : MonoBehaviour
 
         if (floorCast)
             return ElevationDimPlacement.UndersideOrigin(
-                root, fallback, allowParentSelectable, allRenderersUnderRoot);
+                root, fallback, productOwner, includeAccessories: true);
 
         // Ceiling: highest renderer top (rare on cutsheets).
         float maxY = float.MinValue;
@@ -1555,7 +1649,7 @@ public class Measurable : MonoBehaviour
     /// <summary>
     /// U|ONE / U|002 style light roots — not boom/arm segments that may contain a hanging light.
     /// </summary>
-    static bool IsLightProductFloorOwner(Selectable owner)
+    public static bool IsLightProductFloorOwner(Selectable owner)
     {
         if (owner == null)
             return false;
@@ -1576,6 +1670,72 @@ public class Measurable : MonoBehaviour
         return owner.GetComponentInChildren<LightFactory>(true) != null;
     }
 
+    /// <summary>
+    /// Product heads that own a floor→underside clearance (SH cabinet, monitor, light).
+    /// Mount GUID roots / boom arms / spring arms / tubes are not product heads.
+    /// Log bug: name-matching SpringBottom/1000SH curated a spring-arm floor at
+    /// undersideY≈2.41 next to the monitor (looked like arm→floor 2410).
+    /// SpringBottom prefab is only XXLLargeSpringArticulatingLowerArm — no cabinet.
+    /// </summary>
+    public static bool IsFloorClearanceProductHead(Selectable sel)
+    {
+        if (sel == null)
+            return false;
+        // True SH cabinet (row-tier head), not spring/boom arm names.
+        if (sel.GetComponent<BoomHeadScaleHandler>() != null)
+            return true;
+        if (IsMonitorBoomProductHead(sel))
+            return true;
+        if (IsLightProductFloorOwner(sel))
+            return true;
+
+        string n = sel.name;
+        // Assembly roots are renamed to a GUID — never treat those as product floors.
+        if (LooksLikeGuidName(n))
+            return false;
+
+        // Spring / boom arms must never qualify via broad "1000SH" / "SpringBottom" names.
+        if (IsSkippedMidArmFloorName(sel))
+            return false;
+        if (n.IndexOf("SpringBottom", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("SpringLoaded", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("BoomArm", StringComparison.OrdinalIgnoreCase) >= 0)
+            return false;
+
+        return n.IndexOf("NewBoomHead", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("ServiceHead", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("BoomHead", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    static bool LooksLikeGuidName(string n)
+    {
+        if (string.IsNullOrEmpty(n) || n.Length < 32)
+            return false;
+        // e.g. 9a468f1b-14d1-4a5a-8b66-649e7d2527cb
+        int hyphens = 0;
+        for (int i = 0; i < n.Length; i++)
+        {
+            char c = n[i];
+            if (c == '-')
+                hyphens++;
+            else if (!((c >= '0' && c <= '9')
+                       || (c >= 'a' && c <= 'f')
+                       || (c >= 'A' && c <= 'F')))
+                return false;
+        }
+        return hyphens >= 4;
+    }
+
+    /// <summary>Monitor boom head — own floor clearance (parallel to service-head underside).</summary>
+    public static bool IsMonitorBoomProductHead(Selectable owner)
+    {
+        if (owner == null)
+            return false;
+        string n = owner.name;
+        return n.IndexOf("MonitorBoomHead", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("LargeMonitorBoomHead", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
     private static void ForceBlackLeaders(LineRenderer lr)
     {
         if (lr == null) return;
@@ -1587,6 +1747,8 @@ public class Measurable : MonoBehaviour
             new[] { new GradientColorKey(Color.black, 0f), new GradientColorKey(Color.black, 1f) },
             new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(1f, 1f) });
         lr.colorGradient = grad;
+        if (Selectable.IsInElevationPhotoMode)
+            ElevOverlayDrawOrder.ApplyToLineRenderer(lr);
     }
 
     /// <summary>
@@ -1599,29 +1761,73 @@ public class Measurable : MonoBehaviour
         if (!Selectable.IsInElevationPhotoMode)
             return false;
 
-        var sel = GetComponentInParent<Selectable>();
+        // Cutsheet curation pins the product head (NewBoomHead / monitor / light).
+        // That pin wins over parent-chain heuristics — Measurable_ToFloor often sits under
+        // rails/shelves, and IsServiceHeadAccessoryDimOwner(parent) was skipping the only
+        // SH floor (log: curated FLR NewBoomHead → drewFloor=0, no FLOOR PLACE).
+        if (CutsheetAllowFloorDraw
+            && CutsheetLengthOwner != null
+            && IsFloorClearanceProductHead(CutsheetLengthOwner))
+            return false;
+
+        var owner = GetOwningSelectable();
+        var parent = GetComponentInParent<Selectable>();
+
+        if (IsSkippedMidArmFloorName(owner) || IsSkippedMidArmFloorName(parent))
+            return true;
+
+        if (IsDropTubeName(owner?.name)
+            || IsDropTubeName(parent?.name)
+            || IsVerticalHangLengthName(owner?.name)
+            || IsVerticalHangLengthName(parent?.name))
+            return true;
+
+        // Prefer the pinned/owning selectable for product / accessory checks.
+        var sel = owner ?? parent;
         if (sel == null || sel.gameObject == null)
             return false;
 
-        string n = sel.gameObject.name;
-        // Always skip proximal light/boom arms — even when a LightFactory sits under the arm.
-        // Keeping them used to draw clearance to the yoke while the head hangs lower.
-        if (n.IndexOf("BoomSegment_1", StringComparison.OrdinalIgnoreCase) >= 0
-            || n.IndexOf("ArmSegment_1", StringComparison.OrdinalIgnoreCase) >= 0
-            || n.IndexOf("TopArm", StringComparison.OrdinalIgnoreCase) >= 0)
+        if (!IsFloorClearanceProductHead(sel))
             return true;
 
-        // Top boom housing / IU cover naming.
+        string n = sel.gameObject.name;
         if (n.IndexOf("TurningCover", StringComparison.OrdinalIgnoreCase) >= 0
             || n.IndexOf("CeilingCover", StringComparison.OrdinalIgnoreCase) >= 0
             || n.IndexOf("TandemCover", StringComparison.OrdinalIgnoreCase) >= 0)
             return true;
 
-        // Rear_Rail / shelves: their Floor measurables parked ticks mid-head. One clearance
-        // dim on the service-head body (allRenderers) is enough.
         if (IsServiceHeadAccessoryDimOwner(sel))
             return true;
 
+        return false;
+    }
+
+    /// <summary>
+    /// Mid-arm / spring / powered arm tubes — floor clearance belongs on the distal head,
+    /// not the arm. Includes 1000SH_XXL_SpringBottom (spring mesh only, no SH cabinet).
+    /// </summary>
+    public static bool IsSkippedMidArmFloorName(Selectable sel)
+    {
+        if (sel == null || sel.gameObject == null)
+            return false;
+        string n = sel.gameObject.name;
+        // All BoomSegment_* arms (incl. BoomSegment_2Powered) — log showed these stealing
+        // the only floor dim while NewBoomHead never got curated.
+        if (n.IndexOf("BoomSegment", StringComparison.OrdinalIgnoreCase) >= 0)
+            return true;
+        if (n.IndexOf("ArmSegment", StringComparison.OrdinalIgnoreCase) >= 0)
+            return true;
+        if (n.IndexOf("TopArm", StringComparison.OrdinalIgnoreCase) >= 0)
+            return true;
+        if (n.IndexOf("SpringBottom", StringComparison.OrdinalIgnoreCase) >= 0)
+            return true;
+        if (n.IndexOf("SpringLoaded", StringComparison.OrdinalIgnoreCase) >= 0)
+            return true;
+        if (n.IndexOf("BoomArm", StringComparison.OrdinalIgnoreCase) >= 0)
+            return true;
+        if (n.IndexOf("MCP", StringComparison.OrdinalIgnoreCase) >= 0
+            && n.IndexOf("Head", StringComparison.OrdinalIgnoreCase) < 0)
+            return true;
         return false;
     }
 
@@ -1646,7 +1852,8 @@ public class Measurable : MonoBehaviour
     }
 
     /// <summary>
-    /// Selectable / parent that owns the service-head body (BoomHeadScaleHandler or SH name).
+    /// Selectable / parent that owns the service-head cabinet (BoomHeadScaleHandler or head name).
+    /// SpringBottom / 1000SH boom arms are not SH floor roots.
     /// </summary>
     public static bool TryGetServiceHeadFloorRoot(Selectable owner, out Transform headRoot)
     {
@@ -1666,8 +1873,12 @@ public class Measurable : MonoBehaviour
         {
             string n = t.name;
             if (n.IndexOf("SpringBottom", StringComparison.OrdinalIgnoreCase) >= 0
-                || n.IndexOf("1000SH", StringComparison.OrdinalIgnoreCase) >= 0
-                || n.IndexOf("ServiceHead", StringComparison.OrdinalIgnoreCase) >= 0)
+                || n.IndexOf("SpringLoaded", StringComparison.OrdinalIgnoreCase) >= 0
+                || n.IndexOf("BoomArm", StringComparison.OrdinalIgnoreCase) >= 0)
+                continue;
+            if (n.IndexOf("NewBoomHead", StringComparison.OrdinalIgnoreCase) >= 0
+                || n.IndexOf("ServiceHead", StringComparison.OrdinalIgnoreCase) >= 0
+                || n.IndexOf("BoomHead", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 headRoot = t;
                 return true;
@@ -1675,6 +1886,62 @@ public class Measurable : MonoBehaviour
         }
 
         return false;
+    }
+
+    /// <summary>Product root used for floor-clearance ownership (one dim per head).</summary>
+    Transform ResolveElevationFloorHeadRoot()
+    {
+        var owner = GetComponentInParent<Selectable>(true) ?? GetOwningSelectable();
+        if (IsMonitorBoomProductHead(owner))
+            return owner.transform;
+        if (IsLightProductFloorOwner(owner))
+            return owner.transform;
+        if (TryGetServiceHeadFloorRoot(owner, out Transform head) && !IsMonitorBoomProductHead(owner))
+            return head;
+        return owner != null ? owner.transform : transform;
+    }
+
+    /// <summary>
+    /// Horizontal anchor for a floor dim — product head bounds center (not lowest-tip xz).
+    /// </summary>
+    static bool TryGetProductFloorAnchorXZ(Transform head, out float x, out float z)
+    {
+        x = 0f;
+        z = 0f;
+        if (head == null)
+            return false;
+
+        var product = head.GetComponent<Selectable>()
+            ?? head.GetComponentInParent<Selectable>();
+        bool any = false;
+        Bounds b = default;
+        foreach (var r in head.GetComponentsInChildren<Renderer>(true))
+        {
+            if (r == null || !r.enabled || !r.gameObject.activeInHierarchy)
+                continue;
+            if (r.bounds.size.sqrMagnitude < 1e-8f)
+                continue;
+            if (!ElevationDimPlacement.RendererBelongsToProductFloor(r, product, true))
+                continue;
+            if (!any)
+            {
+                b = r.bounds;
+                any = true;
+            }
+            else
+                b.Encapsulate(r.bounds);
+        }
+
+        if (any)
+        {
+            x = b.center.x;
+            z = b.center.z;
+            return true;
+        }
+
+        x = head.position.x;
+        z = head.position.z;
+        return true;
     }
 
     private float GetDistanceToCameraPlane(Vector3 point, Camera camera = null)
@@ -1745,6 +2012,13 @@ public class Measurable : MonoBehaviour
                     {
                         if (item.Measurer != null)
                             item.Measurer.gameObject.SetActive(false);
+                        Debug.LogWarning(
+                            $"[ElevDim] FLOOR SKIP ShouldSkip measurable={name} " +
+                            $"pinned={(CutsheetLengthOwner != null ? CutsheetLengthOwner.name : "null")} " +
+                            $"owner={(GetOwningSelectable() != null ? GetOwningSelectable().name : "null")} " +
+                            $"parent={(GetComponentInParent<Selectable>() != null ? GetComponentInParent<Selectable>().name : "null")} " +
+                            $"allowFloor={CutsheetAllowFloorDraw}",
+                            this);
                         break;
                     }
 
@@ -1757,32 +2031,60 @@ public class Measurable : MonoBehaviour
                         hp.y = ElevationDimPlacement.FloorTopY();
                         item.HitPoint = hp;
 
-                        // Note 1: dedupe near-identical floor heights; separate survivors laterally.
-                        float span = Vector3.Distance(item.Origin, item.HitPoint);
-                        int mm = Mathf.RoundToInt(span * 1000f);
-                        bool duplicate = false;
-                        foreach (int used in _elevationFloorMmUsed)
+                        // One floor clearance per hanging product (SH, monitor, light) —
+                        // never mid-arm tubes. Y = true underside; XZ = product head center
+                        // so the dim reads under the head (log 2410/2264 looked like "arm to
+                        // floor" when tip xz sat under the boom joint).
+                        Transform floorHead = ResolveElevationFloorHeadRoot();
+                        if (floorHead != null
+                            && TryGetProductFloorAnchorXZ(floorHead, out float ax, out float az))
                         {
-                            if (Mathf.Abs(used - mm) <= 5)
-                            {
-                                duplicate = true;
-                                break;
-                            }
+                            Vector3 o = item.Origin;
+                            Vector3 tipXZ = new Vector3(o.x, 0f, o.z);
+                            o.x = ax;
+                            o.z = az;
+                            item.Origin = o;
+                            hp = item.HitPoint;
+                            hp.x = ax;
+                            hp.z = az;
+                            item.HitPoint = hp;
+                            Debug.Log(
+                                $"[ElevDim] FLOOR XZ snap head={floorHead.name} " +
+                                $"tipXZ=({tipXZ.x:F2},{tipXZ.z:F2}) → headXZ=({ax:F2},{az:F2})",
+                                this);
                         }
 
-                        if (duplicate)
+                        int headId = floorHead != null
+                            ? floorHead.GetInstanceID()
+                            : (GetComponentInParent<Selectable>(true)?.GetInstanceID() ?? GetInstanceID());
+                        if (_elevationFloorHeadIdsUsed.Contains(headId))
                         {
                             item.Measurer.gameObject.SetActive(false);
+                            Debug.LogWarning(
+                                $"[ElevDim] FLOOR SKIP head-id already used measurable={name} " +
+                                $"owner={(GetOwningSelectable() != null ? GetOwningSelectable().name : "null")} " +
+                                $"head={(floorHead != null ? floorHead.name : "null")}",
+                                this);
                             break;
                         }
 
-                        _elevationFloorMmUsed.Add(mm);
+                        float span = Vector3.Distance(item.Origin, item.HitPoint);
+                        int mm = Mathf.RoundToInt(span * 1000f);
+
+                        _elevationFloorHeadIdsUsed.Add(headId);
                         _elevationFloorSepIndex++;
 
-                        // Keep the dim line ON the equipment (ticks must read). Text
-                        // placement alone handles left/right separation — do not shove
-                        // Origin/HitPoint away from the part.
                         item.Measurer.ElevationTextLane = _elevationFloorSepIndex;
+                        item.Measurer.ElevationLabelSideSign =
+                            (_elevationFloorSepIndex % 2 == 0) ? 1f : -1f;
+                        if (camera != null)
+                        {
+                            Vector3 r = camera.transform.right;
+                            r.y = 0f;
+                            if (r.sqrMagnitude > 1e-8f)
+                                item.Measurer.ElevationOutboardDir =
+                                    r.normalized * item.Measurer.ElevationLabelSideSign;
+                        }
                         item.Measurer.gameObject.SetActive(true);
                         item.Measurer.UpdateTransform(camera);
 
@@ -1807,6 +2109,7 @@ public class Measurable : MonoBehaviour
                             fLead0.startWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(o, camera);
                             fLead0.endWidth = fLead0.startWidth;
                             ForceBlackLeaders(fLead0);
+                            ElevOverlayDrawOrder.NudgeLineRendererTowardCamera(fLead0, camera);
 
                             fLead1.enabled = true;
                             fLead1.positionCount = 2;
@@ -1815,13 +2118,17 @@ public class Measurable : MonoBehaviour
                             fLead1.startWidth = _lineRendererSizeScalar * GetDistanceToCameraPlane(h, camera);
                             fLead1.endWidth = fLead1.startWidth;
                             ForceBlackLeaders(fLead1);
+                            ElevOverlayDrawOrder.NudgeLineRendererTowardCamera(fLead1, camera);
                         }
+
+                        item.Measurer.SyncLeaderFrostedBackings(camera);
 
                         Debug.Log(
                             $"[ElevDim] FLOOR PLACE measurable={name} " +
                             $"owner={(GetOwningSelectable() != null ? GetOwningSelectable().name : "null")} " +
                             $"undersideY={item.Origin.y:F3} floorY={item.HitPoint.y:F3} " +
-                            $"spanMm={mm} xz=({item.Origin.x:F2},{item.Origin.z:F2})",
+                            $"spanMm={mm} xz=({item.Origin.x:F2},{item.Origin.z:F2}) " +
+                            $"head={(floorHead != null ? floorHead.name : "null")}",
                             this);
                     }
                     break;
@@ -1871,7 +2178,10 @@ public class Measurable : MonoBehaviour
                         bool vertical = ShouldUseVerticalCatalogCallout(catalogLen, horiz);
                         if (!TryBuildCatalogLengthCallout(
                                 item, measurer, camera, catalogLen, vertical, ref heightMod))
+                        {
+                            measurer.DisableElevationVisuals();
                             measurer.gameObject.SetActive(false);
+                        }
                         break;
                     }
 
@@ -1940,6 +2250,8 @@ public class Measurable : MonoBehaviour
 
     public void CheckProximity(GameObject referenceObject, float minThresholdDistance, float maxThresholdDistance)
     {
+        if (Selectable.IsInElevationPhotoMode)
+            return;
         if (UI_ToggleProximityAlerts.IsActive)
         {
 

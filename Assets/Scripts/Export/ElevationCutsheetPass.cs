@@ -21,8 +21,22 @@ public static class ElevationCutsheetPass
         foreach (var mt in Object.FindObjectsByType<MeasurementText>(
                      FindObjectsInactive.Include, FindObjectsSortMode.None))
         {
-            if (mt != null)
-                mt.gameObject.SetActive(false);
+            if (mt == null)
+                continue;
+            mt.HideElevOverlays();
+            mt.gameObject.SetActive(false);
+        }
+
+        // Orphan plates (sibling under canvas, not destroyed with a disabled label).
+        var canvasGo = GameObject.Find("UI_WorldspaceText");
+        if (canvasGo != null)
+        {
+            for (int i = canvasGo.transform.childCount - 1; i >= 0; i--)
+            {
+                var child = canvasGo.transform.GetChild(i);
+                if (child != null && child.name == "ElevTextBacking")
+                    child.gameObject.SetActive(false);
+            }
         }
 
         foreach (var measurer in Object.FindObjectsByType<Measurer>(
@@ -110,9 +124,6 @@ public static class ElevationCutsheetPass
                 // enough — borrow/draw gates handle hosts that cleared the flag.
                 if (measurable == null || measurable.Disabled)
                     continue;
-                if (!measurable.ShowInElevationPhoto
-                    && !(sizeM > 0f && HasToOriginType(measurable)))
-                    continue;
 
                 bool hasToOrigin = measurable.Measurements != null
                     && measurable.Measurements.Any(m =>
@@ -128,6 +139,15 @@ public static class ElevationCutsheetPass
                 if (!hasFloor && measurable.MeasurementTypes != null
                     && measurable.MeasurementTypes.Contains(MeasurementType.Floor))
                     hasFloor = true;
+
+                // Length curation: ShowInElevationPhoto preferred, but Size + ToOrigin is
+                // enough — borrow/draw gates handle hosts that cleared the flag.
+                // Floor: allow even when ShowInElevationPhoto is off (NewBoomHead child
+                // Measurable_ToFloor is often unflagged — log: floors=1 only BoomSegment_2).
+                if (!measurable.ShowInElevationPhoto
+                    && !(sizeM > 0f && hasToOrigin)
+                    && !hasFloor)
+                    continue;
 
                 if (hasToOrigin && sizeM > 0f
                     && !Measurable.IsServiceHeadAccessoryDimOwner(sel))
@@ -150,14 +170,45 @@ public static class ElevationCutsheetPass
                         lengthByOwner[sel] = (measurable, sizeM);
                 }
 
-                if (hasFloor && !Measurable.IsServiceHeadAccessoryDimOwner(sel))
+                if (hasFloor
+                    && Measurable.IsFloorClearanceProductHead(sel)
+                    && !Measurable.IsServiceHeadAccessoryDimOwner(sel)
+                    && !Measurable.IsSkippedMidArmFloorName(sel)
+                    && !Measurable.IsDropTubeName(sel.name))
                 {
-                    // One floor ray per source selectable. Skip decision happens at draw time.
-                    // Rails under the head are skipped — clearance uses the head body.
+                    // Only product heads (SH / monitor / light) — never mount GUID roots.
+                    // Log: FLR {guid}→floor stole SH head id then orphan-killed → no SH floor.
                     if (!floorBySource.ContainsKey(sel))
                         floorBySource[sel] = measurable;
                 }
             }
+        }
+
+        // Service / monitor / light heads: guarantee a floor clearance even when the Floor
+        // Measurable wasn't listed on sel.Measurables (child Measurable_ToFloor not linked).
+        // Log evidence: NewBoomHead boom curated only FLR BoomSegment_2Powered (arm underside).
+        foreach (var sel in assemblySelectables)
+        {
+            if (sel == null || floorBySource.ContainsKey(sel))
+                continue;
+            if (!Measurable.IsFloorClearanceProductHead(sel))
+                continue;
+            if (Measurable.IsServiceHeadAccessoryDimOwner(sel))
+                continue;
+
+            Measurable floorM = EnsureFloorMeasurableForProductHead(sel);
+            if (floorM == null)
+            {
+                Debug.LogWarning(
+                    $"[ElevDim] floor product={sel.name} could not get a Floor Measurable",
+                    sel);
+                continue;
+            }
+
+            floorBySource[sel] = floorM;
+            Debug.Log(
+                $"[ElevDim] curated floor product head={sel.name} measurable={floorM.name}",
+                sel);
         }
 
         // Dual-select Size owner with empty Measurables: find ToOrigin without relying on
@@ -255,6 +306,7 @@ public static class ElevationCutsheetPass
         // one physical part, or one twin claiming the Measurable and starving the other.
         // Industry: one dimension per part. Keep the best Size owner per stem.
         DedupeLengthOwnersByStem(lengthByOwner);
+        DedupeLengthOwnersBySharedMeasurable(lengthByOwner);
 
         var sb = new StringBuilder(256);
         sb.Append("[ElevDim] Cutsheet curated lengths=").Append(lengthByOwner.Count)
@@ -274,35 +326,12 @@ public static class ElevationCutsheetPass
 
         int drewLength = 0;
         int drewFloor = 0;
-        int horizLane = 0;
-        int vertLane = 0;
 
         // Per-owner layout (not on Measurable alone — dual-select / linked measurables
         // can share one component and overwrite V→H, shoving tube dims into the elbow).
-        var layoutByOwner = new Dictionary<Selectable, (bool vertical, float side, float lift)>();
-        foreach (var kv in lengthByOwner)
-        {
-            var sel = kv.Key;
-            float horiz = kv.Value.measurable.EstimateProximalHorizontalSpan(sel);
-            bool vertical = Measurable.ClassifyCutsheetLengthVertical(sel, kv.Value.sizeM, horiz);
-            float side;
-            float lift;
-            if (vertical)
-            {
-                // Extra clearance beyond AssemblyClearPad — stacked per vertical dim.
-                side = 0.28f + vertLane * 0.22f;
-                lift = 0f;
-                vertLane++;
-            }
-            else
-            {
-                // Extra clearance beyond assembly top/bottom — stacked per arm dim.
-                side = 0f;
-                lift = 0.28f + horizLane * 0.22f;
-                horizLane++;
-            }
-            layoutByOwner[sel] = (vertical, side, lift);
-        }
+        var layoutByOwner = AssignCutsheetLanes(lengthByOwner);
+        int horizLane = layoutByOwner.Count(kv => !kv.Value.vertical);
+        int vertLane = layoutByOwner.Count(kv => kv.Value.vertical);
 
         Debug.Log(
             $"[ElevDim] Cutsheet layout horizLanes={horizLane} vertLanes={vertLane} " +
@@ -337,11 +366,23 @@ public static class ElevationCutsheetPass
                 drewLength++;
         }
 
-        foreach (var kv in floorBySource)
+        foreach (var kv in floorBySource
+                     .OrderByDescending(k => Measurable.IsFloorClearanceProductHead(k.Key) ? 1 : 0))
         {
             var measurable = kv.Value;
             measurable.CutsheetLengthOwner = kv.Key;
             measurable.EnsureInitializedForElevation();
+            bool hasFloorMeas = measurable.Measurements != null
+                && measurable.Measurements.Any(m =>
+                    m != null && m.MeasurementType == MeasurementType.Floor && m.Measurer != null);
+            if (!hasFloorMeas)
+            {
+                Debug.LogWarning(
+                    $"[ElevDim] FLOOR APPLY missing Floor Measurement owner={kv.Key.name} " +
+                    $"measurable={measurable.name} types=[{string.Join(",", measurable.MeasurementTypes ?? new List<MeasurementType>())}] " +
+                    $"measCount={measurable.Measurements?.Count ?? 0}",
+                    measurable);
+            }
             measurable.ApplyCutsheetElevation(ref heightMod, camera, kv.Key,
                 drawLength: false, drawFloor: true);
 
@@ -364,7 +405,51 @@ public static class ElevationCutsheetPass
                 "Check curated LEN list and ScaleLevel bind warnings.");
         }
 
+        if (drewFloor == 0 && floorBySource.Count > 0)
+        {
+            Debug.LogWarning(
+                "[ElevDim] Cutsheet curated floors but drewFloor=0 — check FLOOR SKIP lines.");
+        }
+
         return heightMod;
+    }
+
+    /// <summary>
+    /// Simple H/V lane index at place time. Overlap resolution is redesigned separately —
+    /// do not inflate bases or post-nudge labels here.
+    /// </summary>
+    static Dictionary<Selectable, (bool vertical, float side, float lift)> AssignCutsheetLanes(
+        Dictionary<Selectable, (Measurable measurable, float sizeM)> lengthByOwner)
+    {
+        var layoutByOwner = new Dictionary<Selectable, (bool vertical, float side, float lift)>();
+        if (lengthByOwner == null || lengthByOwner.Count == 0)
+            return layoutByOwner;
+
+        float near = ElevationDimPlacement.CutsheetLaneBaseMeters;
+        float step = ElevationDimPlacement.CutsheetLaneStepMeters;
+        int vertLane = 0;
+        int horizLane = 0;
+
+        foreach (var kv in lengthByOwner.OrderByDescending(k => k.Value.sizeM))
+        {
+            var sel = kv.Key;
+            if (sel == null || kv.Value.measurable == null)
+                continue;
+            float horiz = kv.Value.measurable.EstimateProximalHorizontalSpan(sel);
+            bool vertical = Measurable.ClassifyCutsheetLengthVertical(sel, kv.Value.sizeM, horiz);
+            if (vertical)
+            {
+                layoutByOwner[sel] = (true, near + vertLane * step, 0f);
+                vertLane++;
+            }
+            else
+            {
+                layoutByOwner[sel] = (false, 0f, near + horizLane * step);
+                horizLane++;
+            }
+        }
+
+        return layoutByOwner;
     }
 
     public static void SuppressNonCutsheetTexts()
@@ -450,7 +535,10 @@ public static class ElevationCutsheetPass
         measurer.DisableElevationVisuals();
         measurer.gameObject.SetActive(false);
         if (measurer.MeasurementText != null)
+        {
+            measurer.MeasurementText.HideElevOverlays();
             measurer.MeasurementText.gameObject.SetActive(false);
+        }
         if (measurer.LineRenderers == null)
             return;
         foreach (var lr in measurer.LineRenderers)
@@ -484,8 +572,9 @@ public static class ElevationCutsheetPass
     static string DualSelectStem(string name) => Measurable.DualSelectStem(name);
 
     /// <summary>
-    /// One catalog length dim per dual-select stem (Clone/.001 share a stem).
-    /// Prefers the twin that has own mesh bounds, then larger Size.
+    /// One catalog length dim per dual-select twin pair (Clone/.001 or Related).
+    /// Separate arm instances that share a catalog name (two Sim.FLEX 800mm arms)
+    /// must each keep their own dim — do not merge by stem alone.
     /// </summary>
     static void DedupeLengthOwnersByStem(
         Dictionary<Selectable, (Measurable measurable, float sizeM)> lengthByOwner)
@@ -493,28 +582,118 @@ public static class ElevationCutsheetPass
         if (lengthByOwner == null || lengthByOwner.Count < 2)
             return;
 
-        var groups = lengthByOwner.Keys
-            .Where(s => s != null)
-            .GroupBy(s => DualSelectStem(s.name))
-            .Where(g => !string.IsNullOrEmpty(g.Key) && g.Count() > 1)
-            .ToList();
+        var owners = lengthByOwner.Keys.Where(s => s != null).ToList();
+        var removed = new HashSet<Selectable>();
 
-        foreach (var g in groups)
+        foreach (var a in owners)
         {
-            Selectable keep = g
+            if (a == null || removed.Contains(a) || !lengthByOwner.ContainsKey(a))
+                continue;
+
+            var group = new List<Selectable> { a };
+            foreach (var b in owners)
+            {
+                if (b == null || b == a || removed.Contains(b) || !lengthByOwner.ContainsKey(b))
+                    continue;
+                if (!AreDualSelectTwins(a, b))
+                    continue;
+                group.Add(b);
+            }
+
+            if (group.Count < 2)
+                continue;
+
+            Selectable keep = group
                 .OrderByDescending(s => Measurable.TryGetOwnRendererBounds(s, out _) ? 1 : 0)
                 .ThenByDescending(s => lengthByOwner[s].sizeM)
                 .ThenBy(s => s.name)
                 .First();
-            foreach (var s in g)
+
+            foreach (var s in group)
             {
                 if (s == keep) continue;
                 Debug.Log(
-                    $"[ElevDim] Deduped dual-select stem={g.Key}: keep={keep.name} " +
+                    $"[ElevDim] Deduped dual-select twin: keep={keep.name} " +
                     $"drop={s.name} mm={Mathf.RoundToInt(lengthByOwner[s].sizeM * 1000f)}");
+                lengthByOwner.Remove(s);
+                removed.Add(s);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Two Size owners pointing at the same Measurable component must not both draw
+    /// (log: two LEN Sim.FLEX …001 → same name, two lanes, overlapping 1100 mm).
+    /// </summary>
+    static void DedupeLengthOwnersBySharedMeasurable(
+        Dictionary<Selectable, (Measurable measurable, float sizeM)> lengthByOwner)
+    {
+        if (lengthByOwner == null || lengthByOwner.Count < 2)
+            return;
+
+        var byMeasurable = new Dictionary<Measurable, List<Selectable>>();
+        foreach (var kv in lengthByOwner)
+        {
+            if (kv.Key == null || kv.Value.measurable == null)
+                continue;
+            if (!byMeasurable.TryGetValue(kv.Value.measurable, out var list))
+            {
+                list = new List<Selectable>();
+                byMeasurable[kv.Value.measurable] = list;
+            }
+            list.Add(kv.Key);
+        }
+
+        foreach (var group in byMeasurable.Values)
+        {
+            if (group.Count < 2)
+                continue;
+            Selectable keep = group
+                .OrderByDescending(s => lengthByOwner[s].sizeM)
+                .ThenByDescending(s => Measurable.TryGetOwnRendererBounds(s, out _) ? 1 : 0)
+                .ThenBy(s => s.name)
+                .First();
+            foreach (var s in group)
+            {
+                if (s == keep)
+                    continue;
+                Debug.Log(
+                    $"[ElevDim] Deduped shared measurable: keep={keep.name} drop={s.name} " +
+                    $"measurable={lengthByOwner[s].measurable.name}");
                 lengthByOwner.Remove(s);
             }
         }
+    }
+
+    /// <summary>
+    /// True Clone/.001 or RelatedSelectables pair — not merely the same catalog stem
+    /// under a shared mount (two independent Sim.FLEX arms).
+    /// </summary>
+    static bool AreDualSelectTwins(Selectable a, Selectable b)
+    {
+        if (a == null || b == null || a == b)
+            return false;
+        if (DualSelectStem(a.name) != DualSelectStem(b.name))
+            return false;
+        if (a.RelatedSelectables != null && a.RelatedSelectables.Contains(b))
+            return true;
+        if (b.RelatedSelectables != null && b.RelatedSelectables.Contains(a))
+            return true;
+        if (a.transform.IsChildOf(b.transform) || b.transform.IsChildOf(a.transform))
+            return true;
+        // Same parent: only when that parent hosts exactly two of this stem
+        // (real Clone/.001 pair). Three+ means independent arms sharing a mount.
+        Transform parent = a.transform.parent;
+        if (parent == null || parent != b.transform.parent)
+            return false;
+        string stem = DualSelectStem(a.name);
+        int stemPeers = 0;
+        foreach (var s in parent.GetComponentsInChildren<Selectable>(true))
+        {
+            if (s != null && DualSelectStem(s.name) == stem)
+                stemPeers++;
+        }
+        return stemPeers <= 2;
     }
 
     /// <summary>
@@ -726,6 +905,109 @@ public static class ElevationCutsheetPass
                 n++;
         }
         return n;
+    }
+
+    /// <summary>
+    /// Find or synthesize a Floor measurable for a product head.
+    /// Log: NewBoomHead → "has no Floor Measurable under it" / floors=0 — nested
+    /// Measurable_ToFloor was missing or untyped at runtime; install as fallback.
+    /// </summary>
+    static Measurable FindFloorMeasurableUnder(Selectable sel)
+    {
+        if (sel == null)
+            return null;
+
+        bool PreferName(Measurable m) =>
+            m != null
+            && (m.name.IndexOf("ToFloor", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || string.Equals(m.name, "floor", System.StringComparison.OrdinalIgnoreCase));
+
+        bool IsFloorType(Measurable m)
+        {
+            if (m == null || m.Disabled)
+                return false;
+            if (m.MeasurementTypes != null
+                && m.MeasurementTypes.Contains(MeasurementType.Floor))
+                return true;
+            return m.Measurements != null
+                && m.Measurements.Any(x => x != null && x.MeasurementType == MeasurementType.Floor);
+        }
+
+        Measurable Search(Selectable root)
+        {
+            if (root == null)
+                return null;
+
+            // Name wins — prefab renames the Floor instance to Measurable_ToFloor.
+            foreach (var m in root.GetComponentsInChildren<Measurable>(true))
+            {
+                if (PreferName(m))
+                    return m;
+            }
+
+            if (root.Measurables != null)
+            {
+                foreach (var m in root.Measurables)
+                {
+                    if (IsFloorType(m))
+                        return m;
+                }
+            }
+
+            foreach (var m in root.GetComponentsInChildren<Measurable>(true))
+            {
+                if (!IsFloorType(m))
+                    continue;
+                var nearest = m.GetComponentInParent<Selectable>(true);
+                if (nearest != null && nearest != root
+                    && Measurable.IsFloorClearanceProductHead(nearest))
+                    continue;
+                return m;
+            }
+
+            return null;
+        }
+
+        Measurable found = Search(sel);
+        if (found == null && sel.RelatedSelectables != null)
+        {
+            foreach (var rel in sel.RelatedSelectables)
+            {
+                if (rel == null || rel == sel)
+                    continue;
+                found = Search(rel);
+                if (found != null)
+                    break;
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>
+    /// Ensure a product head has a Floor measurable ready for cutsheet draw.
+    /// </summary>
+    static Measurable EnsureFloorMeasurableForProductHead(Selectable sel)
+    {
+        if (sel == null)
+            return null;
+
+        Measurable floorM = FindFloorMeasurableUnder(sel);
+        if (floorM == null)
+        {
+            var go = new GameObject("Measurable_ToFloor");
+            go.transform.SetParent(sel.transform, false);
+            floorM = go.AddComponent<Measurable>();
+            Debug.Log(
+                $"[ElevDim] installed Floor measurable on product head={sel.name}",
+                sel);
+        }
+
+        floorM.EnsureConfiguredAsElevationFloor();
+        sel.EnsureMeasurablesLinked();
+        if (sel.Measurables != null && !sel.Measurables.Contains(floorM))
+            sel.Measurables.Add(floorM);
+        return floorM;
     }
 
     static string Truncate(string s, int max)
