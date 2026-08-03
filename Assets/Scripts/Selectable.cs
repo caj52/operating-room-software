@@ -2116,10 +2116,6 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         if (invertDirection)
             outward = -outward;
 
-        Debug.Log(
-            $"[ElevCam] view={(invertDirection ? "back" : "front")} outward={outward} " +
-            $"spanX={spanX:F3} spanZ={spanZ:F3} authoredFlat={authored}",
-            this);
         return outward;
     }
 
@@ -2210,7 +2206,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             camLight.gameObject.SetActive(true);
 
         ElevationOutletCaptureDiagnostics.LogBeforeRender(_assemblySelectables, camera);
-        camera.Render();
+        RenderElevationCamera(camera, bounds);
         camera.enabled = false;
 
         if (camLight != null)
@@ -2233,6 +2229,59 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         camera.transform.position = cameraOriginalPos;
 
         return filenameImage;
+    }
+
+    /// <summary>
+    /// Elev <see cref="Camera.Render"/> with depth-safe RT/clip settings only.
+    /// Does not change look direction or live geometry.
+    /// Detaches the elev cam from non-uniform assembly parents for the render —
+    /// scale_audit showed Camera_RenderTexture_ElevationView lossy z=0.7 under
+    /// ceiling covers, which skews ortho depth vs the unscaled game camera.
+    /// </summary>
+    private static void RenderElevationCamera(Camera camera, Bounds framedBounds)
+    {
+        if (camera == null)
+            return;
+
+        Transform t = camera.transform;
+        Transform prevParent = t.parent;
+        Vector3 prevLocalScale = t.localScale;
+        Vector3 worldPos = t.position;
+        Quaternion worldRot = t.rotation;
+        bool reparented = false;
+        if ((t.lossyScale - Vector3.one).sqrMagnitude > 1e-4f)
+        {
+            t.SetParent(null, worldPositionStays: true);
+            t.SetPositionAndRotation(worldPos, worldRot);
+            t.localScale = Vector3.one;
+            reparented = true;
+        }
+
+        RenderTexture rt = camera.targetTexture;
+        int prevAa = rt != null ? rt.antiAliasing : 0;
+        if (rt != null && rt.antiAliasing > 2)
+            rt.antiAliasing = 2;
+
+        float prevNear = camera.nearClipPlane;
+        float prevFar = camera.farClipPlane;
+        float camDist = Vector3.Distance(t.position, framedBounds.center);
+        float radius = Mathf.Max(0.5f, framedBounds.extents.magnitude);
+        camera.nearClipPlane = Mathf.Max(0.01f, camDist - radius - 0.5f);
+        camera.farClipPlane = camDist + radius + 0.5f;
+
+        camera.Render();
+
+        camera.nearClipPlane = prevNear;
+        camera.farClipPlane = prevFar;
+        if (rt != null)
+            rt.antiAliasing = prevAa;
+
+        if (reparented)
+        {
+            t.SetParent(prevParent, worldPositionStays: true);
+            t.localScale = prevLocalScale;
+            t.SetPositionAndRotation(worldPos, worldRot);
+        }
     }
 
     // Computes the expanded bounds for the current orientation (front/back) including measurement overlays without rendering
@@ -2420,7 +2469,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             camLight.gameObject.SetActive(true);
 
         ElevationOutletCaptureDiagnostics.LogBeforeRender(_assemblySelectables, camera);
-        camera.Render();
+        RenderElevationCamera(camera, fixedBounds);
         camera.enabled = false;
 
         if (camLight != null)
