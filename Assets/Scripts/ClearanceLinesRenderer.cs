@@ -96,7 +96,10 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
     /// <summary> Can be null, be sure to check</summary>
     private Selectable _selectable;
     private List<Selectable> _trackedParentSelectables = new();
+    private readonly List<Selectable> _assemblyScaleSubscribed = new();
     private List<MeshVertsData> _meshVertsDatas;
+    /// <summary>Snapshot held for the in-flight parallel sweep (must not be nulled mid-task).</summary>
+    private List<MeshVertsData> _recordingMeshVertsDatas;
     private Vector2 _originPointXZ;
     private List<Vector3> _positions = new();
     private float _highestY;
@@ -108,7 +111,15 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
     private bool _cancelTask = false;
 
     [SerializeField] float epsilon = 0.00001f;
-    private float MedianY => ((_highestY + _lowestY) / 2f) - _highestSelectable.transform.position.y;
+    private float MedianY
+    {
+        get
+        {
+            if (_highestSelectable == null || _highestY < _lowestY)
+                return 0f;
+            return ((_highestY + _lowestY) / 2f) - _highestSelectable.transform.position.y;
+        }
+    }
     private object _lockObj = new();
    public Material renderMaterialColor;
 
@@ -165,15 +176,27 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
 
         Subscribe();
 
-        if (Type == RendererType.ArmAssembly) 
+        if (Type == RendererType.ArmAssembly)
         {
-            if (_trackedParentSelectables[0].TryGetArmAssemblyRoot(out GameObject armAssemblyRoot))
+            Selectable probe = _selectable != null
+                ? _selectable
+                : (_trackedParentSelectables.Count > 0 ? _trackedParentSelectables[0] : GetComponentInParent<Selectable>());
+            if (probe != null && probe.TryGetArmAssemblyRoot(out GameObject armAssemblyRoot))
             {
                 _highestSelectable = armAssemblyRoot.GetComponent<Selectable>();
+                RefreshAssemblyScaleSubscriptions();
             }
-            else throw new Exception("Could not get clearance lines - no higher z-rotation in the arm assembly found");
+            else
+            {
+                Debug.LogError(
+                    $"[Clearance] ArmAssembly CLR on '{name}' has no mount root — clearance disabled.",
+                    this);
+                enabled = false;
+                return;
+            }
 
-            _rotateMeshWhenFindingFarthestVert = _selectable != null && _selectable.IsGizmoSettingAllowed(GizmoType.Rotate, Axis.Z);
+            _rotateMeshWhenFindingFarthestVert = _selectable != null
+                && _selectable.IsGizmoSettingAllowed(GizmoType.Rotate, Axis.Z);
         }
         CheckStatus();
     }
@@ -251,8 +274,39 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
                 selectable.ScaleUpdated.RemoveListener(SetNeedsUpdate);
             }
         });
+        ClearAssemblyScaleSubscriptions();
         UI_ToggleClearanceLines.ClearanceLinesToggled.RemoveListener(CheckStatus);
         Selectable.ActiveSelectablesInSceneChanged.RemoveListener(SetNeedsUpdate);
+    }
+
+    /// <summary>
+    /// Parent-chain ScaleUpdated misses sibling arms under a tandem mount.
+    /// Subscribe every selectable under the shared root so length/scale changes
+    /// on any arm rebuild the ring.
+    /// </summary>
+    private void RefreshAssemblyScaleSubscriptions()
+    {
+        ClearAssemblyScaleSubscriptions();
+        if (_highestSelectable == null)
+            return;
+
+        foreach (var sel in _highestSelectable.GetComponentsInChildren<Selectable>(true))
+        {
+            if (sel == null)
+                continue;
+            sel.ScaleUpdated.AddListener(SetNeedsUpdate);
+            _assemblyScaleSubscribed.Add(sel);
+        }
+    }
+
+    private void ClearAssemblyScaleSubscriptions()
+    {
+        foreach (var sel in _assemblyScaleSubscribed)
+        {
+            if (sel != null && !sel.IsDestroyed)
+                sel.ScaleUpdated.RemoveListener(SetNeedsUpdate);
+        }
+        _assemblyScaleSubscribed.Clear();
     }
 
     [RuntimeInitializeOnLoadMethod]
@@ -268,18 +322,23 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
     #region Logic
     private void CheckStatus()
     {
-        GameObject prefab;
+        if (Type == RendererType.ArmAssembly && _highestSelectable == null)
+            return;
+
         if (_lineRenderer == null)
         {
-            Debug.Log("Anas => Adding ClearacneLine ");
-                // All other types (including Allia) use the standard line renderer prefab
-            prefab = Resources.Load<GameObject>("Prefabs/ClearanceLinesRenderer");
-            var newObj = Instantiate(prefab, Type == RendererType.ArmAssembly ? _highestSelectable.transform : transform.root);
+            var prefab = Resources.Load<GameObject>("Prefabs/ClearanceLinesRenderer");
+            if (prefab == null)
+                return;
+            Transform parent = Type == RendererType.ArmAssembly
+                ? _highestSelectable.transform
+                : transform.root;
+            var newObj = Instantiate(prefab, parent);
             newObj.name = gameObject.name;
-            //newObj.transform.localPosition = new Vector3(newObj.transform.localPosition.x, newObj.transform.localPosition.y, _trackedParentSelectables[0].transform.localPosition.z);
             newObj.transform.rotation = Quaternion.identity;
             _lineRenderer = newObj.GetComponent<LineRenderer>();
-            //_lineRenderer.gameObject.GetComponentInParent<Selectable>().ClearanceLineAddOrRemoveToList(_lineRenderer.gameObject, true);
+            if (_lineRenderer == null)
+                return;
         }
         _lineRenderer.gameObject.SetActive(UI_ToggleClearanceLines.IsActive);
 
@@ -302,28 +361,38 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
 
     public void RecordData(int rotationAmount, Vector3 forwardVector)
     {
+        var meshes = _recordingMeshVertsDatas;
+        if (meshes == null || meshes.Count == 0)
+            return;
+
         float farthest = 0f;
         float localHighestY = float.MinValue;
         float localLowestY = float.MaxValue;
 
-        for (int j = 0; j < _meshVertsDatas.Count; j++)
+        Vector3 origin = new Vector3(_originPointXZ.x, 0f, _originPointXZ.y);
+        Quaternion yaw = Quaternion.AngleAxis(rotationAmount, forwardVector);
+
+        for (int j = 0; j < meshes.Count; j++)
         {
-            MeshVertsData vertData = _meshVertsDatas[j];
+            MeshVertsData vertData = meshes[j];
+            if (vertData?.Vertices == null)
+                continue;
+
             for (int i = 0; i < vertData.Vertices.Length; i++)
             {
                 Vector3 vert = vertData.Vertices[i];
                 vert.x *= vertData.LossyScale.x;
                 vert.y *= vertData.LossyScale.y;
                 vert.z *= vertData.LossyScale.z;
-                vert = vertData.Rotation * vert;
-
-                if (j > 0)
-                {
-                    vert += vertData.GlobalPosition - _meshVertsDatas[0].GlobalPosition;
-                }
-
-                vert = Quaternion.AngleAxis(rotationAmount, forwardVector) * vert;
-                Vector3 transformedPoint = vert + _meshVertsDatas[0].GlobalPosition;
+                // World-space vertex at the current pose, then yaw around the mount XZ origin
+                // so every arm under a tandem/multi mount contributes to one sweep radius.
+                Vector3 worldVert = vertData.GlobalPosition + (vertData.Rotation * vert);
+                Vector3 relativeXZ = new Vector3(worldVert.x - origin.x, 0f, worldVert.z - origin.z);
+                Vector3 spunXZ = yaw * relativeXZ;
+                Vector3 transformedPoint = new Vector3(
+                    origin.x + spunXZ.x,
+                    worldVert.y,
+                    origin.z + spunXZ.z);
 
                 float distance = Vector2.Distance(_originPointXZ, new Vector2(transformedPoint.x, transformedPoint.z));
                 if (distance >= farthest)
@@ -331,20 +400,14 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
                     farthest = distance;
 
                     if (transformedPoint.y > localHighestY)
-                    {
                         localHighestY = transformedPoint.y;
-                    }
 
                     if (transformedPoint.y < localLowestY)
-                    {
                         localLowestY = transformedPoint.y;
-                    }
                 }
 
                 if (_cancelTask)
-                {
                     return;
-                }
             }
         }
 
@@ -367,16 +430,39 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         if (_meshVertsDatas == null)
         {
             _meshVertsDatas = new();
-            MeshFilter[] meshFilters = IncludeChildrenInMeasurement ? GetComponentsInChildren<MeshFilter>() : new[] { GetComponent<MeshFilter>() };
+            MeshFilter[] meshFilters = CollectMeshFiltersForClearance();
+            // Yawing a fixed pose around the mount does not change XZ radius — one pass
+            // over world verts is enough. (Legacy 361-spin was for the old origin math.)
+            int rotations = _rotateMeshWhenFindingFarthestVert && Type != RendererType.ArmAssembly
+                ? 361
+                : 1;
             for (int j = 0; j < meshFilters.Length; j++)
             {
                 var filter = meshFilters[j];
+                if (filter == null || filter.sharedMesh == null)
+                    continue;
+                Mesh mesh = filter.sharedMesh;
+                // Bundled meshes are sometimes non-readable — .vertices would throw.
+                if (!mesh.isReadable)
+                    continue;
+                Vector3[] verts;
+                try
+                {
+                    verts = mesh.vertices;
+                }
+                catch (Exception)
+                {
+                    continue;
+                }
+                if (verts == null || verts.Length == 0)
+                    continue;
+
                 _meshVertsDatas.Add(new MeshVertsData(filter, this)
                 {
                     Rotation = filter.transform.rotation,
                     GlobalPosition = filter.transform.position,
-                    Vertices = filter.sharedMesh.vertices,
-                    Rotations = _rotateMeshWhenFindingFarthestVert ? 361 : 1,
+                    Vertices = verts,
+                    Rotations = rotations,
                     LossyScale = filter.transform.lossyScale,
                 });
             }
@@ -385,11 +471,89 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         {
             foreach (var meshVertsData in _meshVertsDatas)
             {
+                if (meshVertsData.MeshFilter == null)
+                    continue;
                 meshVertsData.GlobalPosition = meshVertsData.MeshFilter.transform.position;
                 meshVertsData.Rotation = meshVertsData.MeshFilter.transform.rotation;
                 meshVertsData.LossyScale = meshVertsData.MeshFilter.transform.lossyScale;
             }
         }
+    }
+
+    /// <summary>
+    /// Arm assemblies: every active mesh under the shared mount root (all arms),
+    /// so tandem / multi-arm clearance grows to the farthest reach.
+    /// Other types: keep the authored IncludeChildren / self MeshFilter behavior.
+    /// </summary>
+    private MeshFilter[] CollectMeshFiltersForClearance()
+    {
+        if (Type == RendererType.ArmAssembly && _highestSelectable != null)
+        {
+            return _highestSelectable
+                .GetComponentsInChildren<MeshFilter>(true)
+                .Where(ShouldIncludeArmAssemblyMesh)
+                .ToArray();
+        }
+
+        if (IncludeChildrenInMeasurement)
+            return GetComponentsInChildren<MeshFilter>()
+                .Where(mf => mf != null && mf.sharedMesh != null)
+                .ToArray();
+
+        var self = GetComponent<MeshFilter>();
+        return self != null && self.sharedMesh != null
+            ? new[] { self }
+            : Array.Empty<MeshFilter>();
+    }
+
+    private static bool ShouldIncludeArmAssemblyMesh(MeshFilter mf)
+    {
+        if (mf == null || mf.sharedMesh == null)
+            return false;
+        if (!mf.gameObject.activeInHierarchy)
+            return false;
+
+        // Helper / overlay geometry — not part of equipment sweep.
+        string n = mf.gameObject.name ?? "";
+        if (n.IndexOf("Sphere", StringComparison.OrdinalIgnoreCase) >= 0)
+            return false;
+        if (n.IndexOf("Measur", StringComparison.OrdinalIgnoreCase) >= 0)
+            return false;
+        if (n.IndexOf("Clearance", StringComparison.OrdinalIgnoreCase) >= 0)
+            return false;
+
+        // LineRenderer overlays (dims / clearance strokes) sometimes carry filters.
+        if (mf.GetComponent<LineRenderer>() != null)
+            return false;
+
+        return true;
+    }
+
+    /// <summary>
+    /// One ring per mount: only the lowest-instance-id ArmAssembly CLR under the
+    /// root does the heavy sweep; siblings hide their duplicate line.
+    /// </summary>
+    private bool IsPrimaryArmAssemblyClearance()
+    {
+        if (Type != RendererType.ArmAssembly || _highestSelectable == null)
+            return true;
+
+        ClearanceLinesRenderer primary = null;
+        int bestId = int.MaxValue;
+        foreach (var clr in _highestSelectable.GetComponentsInChildren<ClearanceLinesRenderer>(true))
+        {
+            if (clr == null || !clr.isActiveAndEnabled)
+                continue;
+            if (clr.Type != RendererType.ArmAssembly)
+                continue;
+            int id = clr.GetInstanceID();
+            if (id < bestId)
+            {
+                bestId = id;
+                primary = clr;
+            }
+        }
+        return primary == this;
     }
 
     private void ResetVariables()
@@ -408,10 +572,16 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
     private void SetNeedsUpdate()
     {
         _needsUpdate = true;
+        // Never null the list a worker thread may still be reading — rebuild on the
+        // next main-thread UpdateLineRendererArmAssembly instead.
         if (_taskRunning)
-        {
             _cancelTask = true;
-        }
+        else
+            _meshVertsDatas = null;
+
+        if (Type == RendererType.ArmAssembly && _highestSelectable != null && !_taskRunning)
+            RefreshAssemblyScaleSubscriptions();
+
         CheckStatus();
     }
 
@@ -480,11 +650,37 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
 
     private async void UpdateLineRendererArmAssembly()
     {
+        if (!IsPrimaryArmAssemblyClearance())
+        {
+            if (_lineRenderer != null)
+                _lineRenderer.gameObject.SetActive(false);
+            _needsUpdate = false;
+            _taskRunning = false;
+            _cancelTask = false;
+            return;
+        }
+
         ResetVariables();
+        _meshVertsDatas = null;
         ResetMeshVertsData();
 
+        if (_meshVertsDatas == null || _meshVertsDatas.Count == 0)
+        {
+            _needsUpdate = false;
+            _taskRunning = false;
+            _cancelTask = false;
+            return;
+        }
+
+        _recordingMeshVertsDatas = _meshVertsDatas;
+
+        if (_lineRenderer != null && UI_ToggleClearanceLines.IsActive)
+            _lineRenderer.gameObject.SetActive(true);
+
+        int rotationCount = Mathf.Max(1, _meshVertsDatas[0].Rotations);
+
 #if UNITY_WEBGL && !UNITY_EDITOR
-        for (int i = 0; i < _meshVertsDatas[0].Rotations; i++)
+        for (int i = 0; i < rotationCount; i++)
         {
             RecordData(i, Vector3.down);
             if (i % 6 == 0)
@@ -495,7 +691,7 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
 #else
         Task task = Task.Run(() =>
         {
-            Parallel.For(0, _meshVertsDatas[0].Rotations,
+            Parallel.For(0, rotationCount,
                 parallelOptions: new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount >= 4 ? Mathf.Max(Environment.ProcessorCount / 2, 1) : Environment.ProcessorCount }, 
                 body: j =>
                 {
@@ -511,6 +707,7 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
             _needsUpdate = false;
             _taskRunning = false;
             _cancelTask = false;
+            _recordingMeshVertsDatas = null;
             return;
         }
 
@@ -519,6 +716,9 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         {
             _taskRunning = false;
             _cancelTask = false;
+            _recordingMeshVertsDatas = null;
+            _meshVertsDatas = null;
+            // _needsUpdate still true → Update/CheckStatus rebuilds
             return;
         }
 
@@ -538,16 +738,10 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         _lineRenderer.positionCount = _positions.Count;
         _lineRenderer.SetPositions(_positions.ToArray());
 
-        //Debug.Log("Array: " + string.Join(", ", _positions.ToArray()));
-
-
         _taskRunning = false;
         _cancelTask = false;
-
-        if (!_cancelTask)
-        {
-            _needsUpdate = false;
-        }
+        _recordingMeshVertsDatas = null;
+        _needsUpdate = false;
     }
 
     private void UpdateLineRendererDoor()
