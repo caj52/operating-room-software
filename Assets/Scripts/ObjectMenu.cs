@@ -534,6 +534,9 @@ public class ObjectMenu : MonoBehaviour
                 }
             }
 
+            // Attach-chain / SetParent(worldPositionStays) can warp non-uniform SKU scales.
+            ReapplyServiceHeadShelfSkuScale(obj);
+
             PlacementLoadOptimizer.FinalizeInstanceColliders(obj);
             PlacementLoadOptimizer.RestoreInstanceCollidersAfterLoad(obj);
 
@@ -546,6 +549,8 @@ public class ObjectMenu : MonoBehaviour
             recorder.AddAttachedSelectables(selectable, objectName);
             selectable.StartRaycastPlacementMode();
         }
+
+        ReapplyServiceHeadShelfSkuScale(obj);
 
         string uiBtnName = newMenuItem.GetComponentInChildren<TextMeshProUGUI>().text;
         Debug.Log($"Object Instantiated :: Menu Name: {uiBtnName} and GameObject Name: {obj.name}", obj.transform);
@@ -564,6 +569,35 @@ public class ObjectMenu : MonoBehaviour
             var restriction = obj.GetComponentInParent<TandomRestrictions>();
             restriction?.CheckTandemRestrictions(restriction.gameObject);
         }
+    }
+
+    /// <summary>
+    /// Shelves are one mesh; SKU is length only (mesh X ≈ 840.6mm).
+    /// scale.x = claim_m / 0.8406; Y/Z stay 1 so 500 vs 750 share depth/thickness.
+    /// </summary>
+    private static void ReapplyServiceHeadShelfSkuScale(GameObject obj)
+    {
+        if (obj == null || obj.name == null || !obj.name.StartsWith("SH_Shelf", StringComparison.Ordinal))
+            return;
+
+        // Check 500mm before bare SH_Shelf_1 / _2 (prefix overlap).
+        Vector3 sku = obj.name.Contains("500mm", StringComparison.Ordinal)
+            ? new Vector3(0.59481f, 1f, 1f)
+            : new Vector3(0.89221f, 1f, 1f);
+
+        Vector3 before = obj.transform.localScale;
+        obj.transform.localScale = sku;
+        Physics.SyncTransforms();
+
+        Bounds rb = default;
+        bool hasRb = Measurable.TryGetStrictOwnRendererBounds(
+            obj.GetComponent<Selectable>(), out rb);
+
+        ScaleAuditLog.Warn("Shelf.SkuScale",
+            $"name={obj.name} beforeLocal={before} afterLocal={obj.transform.localScale} " +
+            $"lossy={obj.transform.lossyScale} " +
+            $"bounds={(hasRb ? rb.size.ToString("F4") : "n/a")} " +
+            $"boundsMm={(hasRb ? (rb.size * 1000f).ToString("F1") : "n/a")}");
     }
 
     // Replace the HandleOutletAndPricing method in ObjectMenu.cs with this optimized version:

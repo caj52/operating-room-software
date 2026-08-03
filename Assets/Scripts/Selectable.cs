@@ -1224,6 +1224,11 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
             Vector3 als = attached.localScale;
 
+            // Never rewrite intentional service-head shelf SKU scales (length-only X).
+            if (attached.name != null
+                && attached.name.StartsWith("SH_Shelf", StringComparison.Ordinal))
+                continue;
+
             // Equal-XY shear from parenting under polluted AP XY (1.12,1.12,*) → child (0.89,0.89,1).
             bool equalXyShear =
                 Mathf.Abs(als.x - als.y) < 0.02f
