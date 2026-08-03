@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -9,6 +8,13 @@ public class UI_MeasurementButton : MonoBehaviour
 {
     public static UnityEvent Toggled = new();
 
+    /// <summary>
+    /// Sticky preference for the Measurement Mode toolbar toggle.
+    /// Tags must follow this — not Selectable init, which used to force every
+    /// measurable on at Start regardless of the toggle.
+    /// </summary>
+    public static bool MeasurementModeEnabled { get; private set; }
+
     public Toggle _toggle;
     private List<Measurable> _currentMeasurables = new();
 
@@ -18,6 +24,7 @@ public class UI_MeasurementButton : MonoBehaviour
 
         Selectable.SelectionChanged += UpdateLogic;
         gameObject.SetActive(false);
+        MeasurementModeEnabled = _toggle != null && _toggle.isOn;
     }
 
     private void OnDestroy()
@@ -27,36 +34,46 @@ public class UI_MeasurementButton : MonoBehaviour
 
     private void UpdateLogic()
     {
-        bool active = Selectable.SelectedSelectables.Count > 0 && 
-            Selectable.SelectedSelectables.Sum(x => x.Measurables.Count) > 0;
+        // Clear previous selection's tags so they don't stick after reselection.
+        SetCurrentMeasurablesActive(false);
 
-        gameObject.SetActive(active);
-        if (active)
-        {
-            _currentMeasurables = Selectable.SelectedSelectables.SelectMany(x => x.Measurables).ToList();
+        bool hasMeasurables = Selectable.SelectedSelectables.Count > 0
+            && Selectable.SelectedSelectables.Sum(x => x != null ? x.Measurables.Count : 0) > 0;
 
-            _toggle.SetIsOnWithoutNotify(active && 
-                _currentMeasurables != null && 
-                _currentMeasurables.Count > 0 && 
-                _currentMeasurables[0] != null && 
-                _currentMeasurables[0].IsActive);
-        }
-        else
+        gameObject.SetActive(hasMeasurables);
+        if (!hasMeasurables)
         {
             _currentMeasurables = null;
+            return;
         }
+
+        _currentMeasurables = Selectable.SelectedSelectables
+            .Where(x => x != null)
+            .SelectMany(x => x.Measurables)
+            .Where(m => m != null)
+            .ToList();
+
+        SetCurrentMeasurablesActive(MeasurementModeEnabled);
+        if (_toggle != null)
+            _toggle.SetIsOnWithoutNotify(MeasurementModeEnabled);
     }
 
     public void OnToggle(bool isOn)
     {
-        if (_currentMeasurables != null) 
-        {
-            _currentMeasurables.ForEach(item =>
-            {
-                item.SetActive(isOn);
-            });
-        }
-
+        MeasurementModeEnabled = isOn;
+        SetCurrentMeasurablesActive(isOn);
         Toggled?.Invoke();
+    }
+
+    void SetCurrentMeasurablesActive(bool active)
+    {
+        if (_currentMeasurables == null)
+            return;
+        for (int i = 0; i < _currentMeasurables.Count; i++)
+        {
+            var item = _currentMeasurables[i];
+            if (item != null)
+                item.SetActive(active);
+        }
     }
 }

@@ -13,15 +13,19 @@ ROOT = Path(__file__).resolve().parents[1]
 MIRROR = ROOT / "TestData" / "CdnMirror"
 CATALOG = ROOT / "Assets" / "SelectableAssetBundles.asset"
 
-HUB_SEAT_SCALED = 0.082  # Double/Single (mesh scale 0.25)
-HUB_SEAT_RAW = 0.265  # Circle (mesh scale 1)
+HUB_SEAT_SCALED = 0.082  # Double/Single plate hub step (mesh scale 0.25)
+# BoomHeadCover scaled underside (FBX Y * LclScale.y) — Circle uses this cover live.
+CIRCLE_HUB_SEAT = 0.1524
+# SlimBoomHeadCover scaled underside ≈ 80mm baldachin.
+SLIM_HUB_SEAT = 0.0758
 
 TARGETS = {
     "CeilingMount_Double": HUB_SEAT_SCALED,
     "CeilingMount_Single": HUB_SEAT_SCALED,
-    "CeilingMount_Circle": HUB_SEAT_RAW,
-    "CeilingMount_Circle_Slim": HUB_SEAT_RAW,
-    # Cover keeps authored cover thickness unless hub differs — leave alone for now.
+    # Tandem Cover mesh is inactive; hang seats on nested Single plate hub.
+    "CeilingMount_Double_Cover": HUB_SEAT_SCALED,
+    "CeilingMount_Circle": CIRCLE_HUB_SEAT,
+    "CeilingMount_Circle_Slim": SLIM_HUB_SEAT,
 }
 
 

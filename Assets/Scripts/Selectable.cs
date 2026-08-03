@@ -413,7 +413,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             //_originalRotation2 = transform.localRotation;
             OriginalLocalPosition = transform.localPosition;
             Started = true;
-            ToggleMeasurableActiveStates(true);
+            // Measurement tags follow UI_MeasurementButton — do not force on at init.
+            ToggleMeasurableActiveStates(false);
             Measurers.AddRange(Measurables
                     .SelectMany(m => m.Measurements)
                     .Where(measurement => measurement.Measurer != null)
@@ -460,7 +461,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
                 OriginalLocalPosition = transform.localPosition;
                 Started = true;
-                ToggleMeasurableActiveStates(true);
+                ToggleMeasurableActiveStates(false);
                 Measurers.AddRange(Measurables
                         .SelectMany(m => m.Measurements)
                         .Where(measurement => measurement.Measurer != null)
@@ -535,7 +536,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             _initialOffsetApplied = true;    // survives into duplicates
         }
             Started = true;
-        ToggleMeasurableActiveStates(true);
+        ToggleMeasurableActiveStates(false);
         //Storing Reference for the Measurers
         Measurers.AddRange(Measurables
                 .SelectMany(m => m.Measurements)
@@ -2080,6 +2081,44 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     }
 
     /// <summary>
+    /// Orthographic elevation look direction: maximize on-page horizontal arm reach.
+    /// Looks along the shorter plan-axis so the longer span (arm length) fills the sheet —
+    /// avoids end-on views when arms align with the authored ±Z camera.
+    /// </summary>
+    private Vector3 GetElevationViewOutwardDirection(Bounds poseBounds, Vector3 authoredOffset, bool invertDirection)
+    {
+        Vector3 authored = authoredOffset;
+        authored.y = 0f;
+        if (authored.sqrMagnitude < 1e-8f)
+            authored = Vector3.forward;
+        authored.Normalize();
+
+        float spanX = poseBounds.size.x; // visible when looking along ±Z
+        float spanZ = poseBounds.size.z; // visible when looking along ±X
+
+        Vector3 outward;
+        if (spanX + 1e-4f >= spanZ)
+        {
+            // Arms / footprint span X more — look along Z (classic front elevation).
+            outward = Vector3.Dot(authored, Vector3.forward) >= 0f ? Vector3.forward : Vector3.back;
+        }
+        else
+        {
+            // Arms span Z more — look along X so reach reads as width on the page.
+            outward = Vector3.Dot(authored, Vector3.right) >= 0f ? Vector3.right : Vector3.left;
+        }
+
+        if (invertDirection)
+            outward = -outward;
+
+        Debug.Log(
+            $"[ElevCam] view={(invertDirection ? "back" : "front")} outward={outward} " +
+            $"spanX={spanX:F3} spanZ={spanZ:F3} authoredFlat={authored}",
+            this);
+        return outward;
+    }
+
+    /// <summary>
     /// Captures an elevation photo of the assembly from either the “front” or “back”
     /// depending on the invertDirection flag.
     /// </summary>
@@ -2095,9 +2134,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         camera.orthographic = true;
 
         Vector3 cameraOriginalPos = camera.transform.position;
-        Vector3 outwardDirection = cameraOriginalPos - transform.position;
-        if (invertDirection)
-            outwardDirection = -outwardDirection;
+        Vector3 outwardDirection = GetElevationViewOutwardDirection(
+            bounds, cameraOriginalPos - transform.position, invertDirection);
 
         camera.transform.position = bounds.center + (outwardDirection.normalized * bounds.extents.magnitude);
         camera.transform.LookAt(bounds.center, Vector3.up);
@@ -2199,8 +2237,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         camera.orthographic = true;
 
         Vector3 cameraOriginalPos = camera.transform.position;
-        Vector3 outwardDirection = cameraOriginalPos - transform.position;
-        if (invertDirection) outwardDirection = -outwardDirection;
+        Vector3 outwardDirection = GetElevationViewOutwardDirection(
+            bounds, cameraOriginalPos - transform.position, invertDirection);
 
         camera.transform.position = bounds.center + (outwardDirection.normalized * bounds.extents.magnitude);
         camera.transform.LookAt(bounds.center, Vector3.up);
@@ -2328,8 +2366,11 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         camera.orthographic = true;
 
         Vector3 cameraOriginalPos = camera.transform.position;
-        Vector3 outwardDirection = cameraOriginalPos - transform.position;
-        if (invertDirection) outwardDirection = -outwardDirection;
+        // Aim from the posed assembly footprint (not union alone) so dual-arm / long-Z
+        // stacks get a true side elevation instead of an end-on stub view.
+        Bounds poseBounds = GetAssemblyBounds();
+        Vector3 outwardDirection = GetElevationViewOutwardDirection(
+            poseBounds, cameraOriginalPos - transform.position, invertDirection);
 
         // Cutsheet overlays only — never activate Walls/Ceiling / interactive imperial dims.
         // Aim first so layout uses a sensible camera, then widen XZ for labels (Y stays room-locked).
