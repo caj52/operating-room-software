@@ -137,10 +137,19 @@ public class Measurer : MonoBehaviour
             return false;
         }
 
-        if (!Measurement.Measurable.ShowInElevationPhoto)
-            return false;
+        if (Measurement.MeasurementType == MeasurementType.Floor)
+        {
+            var m = Measurement.Measurable;
+            if (m.ShowInElevationPhoto)
+                return true;
+            // Player.log: light Measurable_ToFloor placed (spanMm ok) then orphan-killed
+            // allowed=False — cutsheet pins via CutsheetAllowFloorDraw while host flag is off.
+            return m.CutsheetAllowFloorDraw
+                && m.CutsheetLengthOwner != null
+                && Measurable.IsFloorClearanceProductHead(m.CutsheetLengthOwner);
+        }
 
-        return Measurement.MeasurementType == MeasurementType.Floor;
+        return false;
     }
 
     public static Measurer GetMeasurer(Measurable.Measurement measurement)

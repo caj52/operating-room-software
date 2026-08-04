@@ -307,6 +307,7 @@ public static class ElevationCutsheetPass
         // Industry: one dimension per part. Keep the best Size owner per stem.
         DedupeLengthOwnersByStem(lengthByOwner);
         DedupeLengthOwnersBySharedMeasurable(lengthByOwner);
+        DedupeFloorOwnersByHead(floorBySource);
 
         var sb = new StringBuilder(256);
         sb.Append("[ElevDim] Cutsheet curated lengths=").Append(lengthByOwner.Count)
@@ -366,8 +367,9 @@ public static class ElevationCutsheetPass
                 drewLength++;
         }
 
-        foreach (var kv in floorBySource
-                     .OrderByDescending(k => Measurable.IsFloorClearanceProductHead(k.Key) ? 1 : 0))
+        // LightHead / Simeon before logos or catalog shells — Player.log: Arm/GUID placed
+        // first, stole Sim.LED.LightHead id, real light floor never stuck.
+        foreach (var kv in floorBySource.OrderByDescending(k => FloorOwnerPriority(k.Key)))
         {
             var measurable = kv.Value;
             measurable.CutsheetLengthOwner = kv.Key;
@@ -570,6 +572,82 @@ public static class ElevationCutsheetPass
     /// Separate arm instances that share a catalog name (two Sim.FLEX 800mm arms)
     /// must each keep their own dim — do not merge by stem alone.
     /// </summary>
+    /// <summary>
+    /// Prefer real light/monitor/SH heads over catalog shells when applying floors.
+    /// Player.log: Arm/GUID/Simeon order let Arm claim Sim.LED.LightHead first.
+    /// </summary>
+    static int FloorOwnerPriority(Selectable sel)
+    {
+        if (sel == null)
+            return 0;
+        string n = sel.name;
+        if (n.IndexOf("LightHead", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            return 100;
+        if (sel.GetComponent<BoomHeadScaleHandler>() != null
+            || n.IndexOf("NewBoomHead", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            return 90;
+        if (Measurable.IsMonitorBoomProductHead(sel))
+            return 85;
+        if (n.IndexOf("Simeon", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            return 70;
+        if (n.IndexOf("Sim.LED", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            return 60;
+        if (Measurable.IsLightProductFloorOwner(sel))
+            return 40;
+        return 10;
+    }
+
+    /// <summary>
+    /// One floor dim per hanging product head — keep highest-priority owner when Simeon /
+    /// Sim.LED shell / LightHead all curate the same LightHead id.
+    /// </summary>
+    static void DedupeFloorOwnersByHead(Dictionary<Selectable, Measurable> floorBySource)
+    {
+        if (floorBySource == null || floorBySource.Count < 2)
+            return;
+
+        var byHead = new Dictionary<int, List<Selectable>>();
+        foreach (var sel in floorBySource.Keys.ToList())
+        {
+            if (sel == null)
+                continue;
+            int headId = sel.GetInstanceID();
+            if (Measurable.TryGetLightProductFloorRoot(sel, out Transform lightHead)
+                && lightHead != null)
+                headId = lightHead.GetInstanceID();
+            else if (Measurable.IsMonitorBoomProductHead(sel))
+                headId = sel.GetInstanceID();
+            else if (Measurable.TryGetServiceHeadFloorRoot(sel, out Transform sh)
+                     && sh != null)
+                headId = sh.GetInstanceID();
+
+            if (!byHead.TryGetValue(headId, out var list))
+            {
+                list = new List<Selectable>();
+                byHead[headId] = list;
+            }
+            list.Add(sel);
+        }
+
+        foreach (var group in byHead.Values)
+        {
+            if (group.Count < 2)
+                continue;
+            Selectable keep = group
+                .OrderByDescending(FloorOwnerPriority)
+                .ThenBy(s => s.name)
+                .First();
+            foreach (var s in group)
+            {
+                if (s == keep)
+                    continue;
+                Debug.Log(
+                    $"[ElevDim] Deduped floor head: keep={keep.name} drop={s.name}");
+                floorBySource.Remove(s);
+            }
+        }
+    }
+
     static void DedupeLengthOwnersByStem(
         Dictionary<Selectable, (Measurable measurable, float sizeM)> lengthByOwner)
     {

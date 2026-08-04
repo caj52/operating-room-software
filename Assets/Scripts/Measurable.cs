@@ -1590,13 +1590,15 @@ public class Measurable : MonoBehaviour
         // to yoke-only meshes and the tick sat on the arm. Include accessories under the
         // light root; exclude nested other product heads.
         var owner = GetOwningSelectable() ?? GetComponentInParent<Selectable>();
-        if (IsLightProductFloorOwner(owner))
+        if (TryGetLightProductFloorRoot(owner, out Transform lightRoot)
+            || (owner != null && TryGetLightProductFloorRoot(
+                    owner.GetComponentInParent<Selectable>(true), out lightRoot)))
         {
-            root = owner.transform;
-            productOwner = owner;
+            root = lightRoot;
+            productOwner = lightRoot.GetComponent<Selectable>() ?? owner;
             Debug.Log(
-                $"[ElevDim] FLOOR ROOT lightProduct owner={owner.name} " +
-                $"measurable={name}",
+                $"[ElevDim] FLOOR ROOT lightProduct owner={owner?.name} " +
+                $"head={lightRoot.name} measurable={name}",
                 this);
         }
         else if (IsMonitorBoomProductHead(owner))
@@ -1647,7 +1649,9 @@ public class Measurable : MonoBehaviour
     }
 
     /// <summary>
-    /// U|ONE / U|002 style light roots — not boom/arm segments that may contain a hanging light.
+    /// U|ONE / U|002 / Sim.LED light product — not boom mounts that merely host a light.
+    /// Player.log: GUID mount + bare "Arm" matched via GetComponentInChildren&lt;LightFactory&gt;,
+    /// placed undersideY≈2.6 (arm), stole Sim.LED.LightHead id, then orphan-killed.
     /// </summary>
     public static bool IsLightProductFloorOwner(Selectable owner)
     {
@@ -1655,19 +1659,83 @@ public class Measurable : MonoBehaviour
             return false;
 
         string n = owner.name;
+        if (LooksLikeGuidName(n))
+            return false;
+        if (n.IndexOf("Logo", StringComparison.OrdinalIgnoreCase) >= 0)
+            return false;
         if (n.IndexOf("Boom", StringComparison.OrdinalIgnoreCase) >= 0
             || n.IndexOf("ArmSegment", StringComparison.OrdinalIgnoreCase) >= 0
-            || n.IndexOf("ArmDrop", StringComparison.OrdinalIgnoreCase) >= 0)
+            || n.IndexOf("ArmDrop", StringComparison.OrdinalIgnoreCase) >= 0
+            || string.Equals(n, "Arm", StringComparison.OrdinalIgnoreCase)
+            || (n.IndexOf("Arm", StringComparison.OrdinalIgnoreCase) >= 0
+                && n.IndexOf("Light", StringComparison.OrdinalIgnoreCase) < 0
+                && n.IndexOf("Simeon", StringComparison.OrdinalIgnoreCase) < 0
+                && n.IndexOf("LED", StringComparison.OrdinalIgnoreCase) < 0))
             return false;
 
-        if (n.IndexOf("Simeon", StringComparison.OrdinalIgnoreCase) >= 0
+        if (n.IndexOf("LightHead", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("Simeon", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("Sim.LED", StringComparison.OrdinalIgnoreCase) >= 0
             || n.IndexOf("U202", StringComparison.OrdinalIgnoreCase) >= 0
             || n.IndexOf("U002", StringComparison.OrdinalIgnoreCase) >= 0
             || n.IndexOf("UOne", StringComparison.OrdinalIgnoreCase) >= 0)
             return true;
 
-        // Fallback: light factory under this owner, still excluding boom/arm names above.
-        return owner.GetComponentInChildren<LightFactory>(true) != null;
+        // Factory on this selectable only — never "any LightFactory under a boom mount".
+        return owner.GetComponent<LightFactory>() != null;
+    }
+
+    /// <summary>
+    /// Prefer Sim.LED.LightHead under a light product for underside.
+    /// Owner must already be a light product — never enter via Arm/GUID + child LightFactory
+    /// (Player.log: Arm placed undersideY≈2.635, stole LightHead id).
+    /// </summary>
+    public static bool TryGetLightProductFloorRoot(Selectable owner, out Transform headRoot)
+    {
+        headRoot = null;
+        if (owner == null || !IsLightProductFloorOwner(owner))
+            return false;
+
+        // Already on the head.
+        if (owner.name.IndexOf("LightHead", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            headRoot = owner.transform;
+            return true;
+        }
+
+        Selectable bestHead = null;
+        foreach (var s in owner.GetComponentsInChildren<Selectable>(true))
+        {
+            if (s == null || !IsLightProductFloorOwner(s))
+                continue;
+            if (s.name.IndexOf("LightHead", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                headRoot = s.transform;
+                return true;
+            }
+            if (bestHead == null && s != owner)
+                bestHead = s;
+        }
+
+        if (bestHead != null)
+        {
+            headRoot = bestHead.transform;
+            return true;
+        }
+
+        var factory = owner.GetComponentInChildren<LightFactory>(true);
+        if (factory != null)
+        {
+            var host = factory.GetComponentInParent<Selectable>(true);
+            if (host != null && IsLightProductFloorOwner(host))
+            {
+                headRoot = host.transform;
+                return true;
+            }
+        }
+
+        headRoot = owner.transform;
+        return true;
     }
 
     /// <summary>
@@ -1681,6 +1749,13 @@ public class Measurable : MonoBehaviour
     {
         if (sel == null)
             return false;
+
+        string n = sel.name;
+        // Assembly roots are renamed to a GUID — never treat those as product floors
+        // (must run before light checks — GUID mounts can host LightFactory children).
+        if (LooksLikeGuidName(n))
+            return false;
+
         // True SH cabinet (row-tier head), not spring/boom arm names.
         if (sel.GetComponent<BoomHeadScaleHandler>() != null)
             return true;
@@ -1688,11 +1763,6 @@ public class Measurable : MonoBehaviour
             return true;
         if (IsLightProductFloorOwner(sel))
             return true;
-
-        string n = sel.name;
-        // Assembly roots are renamed to a GUID — never treat those as product floors.
-        if (LooksLikeGuidName(n))
-            return false;
 
         // Spring / boom arms must never qualify via broad "1000SH" / "SpringBottom" names.
         if (IsSkippedMidArmFloorName(sel))
@@ -1891,11 +1961,16 @@ public class Measurable : MonoBehaviour
     /// <summary>Product root used for floor-clearance ownership (one dim per head).</summary>
     Transform ResolveElevationFloorHeadRoot()
     {
-        var owner = GetComponentInParent<Selectable>(true) ?? GetOwningSelectable();
+        var owner = GetOwningSelectable() ?? GetComponentInParent<Selectable>(true);
         if (IsMonitorBoomProductHead(owner))
             return owner.transform;
-        if (IsLightProductFloorOwner(owner))
-            return owner.transform;
+        if (TryGetLightProductFloorRoot(owner, out Transform lightHead))
+            return lightHead;
+        // Measurable may sit under LightHead while CutsheetLengthOwner is a parent shell.
+        var parent = GetComponentInParent<Selectable>(true);
+        if (parent != null && parent != owner
+            && TryGetLightProductFloorRoot(parent, out lightHead))
+            return lightHead;
         if (TryGetServiceHeadFloorRoot(owner, out Transform head) && !IsMonitorBoomProductHead(owner))
             return head;
         return owner != null ? owner.transform : transform;
