@@ -390,6 +390,9 @@ public static class ElevationCutsheetPass
                 drewFloor++;
         }
 
+        // Page-plane overlap: push dim LINES outboard only; label gap stays fixed.
+        ElevationDimLayoutResolve.Apply(camera);
+
         // Upstream contract: a dim line without an mm label must not exist.
         int orphansKilled = EnforceLabeledDimsOnly();
         SuppressNonMetricTexts();
@@ -415,8 +418,8 @@ public static class ElevationCutsheetPass
     }
 
     /// <summary>
-    /// Simple H/V lane index at place time. Overlap resolution is redesigned separately —
-    /// do not inflate bases or post-nudge labels here.
+    /// Initial place: every length dim starts at the same near offset.
+    /// <see cref="ElevationDimLayoutResolve"/> stacks outward only when page-rects collide.
     /// </summary>
     static Dictionary<Selectable, (bool vertical, float side, float lift)> AssignCutsheetLanes(
         Dictionary<Selectable, (Measurable measurable, float sizeM)> lengthByOwner)
@@ -426,9 +429,6 @@ public static class ElevationCutsheetPass
             return layoutByOwner;
 
         float near = ElevationDimPlacement.CutsheetLaneBaseMeters;
-        float step = ElevationDimPlacement.CutsheetLaneStepMeters;
-        int vertLane = 0;
-        int horizLane = 0;
 
         foreach (var kv in lengthByOwner.OrderByDescending(k => k.Value.sizeM))
         {
@@ -438,15 +438,9 @@ public static class ElevationCutsheetPass
             float horiz = kv.Value.measurable.EstimateProximalHorizontalSpan(sel);
             bool vertical = Measurable.ClassifyCutsheetLengthVertical(sel, kv.Value.sizeM, horiz);
             if (vertical)
-            {
-                layoutByOwner[sel] = (true, near + vertLane * step, 0f);
-                vertLane++;
-            }
+                layoutByOwner[sel] = (true, near, 0f);
             else
-            {
-                layoutByOwner[sel] = (false, 0f, near + horizLane * step);
-                horizLane++;
-            }
+                layoutByOwner[sel] = (false, 0f, near);
         }
 
         return layoutByOwner;

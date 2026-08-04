@@ -983,9 +983,9 @@ public class Measurable : MonoBehaviour
                 ? tubeMinR - pad - lane
                 : tubeMaxR + pad + lane;
             offset = right * (targetR - featR);
-            float maxLeader = shortTube
-                ? Mathf.Clamp(catalogLen * 0.55f, 0.035f, 0.08f)
-                : 0.45f;
+            // Do not clamp short tubes onto the column — near lane + layout resolve
+            // own clearance. Old 0.08m cap left 100mm labels sitting on the mesh.
+            float maxLeader = 0.45f;
             float leader = Mathf.Abs(targetR - featR);
             if (leader > maxLeader)
                 offset = right * ((preferNeg ? -1f : 1f) * maxLeader);

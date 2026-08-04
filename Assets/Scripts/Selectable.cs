@@ -2340,28 +2340,23 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         camera.transform.position = bounds.center + (outwardDirection.normalized * bounds.extents.magnitude);
         camera.transform.LookAt(bounds.center, Vector3.up);
-        camera.orthographicSize = bounds.extents.y;
+        FitOrthoCameraToBounds(camera, bounds, margin: 1.06f);
+        if (!TryGetBoundsScreenRect(camera, bounds, out Vector2 screenMin, out Vector2 screenMax))
+            throw new Exception("Could not project elev bounds to screen");
 
-        int safetyCounter = 1000;
-        Vector2 screenMin = camera.WorldToScreenPoint(bounds.min);
-        Vector2 screenMax = camera.WorldToScreenPoint(bounds.max);
         RenderTexture rt = camera.targetTexture;
-        bool InShot(Vector2 p) =>
-            p.x > 0 && p.y > 0 &&
-            p.x < rt.width && p.y < rt.height;
-
-        while (--safetyCounter > 0)
+        int safetyCounter = 64;
+        while (--safetyCounter > 0
+               && (screenMin.x < 1f || screenMin.y < 1f
+                   || screenMax.x > rt.width - 2f || screenMax.y > rt.height - 2f))
         {
-            camera.orthographicSize += 1f;
-            screenMin = camera.WorldToScreenPoint(bounds.min);
-            screenMax = camera.WorldToScreenPoint(bounds.max);
-            if (InShot(screenMin) && InShot(screenMax)) break;
+            camera.orthographicSize *= 1.08f;
+            if (!TryGetBoundsScreenRect(camera, bounds, out screenMin, out screenMax))
+                break;
         }
-        if (safetyCounter == 0)
-            throw new Exception("Could not get bounds of Arm Assembly for photo");
 
-        imageWidth = Mathf.CeilToInt(Mathf.Abs(screenMax.x - screenMin.x));
-        imageHeight = Mathf.CeilToInt(Mathf.Abs(screenMax.y - screenMin.y));
+        imageWidth = Mathf.Max(1, Mathf.CeilToInt(screenMax.x - screenMin.x));
+        imageHeight = Mathf.Max(1, Mathf.CeilToInt(screenMax.y - screenMin.y));
 
         ElevationCutsheetPass.SuppressNonCutsheetTexts();
         Canvas.ForceUpdateCanvases();
@@ -2380,8 +2375,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         RenderTexture.active = rt;
         Texture2D tex = new Texture2D(imageWidth, imageHeight, TextureFormat.RGBA32, false);
-        float minX = Mathf.Min(screenMin.x, screenMax.x);
-        float minY = Mathf.Min(screenMin.y, screenMax.y);
+        float minX = screenMin.x;
+        float minY = screenMin.y;
         tex.ReadPixels(new Rect(minX, minY, imageWidth, imageHeight), 0, 0);
         RenderTexture.active = null;
 
@@ -2519,37 +2514,114 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
     /// <summary>
     /// Widen bounds to include active cutsheet dim lines / labels (after Apply).
+    /// Grow the frame — do not shove dims back into a tight crop.
     /// Does not change the room-locked Y span by itself — caller re-locks Y after.
     /// </summary>
     private Bounds ExpandElevationBoundsForCutsheetOverlays(Bounds bounds)
     {
-        if (_assemblySelectables == null)
-            return bounds;
+        const float labelPad = 0.55f;
 
-        const float labelPad = 0.40f;
-        foreach (var item in _assemblySelectables)
+        void EncapsulateMeasurer(Measurer measurer)
         {
-            if (item?.Measurables == null) continue;
-            foreach (var measurable in item.Measurables)
+            if (measurer == null || !measurer.gameObject.activeSelf)
+                return;
+            if (!measurer.ShouldDrawInElevationPhoto())
+                return;
+            var measurement = measurer.Measurement;
+            if (measurement == null)
+                return;
+
+            bounds.Encapsulate(measurement.Origin);
+            bounds.Encapsulate(measurement.HitPoint);
+            if (measurer.ElevationLeadersValid)
             {
-                if (measurable?.Measurements == null) continue;
-                foreach (var measurement in measurable.Measurements)
+                bounds.Encapsulate(measurer.ElevationLeaderFeatureA);
+                bounds.Encapsulate(measurer.ElevationLeaderFeatureB);
+            }
+
+            var text = measurer.MeasurementText;
+            if (text != null && text.gameObject.activeSelf)
+            {
+                bounds.Encapsulate(new Bounds(
+                    text.transform.position,
+                    Vector3.one * labelPad * 2f));
+                if (text.Text != null)
                 {
-                    if (measurement?.Measurer == null || !measurement.Measurer.gameObject.activeSelf)
-                        continue;
-                    if (measurement.Measurer.Renderer != null)
-                        bounds.Encapsulate(measurement.Measurer.Renderer.bounds);
-                    var text = measurement.Measurer.MeasurementText;
-                    if (text != null && text.gameObject.activeSelf)
-                    {
-                        bounds.Encapsulate(new Bounds(
-                            text.transform.position,
-                            Vector3.one * labelPad * 2f));
-                    }
+                    text.Text.ForceMeshUpdate();
+                    Bounds gb = text.Text.textBounds;
+                    var rt = text.Text.rectTransform;
+                    Vector3 e = gb.extents;
+                    Vector3 c = gb.center;
+                    bounds.Encapsulate(rt.TransformPoint(c + new Vector3(-e.x, -e.y, 0f)));
+                    bounds.Encapsulate(rt.TransformPoint(c + new Vector3(-e.x,  e.y, 0f)));
+                    bounds.Encapsulate(rt.TransformPoint(c + new Vector3( e.x, -e.y, 0f)));
+                    bounds.Encapsulate(rt.TransformPoint(c + new Vector3( e.x,  e.y, 0f)));
                 }
             }
         }
+
+        // All live elev measurers (not only ones still linked on assembly lists).
+        foreach (var measurer in UnityEngine.Object.FindObjectsByType<Measurer>(
+                     FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+            EncapsulateMeasurer(measurer);
+
         return bounds;
+    }
+
+    /// <summary>
+    /// Ortho size from camera-local extents of all 8 AABB corners (with aspect).
+    /// </summary>
+    static void FitOrthoCameraToBounds(Camera camera, Bounds bounds, float margin = 1.05f)
+    {
+        if (camera == null)
+            return;
+        float maxRight = 0.01f;
+        float maxUp = 0.01f;
+        Vector3 c = bounds.center;
+        Vector3 e = bounds.extents;
+        for (int ix = -1; ix <= 1; ix += 2)
+        for (int iy = -1; iy <= 1; iy += 2)
+        for (int iz = -1; iz <= 1; iz += 2)
+        {
+            Vector3 world = c + new Vector3(e.x * ix, e.y * iy, e.z * iz);
+            Vector3 local = camera.transform.InverseTransformPoint(world);
+            maxRight = Mathf.Max(maxRight, Mathf.Abs(local.x));
+            maxUp = Mathf.Max(maxUp, Mathf.Abs(local.y));
+        }
+        float aspect = Mathf.Max(0.01f, camera.aspect);
+        float size = Mathf.Max(maxUp, maxRight / aspect) * Mathf.Max(1f, margin);
+        camera.orthographicSize = Mathf.Max(0.01f, size);
+    }
+
+    /// <summary>
+    /// Screen-space AABB of a world bounds — must use all 8 corners, not min/max only.
+    /// </summary>
+    static bool TryGetBoundsScreenRect(
+        Camera camera, Bounds bounds, out Vector2 screenMin, out Vector2 screenMax)
+    {
+        screenMin = new Vector2(float.MaxValue, float.MaxValue);
+        screenMax = new Vector2(float.MinValue, float.MinValue);
+        if (camera == null)
+            return false;
+
+        Vector3 c = bounds.center;
+        Vector3 e = bounds.extents;
+        bool any = false;
+        for (int ix = -1; ix <= 1; ix += 2)
+        for (int iy = -1; iy <= 1; iy += 2)
+        for (int iz = -1; iz <= 1; iz += 2)
+        {
+            Vector3 world = c + new Vector3(e.x * ix, e.y * iy, e.z * iz);
+            Vector3 sp = camera.WorldToScreenPoint(world);
+            if (sp.z < 0f)
+                continue;
+            any = true;
+            screenMin.x = Mathf.Min(screenMin.x, sp.x);
+            screenMin.y = Mathf.Min(screenMin.y, sp.y);
+            screenMax.x = Mathf.Max(screenMax.x, sp.x);
+            screenMax.y = Mathf.Max(screenMax.y, sp.y);
+        }
+        return any && screenMax.x > screenMin.x && screenMax.y > screenMin.y;
     }
 
     /// <summary>
@@ -2614,31 +2686,46 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         SuppressHighlightsForCapture(_assemblySelectables);
         ElevationCutsheetPass.Apply(_assemblySelectables, camera);
         fixedBounds = ExpandElevationBoundsForCutsheetOverlays(fixedBounds);
+        {
+            Vector3 bMin = fixedBounds.min;
+            Vector3 bMax = fixedBounds.max;
+            const float sidePad = 0.35f;
+            bMin.x -= sidePad;
+            bMin.z -= sidePad;
+            bMax.x += sidePad;
+            bMax.z += sidePad;
+            fixedBounds.SetMinMax(bMin, bMax);
+        }
         fixedBounds = LockElevationVerticalToRoom(fixedBounds);
 
         camera.transform.position = fixedBounds.center + (outwardDirection.normalized * fixedBounds.extents.magnitude);
         camera.transform.LookAt(fixedBounds.center, Vector3.up);
-        camera.orthographicSize = Mathf.Max(0.01f, fixedBounds.extents.y);
 
-        // Fit fixed bounds into RT
-        int safetyCounter = 1000;
-        Vector2 screenMin = camera.WorldToScreenPoint(fixedBounds.min);
-        Vector2 screenMax = camera.WorldToScreenPoint(fixedBounds.max);
+        // Fit using ALL 8 AABB corners in camera space — WorldToScreen(min)/max alone
+        // misses labels sticking out sideways (cropping callouts off the PDF).
+        FitOrthoCameraToBounds(camera, fixedBounds, margin: 1.06f);
+        if (!TryGetBoundsScreenRect(camera, fixedBounds, out Vector2 screenMin, out Vector2 screenMax))
+            throw new Exception("Could not project elev bounds to screen (fixed)");
+
         RenderTexture rt = camera.targetTexture;
-        bool InShot(Vector2 p) => p.x > 0 && p.y > 0 && p.x < rt.width && p.y < rt.height;
-
-        while (--safetyCounter > 0)
+        // Keep crop inside the RT; grow ortho again if any corner still clips.
+        int safetyCounter = 64;
+        while (--safetyCounter > 0
+               && (screenMin.x < 1f || screenMin.y < 1f
+                   || screenMax.x > rt.width - 2f || screenMax.y > rt.height - 2f))
         {
-            camera.orthographicSize += 1f;
-            screenMin = camera.WorldToScreenPoint(fixedBounds.min);
-            screenMax = camera.WorldToScreenPoint(fixedBounds.max);
-            if (InShot(screenMin) && InShot(screenMax)) break;
+            camera.orthographicSize *= 1.08f;
+            if (!TryGetBoundsScreenRect(camera, fixedBounds, out screenMin, out screenMax))
+                break;
         }
-        if (safetyCounter == 0)
-            throw new Exception("Could not get bounds of Arm Assembly for photo (fixed)");
 
-        imageWidth = Mathf.CeilToInt(Mathf.Abs(screenMax.x - screenMin.x));
-        imageHeight = Mathf.CeilToInt(Mathf.Abs(screenMax.y - screenMin.y));
+        imageWidth = Mathf.Max(1, Mathf.CeilToInt(screenMax.x - screenMin.x));
+        imageHeight = Mathf.Max(1, Mathf.CeilToInt(screenMax.y - screenMin.y));
+        Debug.Log(
+            $"[ElevDim] FRAME ortho={camera.orthographicSize:F3} " +
+            $"crop={imageWidth}x{imageHeight} screen=({screenMin.x:F0},{screenMin.y:F0})-" +
+            $"({screenMax.x:F0},{screenMax.y:F0}) rt={rt.width}x{rt.height} " +
+            $"boundsXZ=({fixedBounds.size.x:F2},{fixedBounds.size.z:F2})");
 
         ElevationCutsheetPass.SuppressNonCutsheetTexts();
         Canvas.ForceUpdateCanvases();
@@ -2657,8 +2744,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         RenderTexture.active = rt;
         Texture2D tex = new Texture2D(imageWidth, imageHeight, TextureFormat.RGBA32, false);
-        float minX = Mathf.Min(screenMin.x, screenMax.x);
-        float minY = Mathf.Min(screenMin.y, screenMax.y);
+        float minX = screenMin.x;
+        float minY = screenMin.y;
         tex.ReadPixels(new Rect(minX, minY, imageWidth, imageHeight), 0, 0);
         RenderTexture.active = null;
 
