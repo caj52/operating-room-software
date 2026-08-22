@@ -402,10 +402,15 @@ public static class UpdatePrefabsFromCdnMirror
     private static void PersistBundleAssetsToProject(GameObject root, string bundleName)
     {
         string folder = $"Assets/_MirrorExtract/{SanitizePathSegment(bundleName)}";
-        if (!AssetDatabase.IsValidFolder("Assets/_MirrorExtract"))
-            AssetDatabase.CreateFolder("Assets", "_MirrorExtract");
+        EnsureMirrorExtractFolder("Assets/_MirrorExtract");
         if (!AssetDatabase.IsValidFolder(folder))
-            AssetDatabase.CreateFolder("Assets/_MirrorExtract", SanitizePathSegment(bundleName));
+        {
+            string abs = Path.Combine(Application.dataPath, "_MirrorExtract", SanitizePathSegment(bundleName));
+            if (!Directory.Exists(abs))
+                AssetDatabase.CreateFolder("Assets/_MirrorExtract", SanitizePathSegment(bundleName));
+            else
+                AssetDatabase.Refresh();
+        }
 
         var meshMap = new Dictionary<Mesh, Mesh>();
         var matMap = new Dictionary<Material, Material>();
@@ -530,6 +535,25 @@ public static class UpdatePrefabsFromCdnMirror
         }
     }
 
+    private static void EnsureMirrorExtractFolder(string assetPath)
+    {
+        if (AssetDatabase.IsValidFolder(assetPath))
+            return;
+
+        // CreateFolder on an existing name makes "_MirrorExtract 1", "_MirrorExtract 2", …
+        string abs = Path.GetFullPath(Path.Combine(Application.dataPath, "..", assetPath));
+        if (Directory.Exists(abs))
+        {
+            AssetDatabase.Refresh();
+            return;
+        }
+
+        string parent = Path.GetDirectoryName(assetPath)?.Replace('\\', '/');
+        string name = Path.GetFileName(assetPath);
+        if (!string.IsNullOrEmpty(parent) && !string.IsNullOrEmpty(name))
+            AssetDatabase.CreateFolder(parent, name);
+    }
+
     private static string SanitizePathSegment(string name)
     {
         if (string.IsNullOrEmpty(name))
@@ -566,6 +590,166 @@ public static class UpdatePrefabsFromCdnMirror
     {
         foreach (Transform t in root.GetComponentsInChildren<Transform>(true))
             GameObjectUtility.RemoveMonoBehavioursWithMissingScript(t.gameObject);
+    }
+
+    /// <summary>
+    /// Unpack nested .blend / Selectable / logo PrefabInstances on the Assets Simeon
+    /// prefabs and persist meshes into _MirrorExtract — same end state as a successful
+    /// CdnMirror bake, without loading thin AssetBundles.
+    /// Batchmode: -executeMethod UpdatePrefabsFromCdnMirror.BakeSimeonLightsFromAssetsBatch
+    /// </summary>
+    [MenuItem("Tools/Operating Room/Bake Simeon Lights Self-Contained", false, 102)]
+    private static void BakeSimeonLightsFromAssetsMenu()
+    {
+        if (Application.isPlaying)
+        {
+            EditorUtility.DisplayDialog("Bake Simeon Lights", "Stop Play Mode first.", "OK");
+            return;
+        }
+
+        int ok = BakeSimeonLightsFromAssets(out int failed);
+        EditorUtility.DisplayDialog(
+            "Bake Simeon Lights",
+            $"Baked {ok}. Failed {failed}.\nOpen the Simeon prefabs — body meshes should be self-contained under _MirrorExtract.",
+            "OK");
+    }
+
+    public static void BakeSimeonLightsFromAssetsBatch()
+    {
+        int ok = BakeSimeonLightsFromAssets(out int failed);
+        Debug.Log($"[BakeSimeon] DONE ok={ok} failed={failed}");
+        EditorApplication.Exit(failed > 0 ? 1 : 0);
+    }
+
+    public static int BakeSimeonLightsFromAssets(out int failed)
+    {
+        failed = 0;
+        int ok = 0;
+        var targets = new (string prefabPath, string bundleName)[]
+        {
+            ("Assets/Prefabs/Selectables/Simeon_Light_7000.prefab", "gameobject_9548e43dbf80de84fa9980537b084d38"),
+            ("Assets/Prefabs/Selectables/Simeon_Light_8000.prefab", "gameobject_9d8bfe60207068d43bd3e89a01c90394"),
+        };
+
+        AssetDatabase.StartAssetEditing();
+        try
+        {
+            foreach (var (prefabPath, bundleName) in targets)
+            {
+                try
+                {
+                    if (BakeOneSelectableFromAssets(prefabPath, bundleName))
+                        ok++;
+                    else
+                        failed++;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    Debug.LogError($"[BakeSimeon] FAIL {prefabPath}: {ex}");
+                }
+            }
+        }
+        finally
+        {
+            AssetDatabase.StopAssetEditing();
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+        }
+
+        return ok;
+    }
+
+    private static bool BakeOneSelectableFromAssets(string prefabPath, string bundleName)
+    {
+        if (!File.Exists(Path.GetFullPath(prefabPath)))
+        {
+            Debug.LogError($"[BakeSimeon] Missing prefab: {prefabPath}");
+            return false;
+        }
+
+        GameObject root = PrefabUtility.LoadPrefabContents(prefabPath);
+        try
+        {
+            UnpackAllPrefabInstances(root);
+
+            int before = root.GetComponentsInChildren<MeshFilter>(true).Count(f => f.sharedMesh != null);
+            PersistBundleAssetsToProject(root, bundleName);
+            RebindMonoScripts(root);
+            StripMissingScripts(root);
+
+            int after = root.GetComponentsInChildren<MeshFilter>(true).Count(f => f.sharedMesh != null);
+            int totalFilters = root.GetComponentsInChildren<MeshFilter>(true).Length;
+            Debug.Log($"[BakeSimeon] {prefabPath} meshFilters={totalFilters} assignedBefore={before} assignedAfter={after}");
+
+            if (totalFilters == 0 || after == 0)
+            {
+                Debug.LogError($"[BakeSimeon] No assigned meshes after bake: {prefabPath} (blends may not be importing)");
+                return false;
+            }
+
+            PrefabUtility.SaveAsPrefabAsset(root, prefabPath, out bool success);
+            if (!success)
+            {
+                Debug.LogError($"[BakeSimeon] SaveAsPrefabAsset failed: {prefabPath}");
+                return false;
+            }
+
+            AssetImporter importer = AssetImporter.GetAtPath(prefabPath);
+            if (importer != null)
+                importer.SetAssetBundleNameAndVariant(bundleName, string.Empty);
+
+            Debug.Log($"[BakeSimeon] OK {prefabPath}");
+            return true;
+        }
+        finally
+        {
+            PrefabUtility.UnloadPrefabContents(root);
+        }
+    }
+
+    private static void UnpackAllPrefabInstances(GameObject root)
+    {
+        // Deepest-first until no PrefabInstance roots remain.
+        for (int guard = 0; guard < 64; guard++)
+        {
+            var roots = new List<GameObject>();
+            foreach (Transform t in root.GetComponentsInChildren<Transform>(true))
+            {
+                GameObject go = t.gameObject;
+                if (PrefabUtility.IsAnyPrefabInstanceRoot(go))
+                    roots.Add(go);
+            }
+
+            if (roots.Count == 0)
+                return;
+
+            roots.Sort((a, b) => GetHierarchyDepth(b).CompareTo(GetHierarchyDepth(a)));
+            foreach (GameObject go in roots)
+            {
+                if (!PrefabUtility.IsAnyPrefabInstanceRoot(go))
+                    continue;
+                PrefabUtility.UnpackPrefabInstance(
+                    go,
+                    PrefabUnpackMode.Completely,
+                    InteractionMode.AutomatedAction);
+            }
+        }
+
+        Debug.LogWarning("[BakeSimeon] UnpackAll hit iteration guard — some PrefabInstances may remain");
+    }
+
+    private static int GetHierarchyDepth(GameObject go)
+    {
+        int d = 0;
+        Transform t = go.transform;
+        while (t != null)
+        {
+            d++;
+            t = t.parent;
+        }
+
+        return d;
     }
 }
 #endif

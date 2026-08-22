@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2020 Felix Westin
+// Copyright (c) 2020 Felix Westin
 // This code is licensed under MIT license (see LICENSE for details)
 
 using System.Collections;

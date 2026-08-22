@@ -15,6 +15,7 @@ BLENDS = [
     ROOT / "Assets/Models/CeilingMountCovers/SlimBoomHeadCover.blend",
     ROOT / "Assets/Models/Tandem Cover/Tandem Cover.blend",
     ROOT / "Assets/Models/BoomDropTube/BoomDropTube.blend",
+    ROOT / "Assets/Models/BoomSegment_1/BoomSegment_1.blend",
 ]
 
 EXPORT_PY = r"""

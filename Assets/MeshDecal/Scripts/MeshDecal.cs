@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2020 Felix Westin
+// Copyright (c) 2020 Felix Westin
 // This code is licensed under MIT license (see LICENSE for details)
 
 using System.Collections;
@@ -138,11 +138,20 @@ public class MeshDecal : MonoBehaviour
 				return null;
 
 			var meshFilter = sourceTransform.GetComponent<MeshFilter>();
-			if (meshFilter)
+			if (meshFilter && meshFilter.sharedMesh)
 				return meshFilter.sharedMesh;
 
 			var skinnedMeshRenderer = sourceTransform.GetComponent<SkinnedMeshRenderer>();
-			if (skinnedMeshRenderer)
+			if (skinnedMeshRenderer && skinnedMeshRenderer.sharedMesh)
+				return skinnedMeshRenderer.sharedMesh;
+
+			// Nested model prefabs (e.g. Simeon .blend) keep meshes on children
+			meshFilter = sourceTransform.GetComponentInChildren<MeshFilter>(true);
+			if (meshFilter && meshFilter.sharedMesh)
+				return meshFilter.sharedMesh;
+
+			skinnedMeshRenderer = sourceTransform.GetComponentInChildren<SkinnedMeshRenderer>(true);
+			if (skinnedMeshRenderer && skinnedMeshRenderer.sharedMesh)
 				return skinnedMeshRenderer.sharedMesh;
 
 			return null;
@@ -311,6 +320,15 @@ public class MeshDecal : MonoBehaviour
 		sourceMesh.GetNormals(normals);
 		sourceMesh.GetTangents(tangents);
 		sourceMesh.GetUVs(0, originalUVs);
+
+		// Some meshes (e.g. extracted placeables) have no tangents/UVs — pad so indexing is safe.
+		int vertCount = vertices.Count;
+		while (normals.Count < vertCount)
+			normals.Add(Vector3.up);
+		while (tangents.Count < vertCount)
+			tangents.Add(new Vector4(1, 0, 0, 1));
+		while (originalUVs.Count < vertCount)
+			originalUVs.Add(Vector2.zero);
 
 		if (sourceMesh.subMeshCount == 1)
 		{
