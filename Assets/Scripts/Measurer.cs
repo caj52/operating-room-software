@@ -232,10 +232,10 @@ public class Measurer : MonoBehaviour
         if (drawMeters < 0.01f)
             drawMeters = 0.01f;
 
-        // Always reset thickness — preserving localScale.x/y once let a fat scale stick
-        // and drew the black rectangular "boxes" on elevation PDFs.
-        float thickness = Selectable.IsInElevationPhotoMode ? 0.006f : 0.01f;
-        transform.localScale = new Vector3(thickness, thickness, drawMeters);
+        // Parent XY must stay 1. Prefab Cube is localScale 0.01 → ~1cm world thickness.
+        // Setting parent to 0.01 (elev cutsheet cleanup) compounded to ~0.1mm and hid
+        // live dims while labels still drew. Elev hides the mesh body anyway.
+        transform.localScale = new Vector3(1f, 1f, drawMeters);
 
         // Elevation: hide the mesh body; leaders + a thin body line carry the dim.
         // The cube mesh read as a heavy black rectangle in ortho captures.
