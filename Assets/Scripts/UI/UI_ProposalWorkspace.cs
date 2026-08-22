@@ -5,7 +5,6 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using TMPro;
-using TriLibCore.SFB;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.Events;
@@ -2454,16 +2453,19 @@ public class UI_ProposalWorkspace : MonoBehaviour
 
         _model.ApplyTo(generator);
 
-        string defaultDir = ExportPaths.ProposalsDir;
+        string folder = ExportPaths.ProposalsDir;
         try
         {
-            if (!Directory.Exists(defaultDir))
-                Directory.CreateDirectory(defaultDir);
+            if (!Directory.Exists(folder))
+                Directory.CreateDirectory(folder);
         }
         catch (Exception e)
         {
-            Debug.LogWarning($"Could not ensure proposals folder: {e.Message}");
-            defaultDir = ExportPaths.GetSuggestedExportParentFolder();
+            Debug.LogWarning($"Could not create proposals folder: {e.Message}");
+            UI_DialogPrompt.Open(
+                "Could not create the proposals folder under AppData.",
+                new ButtonAction("OK"));
+            return;
         }
 
         string safeConfig = string.IsNullOrWhiteSpace(_model.ConfigName)
@@ -2471,36 +2473,11 @@ public class UI_ProposalWorkspace : MonoBehaviour
             : string.Join("_", _model.ConfigName.Split(Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries));
         if (string.IsNullOrWhiteSpace(safeConfig))
             safeConfig = ExportPaths.GetSuggestedExportFolderName();
-        string defaultName = $"SalesProposal_{safeConfig}";
+        string path = Path.Combine(folder, $"SalesProposal_{safeConfig}.pdf");
 
-        try
-        {
-            StandaloneFileBrowser.SaveFilePanelAsync(
-                "Export sales proposal PDF",
-                defaultDir,
-                defaultName,
-                new[] { new ExtensionFilter("PDF", "pdf") },
-                item =>
-                {
-                    if (item == null || string.IsNullOrWhiteSpace(item.Name))
-                        return;
-
-                    string path = item.Name;
-                    if (!path.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
-                        path += ".pdf";
-
-                    // Drop any in-flight preview first so export owns the generator cleanly.
-                    CancelPreviewRefresh();
-                    generator.GeneratePDF(path);
-                });
-        }
-        catch (Exception e)
-        {
-            Debug.LogError($"Failed to open save dialog: {e}");
-            UI_DialogPrompt.Open(
-                "Could not open the system save dialog.",
-                new ButtonAction("OK"));
-        }
+        // Drop any in-flight preview first so export owns the generator cleanly.
+        CancelPreviewRefresh();
+        generator.GeneratePDF(path);
     }
 
     #region UI helpers

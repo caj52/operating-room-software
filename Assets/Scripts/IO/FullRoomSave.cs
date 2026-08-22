@@ -1,13 +1,11 @@
 using System;
-using TMPro;
-using TriLibCore.SFB;
 using UnityEngine;
 using UnityEngine.UI;
+using TMPro;
 
 /// <summary>
 /// Legacy room-export panel retained for scene references.
-/// Export destination is chosen via a save dialog prefilled with the suggested
-/// path + room folder name (ExportPaths.PromptForExportFolderThen).
+/// Export destination is fixed under AppData LocalLow (see ExportPaths).
 /// </summary>
 public class FullRoomSave : MonoBehaviour
 {
@@ -45,49 +43,21 @@ public class FullRoomSave : MonoBehaviour
     }
 
     /// <summary>
-    /// Opens a native save dialog prefilled with
-    /// {persistentDataPath}/{RoomName} so the user sees the suggested
-    /// output path and folder name (standard Save As behavior).
+    /// Completes immediately with the fixed AppData export root (no OS dialog).
+    /// Kept for any leftover callers; prefer <see cref="ExportPaths.PromptForExportFolderThen"/>.
     /// </summary>
-    /// <param name="onComplete">Invoked when the dialog closes. True if a location was chosen.</param>
     public static void OpenChooseExportFolderPrompt(Action<bool> onComplete = null)
     {
-        string startDir = ExportPaths.GetSuggestedExportParentFolder();
-        string defaultName = ExportPaths.GetSuggestedExportFolderName();
-
         try
         {
-            // Empty extension → name field is prefilled without forcing a file type.
-            StandaloneFileBrowser.SaveFilePanelAsync(
-                "Choose export location",
-                startDir,
-                defaultName,
-                "",
-                item => OnExportLocationPicked(item, onComplete));
+            ExportPaths.EnsureDirectories();
+            onComplete?.Invoke(true);
         }
         catch (Exception e)
         {
-            Debug.LogError($"Failed to open export location dialog: {e}");
-            UI_DialogPrompt.Open(
-                "Could not open the export location dialog.\nExports will keep using the current folder.",
-                new ButtonAction("OK", () =>
-                {
-                    UI_DialogPrompt.Close();
-                    onComplete?.Invoke(false);
-                }));
-        }
-    }
-
-    private static void OnExportLocationPicked(ItemWithStream item, Action<bool> onComplete)
-    {
-        if (item == null || string.IsNullOrWhiteSpace(item.Name))
-        {
+            Debug.LogError($"Failed to prepare export folder: {e}");
             onComplete?.Invoke(false);
-            return;
         }
-
-        ExportPaths.ApplyPickedExportLocation(item.Name);
-        onComplete?.Invoke(true);
     }
 
     /// <summary>Legacy alias — room export root (parent + room name).</summary>

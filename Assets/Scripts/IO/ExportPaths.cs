@@ -4,25 +4,23 @@ using UnityEngine;
 
 /// <summary>
 /// Resolves export output folders.
-/// Parent folder defaults to Application.persistentDataPath (AppData LocalLow).
+/// Parent is always Application.persistentDataPath (AppData LocalLow).
 /// Every export goes under {parent}/{RoomName}/ with deliverables in subfolders
-/// (OBJ/Room, elevations, proposals, snapshots).
+/// (OBJ/Room, elevations, proposals, snapshots). No OS folder picker.
 /// </summary>
 public static class ExportPaths
 {
-    private const string LegacyDocumentsFolderName = "Operating Room Exports";
     private const string ParentFolderPrefsKey = "ExportParentFolder";
 
     /// <summary>
-    /// One-shot base path from the export location save dialog (parent + suggested name).
-    /// Cleared when the export finishes or is cancelled.
+    /// Optional one-shot base path override for the current export. Cleared when
+    /// the export finishes or is cancelled. Room/object exports no longer set this.
     /// </summary>
     private static string _sessionExportBaseOverride;
 
     /// <summary>
-    /// Opens a save dialog prefilled with the suggested export folder
-    /// ({persistentDataPath}/{RoomName}), stores the choice, then runs
-    /// <paramref name="onReady"/>. Cancelling the dialog does nothing.
+    /// Ensures the room is saved, creates {persistentDataPath}/{RoomName}/, then runs
+    /// <paramref name="onReady"/>. No File Explorer — exports always land under AppData.
     /// </summary>
     public static void PromptForExportFolderThen(Action onReady)
     {
@@ -32,22 +30,23 @@ public static class ExportPaths
         if (!EnsureRoomSavedForExport())
             return;
 
-        FullRoomSave.OpenChooseExportFolderPrompt(picked =>
+        ClearExportBaseOverride();
+        ClearCustomParentFolder();
+
+        try
         {
-            if (!picked)
-                return;
+            EnsureDirectories();
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"Could not create export folders: {e.Message}");
+            UI_DialogPrompt.Open(
+                "Could not create the export folder under AppData.",
+                new ButtonAction("OK"));
+            return;
+        }
 
-            try
-            {
-                EnsureDirectories();
-            }
-            catch (Exception e)
-            {
-                Debug.LogWarning($"Could not create export folders: {e.Message}");
-            }
-
-            onReady();
-        });
+        onReady();
     }
 
     public static string GetSuggestedExportParentFolder()
@@ -97,22 +96,23 @@ public static class ExportPaths
 
         full = full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-        // Save dialogs may append an extension to the suggested folder name — strip only then.
-        string dir = Path.GetDirectoryName(full);
+        // Dialog is for confirming the room folder name only — parent is always AppData.
         string leaf = Path.GetFileName(full);
         string suggested = GetSuggestedExportFolderName();
         string withoutExt = Path.GetFileNameWithoutExtension(leaf);
         if (!string.IsNullOrEmpty(Path.GetExtension(leaf))
-            && withoutExt.Equals(suggested, StringComparison.OrdinalIgnoreCase))
+            && (string.IsNullOrEmpty(suggested)
+                || withoutExt.Equals(suggested, StringComparison.OrdinalIgnoreCase)))
             leaf = withoutExt;
 
-        if (string.IsNullOrEmpty(dir) || string.IsNullOrEmpty(leaf))
+        if (string.IsNullOrEmpty(leaf))
+            leaf = suggested;
+        if (string.IsNullOrEmpty(leaf))
             return;
 
-        // Collapse any …/RoomName/RoomName nests in the picked parent before storing.
-        string parent = NormalizeParentFolder(dir);
-        SetParentFolder(parent);
-        SetExportBaseOverride(Path.Combine(parent, leaf));
+        leaf = SanitizeFolderName(leaf);
+        ClearCustomParentFolder();
+        SetExportBaseOverride(Path.Combine(GetDefaultParentFolder(), leaf));
     }
 
     public static void SetExportBaseOverride(string path)
@@ -283,29 +283,13 @@ public static class ExportPaths
         => Application.persistentDataPath;
 
     /// <summary>
-    /// AppData LocalLow (persistentDataPath), or a valid user-chosen parent from PlayerPrefs.
-    /// Stale Documents/Operating Room Exports prefs are ignored so exports stay under AppData.
+    /// Always AppData LocalLow (persistentDataPath). Custom/Documents prefs are cleared
+    /// so room exports stay under …/Operating Room Software/{RoomName}/.
     /// </summary>
     public static string GetParentFolder()
     {
         if (HasCustomParentFolder())
-        {
-            string raw = PlayerPrefs.GetString(ParentFolderPrefsKey);
-            string custom = NormalizeParentFolder(raw);
-            if (!IsLegacyDocumentsExportFolder(custom))
-            {
-                // Rewrite prefs if an older build stored a nested …/RoomName/RoomName parent.
-                if (!string.Equals(raw, custom, StringComparison.OrdinalIgnoreCase))
-                {
-                    PlayerPrefs.SetString(ParentFolderPrefsKey, custom);
-                    PlayerPrefs.Save();
-                }
-
-                return custom;
-            }
-
             ClearCustomParentFolder();
-        }
 
         return GetDefaultParentFolder();
     }
@@ -316,37 +300,10 @@ public static class ExportPaths
                && !string.IsNullOrWhiteSpace(PlayerPrefs.GetString(ParentFolderPrefsKey));
     }
 
-    private static bool IsLegacyDocumentsExportFolder(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-            return false;
-
-        try
-        {
-            string full = Path.GetFullPath(path);
-            string docs = Path.GetFullPath(
-                Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                    LegacyDocumentsFolderName));
-            return full.StartsWith(docs, StringComparison.OrdinalIgnoreCase);
-        }
-        catch (Exception)
-        {
-            return path.IndexOf(LegacyDocumentsFolderName, StringComparison.OrdinalIgnoreCase) >= 0;
-        }
-    }
-
     public static void SetParentFolder(string path)
     {
-        if (string.IsNullOrWhiteSpace(path))
-            return;
-
-        // If the user picks an existing room export folder (…/Exports/RoomName),
-        // store its parent so we don't nest RoomName/RoomName on the next export.
-        path = NormalizeParentFolder(path.Trim());
-
-        PlayerPrefs.SetString(ParentFolderPrefsKey, path);
-        PlayerPrefs.Save();
+        // Exports are locked to AppData LocalLow — ignore attempts to store another parent.
+        ClearCustomParentFolder();
     }
 
     /// <summary>
@@ -395,19 +352,22 @@ public static class ExportPaths
         PlayerPrefs.Save();
     }
 
-    /// <summary>Parent folder + room-name subfolder. All deliverables live under here.</summary>
+    /// <summary>AppData LocalLow + room-name subfolder. All deliverables live under here.</summary>
     public static string GetExportBasePath()
     {
         string roomName = SanitizeFolderName(GetRoomExportName());
 
         if (!string.IsNullOrWhiteSpace(_sessionExportBaseOverride))
         {
-            // Session override is meant to be the room folder; collapse any nested room names.
-            string collapsedParent = NormalizeParentFolder(_sessionExportBaseOverride);
-            return Path.Combine(collapsedParent, roomName);
+            // Override is the room folder under AppData; strip nested room names then re-attach.
+            string leaf = Path.GetFileName(
+                _sessionExportBaseOverride.TrimEnd(
+                    Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (!string.IsNullOrEmpty(leaf))
+                roomName = SanitizeFolderName(leaf);
         }
 
-        return Path.Combine(NormalizeParentFolder(GetParentFolder()), roomName);
+        return Path.Combine(GetDefaultParentFolder(), roomName);
     }
 
     /// <summary>Folder for 3D model exports: {RoomName}/OBJ/Room</summary>

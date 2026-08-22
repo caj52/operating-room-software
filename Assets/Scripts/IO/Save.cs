@@ -3,21 +3,18 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using TMPro;
-using TriLibCore.SFB;
 using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Toolbar save: the main Save button opens an OS save dialog and writes the room JSON
-/// to the chosen path (load uses the matching OS open dialog).
-/// A separate Save Configuration button appears when a configurable object is selected;
-/// configs are named in-app and always written to AppData Saved/Configs (where ObjectMenu loads them).
+/// Toolbar save: room JSON always lands in AppData LocalLow/.../Saved (in-app name panel).
+/// Configurations always land in Saved/Configs.
 /// </summary>
 public class Save : MonoBehaviour
 {
     private static Save Instance { get; set; }
 
-    [Header("Config name panel (path is fixed — name only)")]
+    [Header("Name panel (path is fixed — name only)")]
     public GameObject savePanel;
     public Button b_Save;
     public Button b_Confirm;
@@ -39,8 +36,10 @@ public class Save : MonoBehaviour
         "Button_Screenshot",
     };
 
+    private enum NamePanelMode { None, Room, Config }
+
     private bool _wired;
-    private bool _picking;
+    private NamePanelMode _namePanelMode;
     private UI_HoverTooltip _saveTooltip;
     private Button _configSaveButton;
     private UI_HoverTooltip _configTooltip;
@@ -68,10 +67,10 @@ public class Save : MonoBehaviour
     {
         if (Instance == null)
             return;
-        Instance.CloseConfigNamePanel();
+        Instance.CloseNamePanel();
     }
 
-    /// <summary>Opens the OS save dialog so the room gets a save name (e.g. before export).</summary>
+    /// <summary>Opens the in-app name panel so the room gets a save name (e.g. before export).</summary>
     public static void OpenSaveRoomPrompt()
     {
         if (Instance == null)
@@ -105,7 +104,7 @@ public class Save : MonoBehaviour
         if (b_Confirm != null)
         {
             b_Confirm.onClick.RemoveAllListeners();
-            b_Confirm.onClick.AddListener(OnConfirmConfigName);
+            b_Confirm.onClick.AddListener(OnConfirmNamePanel);
         }
         if (b_Cancel != null)
         {
@@ -114,7 +113,7 @@ public class Save : MonoBehaviour
                 if (b == null)
                     continue;
                 b.onClick.RemoveAllListeners();
-                b.onClick.AddListener(CloseConfigNamePanel);
+                b.onClick.AddListener(CloseNamePanel);
             }
         }
 
@@ -325,9 +324,6 @@ public class Save : MonoBehaviour
     private void BeginSaveRoom()
     {
         string folder = ConfigurationManager.GetSavedRoomsFolder();
-        if (_picking)
-            return;
-
         try
         {
             if (!Directory.Exists(folder))
@@ -342,24 +338,25 @@ public class Save : MonoBehaviour
             return;
         }
 
-        _picking = true;
-        try
+        if (savePanel == null || fileName == null)
         {
-            StandaloneFileBrowser.SaveFilePanelAsync(
-                "Save Room",
-                folder,
-                GetDefaultRoomFileName(),
-                new[] { new ExtensionFilter("Room Save", "json") },
-                OnRoomSavePathPicked);
+            TrySaveRoom(GetDefaultRoomFileName());
+            return;
         }
-        catch (Exception e)
+
+        _namePanelMode = NamePanelMode.Room;
+        if (header != null)
         {
-            _picking = false;
-            Debug.LogError($"Failed to open save dialog: {e}");
-            UI_DialogPrompt.Open(
-                "Could not open the system save dialog.",
-                new ButtonAction("OK"));
+            header.text = "Save Room";
+            header.color = Color.white;
         }
+
+        fileName.text = GetDefaultRoomFileName();
+
+        if (FreeLookCam.Instance != null)
+            FreeLookCam.Instance.isLocked = true;
+
+        savePanel.SetActive(true);
     }
 
     /// <summary>
@@ -381,6 +378,7 @@ public class Save : MonoBehaviour
             return;
         }
 
+        _namePanelMode = NamePanelMode.Config;
         if (header != null)
         {
             header.text = "Save Configuration";
@@ -395,7 +393,7 @@ public class Save : MonoBehaviour
         savePanel.SetActive(true);
     }
 
-    private void OnConfirmConfigName()
+    private void OnConfirmNamePanel()
     {
         if (fileName == null || string.IsNullOrWhiteSpace(fileName.text))
         {
@@ -407,17 +405,95 @@ public class Save : MonoBehaviour
             return;
         }
 
-        TrySaveConfiguration(fileName.text.Trim());
+        string name = fileName.text.Trim();
+        if (_namePanelMode == NamePanelMode.Room)
+            TrySaveRoom(name);
+        else
+            TrySaveConfiguration(name);
     }
 
-    private void CloseConfigNamePanel()
+    private void CloseNamePanel()
     {
+        _namePanelMode = NamePanelMode.None;
         if (savePanel != null)
             savePanel.SetActive(false);
         if (fileName != null)
             fileName.text = "";
         if (FreeLookCam.Instance != null)
             FreeLookCam.Instance.isLocked = false;
+    }
+
+    private void TrySaveRoom(string rawName)
+    {
+        if (ConfigurationManager.Instance == null)
+        {
+            UI_DialogPrompt.Open("Save system is unavailable.", new ButtonAction("OK"));
+            return;
+        }
+
+        string safe = ConfigurationManager.Instance.ReplaceInvalidChars(rawName.Replace(' ', '_'));
+        if (string.IsNullOrWhiteSpace(safe))
+            safe = "Untitled_Room";
+
+        string folder = ConfigurationManager.GetSavedRoomsFolder();
+        try
+        {
+            if (!Directory.Exists(folder))
+                Directory.CreateDirectory(folder);
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Could not create saves folder: {e}");
+            UI_DialogPrompt.Open(
+                "Could not create the saves folder.",
+                new ButtonAction("OK"));
+            return;
+        }
+
+        string fileNameOnly = safe.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+            ? safe
+            : safe + ".json";
+        string path = Path.Combine(folder, fileNameOnly);
+
+        if (File.Exists(path))
+        {
+            if (savePanel != null)
+                savePanel.SetActive(false);
+            PromptOverwriteRoom(safe);
+            return;
+        }
+
+        CloseNamePanel();
+        StartCoroutine(SaveRoomToPathCoroutine(path));
+    }
+
+    private void PromptOverwriteRoom(string name)
+    {
+        string nice = name.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+            ? Path.GetFileNameWithoutExtension(name)
+            : name;
+
+        UI_DialogPrompt.Open(
+            $"A room named “{nice.Replace('_', ' ')}” already exists.",
+            new ButtonAction("Overwrite", () =>
+            {
+                UI_DialogPrompt.Close();
+                CloseNamePanel();
+                string fileNameOnly = name.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+                    ? name
+                    : name + ".json";
+                string path = Path.Combine(ConfigurationManager.GetSavedRoomsFolder(), fileNameOnly);
+                StartCoroutine(SaveRoomToPathCoroutine(path));
+            }),
+            new ButtonAction("Rename", () =>
+            {
+                UI_DialogPrompt.Close();
+                _namePanelMode = NamePanelMode.Room;
+                if (savePanel != null)
+                    savePanel.SetActive(true);
+                if (FreeLookCam.Instance != null)
+                    FreeLookCam.Instance.isLocked = true;
+            }));
     }
 
     private void TrySaveConfiguration(string rawName)
@@ -478,6 +554,7 @@ public class Save : MonoBehaviour
             new ButtonAction("Rename", () =>
             {
                 UI_DialogPrompt.Close();
+                _namePanelMode = NamePanelMode.Config;
                 if (savePanel != null)
                     savePanel.SetActive(true);
                 if (FreeLookCam.Instance != null)
@@ -487,7 +564,7 @@ public class Save : MonoBehaviour
 
     private void CompleteSaveConfiguration(string name)
     {
-        CloseConfigNamePanel();
+        CloseNamePanel();
 
         if (ConfigurationManager.Instance == null)
         {
@@ -538,22 +615,6 @@ public class Save : MonoBehaviour
 
         return ExportPaths.GetSelectableExportName(
             Selectable.SelectedSelectables[0], "Configuration");
-    }
-
-    private void OnRoomSavePathPicked(ItemWithStream item)
-    {
-        _picking = false;
-
-        if (item == null || string.IsNullOrWhiteSpace(item.Name))
-            return;
-
-        string path = item.Name.Trim();
-        if (string.IsNullOrWhiteSpace(path))
-            return;
-        if (!path.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
-            path += ".json";
-
-        StartCoroutine(SaveRoomToPathCoroutine(path));
     }
 
     private IEnumerator SaveRoomToPathCoroutine(string path)
@@ -620,7 +681,7 @@ public class Save : MonoBehaviour
         if (fileOk)
         {
             UI_DialogPrompt.Open(
-                $"Room “{nice}” saved.",
+                $"Room “{nice}” saved.\nIt will appear in the Load Room list.",
                 new ButtonAction("Done"));
         }
         else

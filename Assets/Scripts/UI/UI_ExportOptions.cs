@@ -617,7 +617,7 @@ public class UI_ExportOptions : MonoBehaviour
         if (_infoLabel == null)
             return;
 
-        // Destination is chosen via the OS picker at export time — no folder UI here.
+        // Destination is fixed under AppData/{RoomName}/ — no folder UI here.
         _infoLabel.text = !objectMode && _objOptionsCustomized
             ? "3D model options customized"
             : "";
