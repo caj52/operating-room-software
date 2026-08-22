@@ -297,6 +297,14 @@ MonoBehaviour:
     <IgnoreScale>k__BackingField: 0
     <OnlyIfRoot>k__BackingField: 0
     <Invert>k__BackingField: 0
+  - <Axis>k__BackingField: 1
+    <GizmoType>k__BackingField: 0
+    <Unrestricted>k__BackingField: 1
+    <MaxValue>k__BackingField: 0
+    <MinValue>k__BackingField: 0
+    <IgnoreScale>k__BackingField: 0
+    <OnlyIfRoot>k__BackingField: 0
+    <Invert>k__BackingField: 0
   <InitialLocalPositionOffset>k__BackingField: {x: 0, y: 0, z: 0}
   <IsDestructible>k__BackingField: 1
   <AllowInverseControl>k__BackingField: 0
