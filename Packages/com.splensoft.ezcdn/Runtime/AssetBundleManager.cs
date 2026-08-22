@@ -99,7 +99,6 @@ namespace SplenSoft.AssetBundles
         private static float _currentSelfInitializerTimeout = 0f;
         private static int _currentDownloads;
 
-        private const string LocalMirrorFolder = "TestData/CdnMirror";
 
         /// <summary>
         /// Set to false to disable the auto initialization (retrieval of 
@@ -290,6 +289,29 @@ namespace SplenSoft.AssetBundles
 
             Diag("ABM.Initialize", $"Loading manifest — isEditor={Application.isEditor}");
 
+#if UNITY_EDITOR
+            // Editor Play Mode: Assets/ is the source of truth — no CDN / mirror manifest.
+            if (settings.UseEditorAssetsIfAble)
+            {
+                _assetBundleData.Clear();
+                foreach (string assetBundleName in AssetDatabase.GetAllAssetBundleNames())
+                {
+                    if (string.IsNullOrEmpty(assetBundleName))
+                        continue;
+                    _assetBundleData[assetBundleName] = new AssetBundleData(assetBundleName)
+                    {
+                        Dependencies = new List<string>()
+                    };
+                }
+
+                Initialized = true;
+                IsInitializing = false;
+                Diag("ABM.Initialize",
+                    $"Editor assets mode — {_assetBundleData.Count} AssetDatabase bundle names (no CDN/mirror)");
+                return;
+            }
+#endif
+
             if (!settings.BuildTargetsByPlatform.TryGetValue(Application.platform, out int buildtarget))
             {
                 Debug.LogError($"Platform {Application.platform} was " +
@@ -306,6 +328,14 @@ namespace SplenSoft.AssetBundles
             await task;
 
             AssetBundleManifest masterManifest = task.Result;
+            if (masterManifest == null)
+            {
+                Debug.LogError(
+                    $"Asset Bundle Manager failed to load platform manifest '{targetName}'.");
+                IsInitializing = false;
+                return;
+            }
+
             string[] assetBundleNames = masterManifest.GetAllAssetBundles();
 
             foreach (string assetBundleName in assetBundleNames)
@@ -329,7 +359,7 @@ namespace SplenSoft.AssetBundles
             Initialized = true;
             IsInitializing = false;
             Log.Write(LogLevel.Verbose, $"Asset bundle manager initialized");
-            Diag("ABM.Initialize", $"CDN manifest cached — {_assetBundleData.Count} bundle entries for platform {Application.platform}");
+            Diag("ABM.Initialize", $"Manifest cached — {_assetBundleData.Count} bundle entries for platform {Application.platform}");
         }
 
         /// <summary>
@@ -372,6 +402,16 @@ namespace SplenSoft.AssetBundles
         public static async Task<string[]> GetAssetBundleNames(string regexPattern)
         {
 #if UNITY_EDITOR
+            // Play Mode with editor assets: AssetDatabase is the catalog of bundle names.
+            if (Application.isPlaying && AssetBundleManagerSettings.Get().UseEditorAssetsIfAble)
+            {
+                while (!Initialized) await Task.Yield();
+                if (!Application.isPlaying) return null;
+                return AssetDatabase.GetAllAssetBundleNames()
+                    .Where(x => Regex.IsMatch(x, regexPattern))
+                    .ToArray();
+            }
+
             if (!Application.isPlaying)
             {
                 return AssetDatabase.GetAllAssetBundleNames()
@@ -458,6 +498,32 @@ namespace SplenSoft.AssetBundles
                 onSuccess?.Invoke((T)data.Asset);
                 return (T)data.Asset;
             }
+
+#if UNITY_EDITOR
+            // Play Mode in editor: always resolve from AssetDatabase (Assets/ is source of truth).
+            if (Application.isPlaying &&
+                AssetBundleManagerSettings.Get().UseEditorAssetsIfAble &&
+                !string.Equals(typeof(T).Name, nameof(AssetBundleManifest), StringComparison.Ordinal))
+            {
+                if (TryGetEditorAsset(name, out T editorAsset) && editorAsset != null)
+                {
+                    if (data != null)
+                    {
+                        data.Asset = editorAsset;
+                        data.Loaded = true;
+                    }
+                    Diag("ABM.GetAsset", $"EDITOR ASSET {name} -> {editorAsset.name} ({typeof(T).Name})");
+                    progress?.Report(new AssetRetrievalProgress(AssetRetrievalStatus.Done, 1));
+                    onSuccess?.Invoke(editorAsset);
+                    return editorAsset;
+                }
+
+                Diag("ABM.GetAsset", $"EDITOR ASSET MISS {name} ({typeof(T).Name})");
+                progress?.Report(new AssetRetrievalProgress(AssetRetrievalStatus.Done, 1));
+                onFailure?.Invoke(new AssetRetrievalResult(404, UnityWebRequest.Result.ProtocolError));
+                return null;
+            }
+#endif
 
             Diag("ABM.GetAsset", $"LOAD {name} ({typeof(T).Name})");
             var getBundleProgress = new Progress<AssetRetrievalProgress>();
@@ -582,10 +648,6 @@ namespace SplenSoft.AssetBundles
                 data.DownloadStarted = true;
             }
 
-            string uri = AssetBundleManagerSettings.Get().GetAssetBundleURL() + name;
-
-            Log.Write(LogLevel.Verbose, $"Starting web request: {uri}");
-
             var progress2 = new Progress<AssetRetrievalProgress>();
 
             void Progress2_ProgressChanged(object sender, AssetRetrievalProgress e)
@@ -626,116 +688,13 @@ namespace SplenSoft.AssetBundles
                 }
             }
 
-            bool useHash = data != null && data.Hash != default;
-            var settings = AssetBundleManagerSettings.Get();
-
-            if (settings.MaxConcurrentDownloads < 1)
-            {
-                Log.Write(LogLevel.Warning, $"Max Concurrent Downloads in " +
-                $"settings was set to a number less than 1, which would " +
-                $"make any downloading impossible. Ignoring this value " +
-                $"and using 1 as the max. Set the number higher than 0 " +
-                $"to remove this warning.");
-            }
-
-            int maxConcurrent = Math.Max(settings.MaxConcurrentDownloads, 1);
-            while (_currentDownloads >= maxConcurrent)
-            {
-                await Task.Yield();
-                if (!Application.isPlaying)
-                    throw new Exception(_quitWhileRetrievingMessage);
-            }
-
-            using UnityWebRequest request = useHash ?
-                UnityWebRequestAssetBundle.GetAssetBundle(uri, data.Hash) :
-                UnityWebRequestAssetBundle.GetAssetBundle(uri);
-
-            _currentDownloads++;
-            try
-            {
-                var asyncOperation = request.SendWebRequest();
-
-                while (!asyncOperation.isDone)
-                {
-                    progress?.Report(new AssetRetrievalProgress(
-                        AssetRetrievalStatus.Downloading,
-                        0.4f + asyncOperation.progress * 0.5f
-                    ));
-
-                    await Task.Yield();
-                    if (!Application.isPlaying)
-                        throw new Exception(_quitWhileRetrievingMessage);
-                }
-
-                Log.Write(LogLevel.Log, $"Web request complete: {uri}");
-            }
-            finally { _currentDownloads--; }
-
-            if (request.result != UnityWebRequest.Result.Success && allowLocalFallback)
-            {
-                var fallback = TryGetLocalAssetBundle(name);
-
-                if (fallback.Success)
-                {
-                    var bundle = fallback.AssetBundle;
-                    onSuccess?.Invoke(bundle);
-                    if (data != null)
-                    {
-                        data.AssetBundle = bundle;
-                    }
-                    AssetBundleDownloadFinished?.Invoke(name);
-                    return bundle;
-                }
-            }
-
-            progress?.Report(new AssetRetrievalProgress(
-                AssetRetrievalStatus.Done,
-                1
-            ));
-
-            if (data != null)
-            {
-                data.LastResponseCode = request.responseCode;
-            }
-
-            _downloadResponseCodePerAssetBundleName[name] = new AssetRetrievalResult(request);
-
-            if (request.result == UnityWebRequest.Result.Success)
-            {
-                if (data != null && data.AssetBundle != null)
-                {
-                    Log.Write(
-                        LogLevel.Verbose,
-                        $"AssetBundle {name} was already downloaded and cached. Returning that asset bundle instead.");
-
-                    onSuccess?.Invoke(data.AssetBundle);
-                    return data.AssetBundle;
-                }
-
-                AssetBundle bundle = DownloadHandlerAssetBundle.GetContent(request);
-                onSuccess?.Invoke(bundle);
-                if (data != null)
-                {
-                    data.AssetBundle = bundle;
-                }
-                AssetBundleDownloadFinished?.Invoke(name);
-                return bundle;
-            }
-            else
-            {
-                onFailure?.Invoke(_downloadResponseCodePerAssetBundleName[name]);
-                Debug.LogError($"Web request failed, code {request.responseCode}");
-                return null;
-            }
-        }
-
-        private static string GetLocalMirrorBundlePath(string name)
-        {
-            string projectRoot = Directory.GetParent(Application.dataPath)?.FullName;
-            if (string.IsNullOrEmpty(projectRoot))
-                return null;
-
-            return Path.Combine(projectRoot, LocalMirrorFolder, name);
+            Diag("ABM.GetAssetBundle", $"NO LOCAL BUNDLE for {name}");
+            progress?.Report(new AssetRetrievalProgress(AssetRetrievalStatus.Done, 1));
+            var missing = new AssetRetrievalResult(404, UnityWebRequest.Result.ProtocolError);
+            onFailure?.Invoke(missing);
+            _downloadResponseCodePerAssetBundleName[name] = missing;
+            AssetBundleDownloadFinished?.Invoke(name);
+            return null;
         }
 
         private static StreamingAssetBundleRequestResult TryGetLocalAssetBundle(string name)
@@ -743,21 +702,8 @@ namespace SplenSoft.AssetBundles
             string streamingPath = Path.Combine(
                 Application.streamingAssetsPath, "AssetBundles", name);
 
-            var streamingResult = TryLoadAssetBundleFromFile(
+            return TryLoadAssetBundleFromFile(
                 streamingPath, name, "StreamingAssets");
-            if (streamingResult.Success)
-                return streamingResult;
-
-            string mirrorPath = GetLocalMirrorBundlePath(name);
-            if (!string.IsNullOrEmpty(mirrorPath))
-            {
-                var mirrorResult = TryLoadAssetBundleFromFile(
-                    mirrorPath, name, "CdnMirror");
-                if (mirrorResult.Success)
-                    return mirrorResult;
-            }
-
-            return new StreamingAssetBundleRequestResult(false, null);
         }
 
         private static async Task<StreamingAssetBundleRequestResult> TryGetLocalAssetBundleAsync(string name)
@@ -765,21 +711,8 @@ namespace SplenSoft.AssetBundles
             string streamingPath = Path.Combine(
                 Application.streamingAssetsPath, "AssetBundles", name);
 
-            var streamingResult = await TryLoadAssetBundleFromFileAsync(
+            return await TryLoadAssetBundleFromFileAsync(
                 streamingPath, name, "StreamingAssets");
-            if (streamingResult.Success)
-                return streamingResult;
-
-            string mirrorPath = GetLocalMirrorBundlePath(name);
-            if (!string.IsNullOrEmpty(mirrorPath))
-            {
-                var mirrorResult = await TryLoadAssetBundleFromFileAsync(
-                    mirrorPath, name, "CdnMirror");
-                if (mirrorResult.Success)
-                    return mirrorResult;
-            }
-
-            return new StreamingAssetBundleRequestResult(false, null);
         }
 
         /// <summary>

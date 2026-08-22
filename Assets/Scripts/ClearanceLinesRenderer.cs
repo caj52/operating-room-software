@@ -1,4 +1,4 @@
-﻿using Newtonsoft.Json.Linq;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -213,15 +213,19 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         if (_lineRenderer == null)
             return;
 
+        var cam = Camera.main;
+        if (cam == null)
+            return;
+
         if (FreeLookCam.IsActive)
         {
-            float distanceToCamera = Vector3.Distance(gameObject.transform.position, Camera.main.transform.position);
+            float distanceToCamera = Vector3.Distance(gameObject.transform.position, cam.transform.position);
             _lineRenderer.startWidth = _sizeScalar * distanceToCamera;
             _lineRenderer.endWidth = _sizeScalar * distanceToCamera;
         }
         else
         {
-            float size = Mathf.Min(_sizeScalarOrthoMax, _sizeScalarOrtho * Camera.main.orthographicSize);
+            float size = Mathf.Min(_sizeScalarOrthoMax, _sizeScalarOrtho * cam.orthographicSize);
             _lineRenderer.startWidth = size;
             _lineRenderer.endWidth = size;
         }

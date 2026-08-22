@@ -202,6 +202,12 @@ namespace SplenSoft.AssetBundles
         public string ActiveEnvironmentId { get; set; }
         public bool UseEditorAssetsIfAble { get; set; } = false;
 
+        /// <summary>
+        /// When false, never download from Unity Cloud Content Delivery.
+        /// Local CdnMirror / StreamingAssets / cache only.
+        /// </summary>
+        public bool AllowRemoteCdn { get; set; } = false;
+
         public Dictionary<string, EnvironmentVariables> VariablesByEnvironment 
             { get; set; } = new Dictionary<string, EnvironmentVariables>();
 
@@ -288,6 +294,9 @@ namespace SplenSoft.AssetBundles
 
             label = new GUIContent("Use Editor Assets", "Toggle this off to test downloading asset bundles from the CDN in the editor");
             UseEditorAssetsIfAble = EditorGUILayout.Toggle(label, UseEditorAssetsIfAble);
+
+            label = new GUIContent("Allow Remote CDN", "When off, never hit Unity Cloud Content Delivery. Uses local bundles only.");
+            AllowRemoteCdn = EditorGUILayout.Toggle(label, AllowRemoteCdn);
 
             label = new GUIContent("Include Local Copy", "Builds asset bundles and copies them to StreamAssets before app build. Useful as a fallback if game is played without internet before a local cache is made, but will increase app size.");
             KeepLocalCopy = EditorGUILayout.Toggle(label, KeepLocalCopy);

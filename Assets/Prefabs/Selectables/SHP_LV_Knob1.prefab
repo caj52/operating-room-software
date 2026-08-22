@@ -15,7 +15,7 @@ GameObject:
   m_Name: Knob
   m_TagString: Untagged
   m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
+  m_NavMeshLayer: 3196356229
   m_StaticEditorFlags: 0
   m_IsActive: 1
 --- !u!4 &703230622566811648
@@ -25,14 +25,14 @@ Transform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 182870958211977914}
+  serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0.7071068, z: -0.7071068, w: 0}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 4790632926802580682}
-  m_RootOrder: 0
-  m_LocalEulerAnglesHint: {x: -90, y: -180, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!33 &4498457294086506405
 MeshFilter:
   m_ObjectHideFlags: 0
@@ -40,7 +40,7 @@ MeshFilter:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 182870958211977914}
-  m_Mesh: {fileID: -7703621116727195458, guid: 3e74db8ced8ca5e4face0765071de0cc, type: 3}
+  m_Mesh: {fileID: 4300000, guid: e035c5690154e0842be9e22d632851b4, type: 2}
 --- !u!23 &1840085875700691823
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -58,11 +58,16 @@ MeshRenderer:
   m_ReflectionProbeUsage: 1
   m_RayTracingMode: 2
   m_RayTraceProcedural: 0
+  m_RayTracingAccelStructBuildFlagsOverride: 0
+  m_RayTracingAccelStructBuildFlags: 1
+  m_SmallMeshCulling: 1
+  m_ForceMeshLod: -1
+  m_MeshLodSelectionBias: 0
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 7bec4e898352a774b8711af6af5013d2, type: 2}
-  - {fileID: -5332296336694109215, guid: 3e74db8ced8ca5e4face0765071de0cc, type: 3}
+  - {fileID: 2100000, guid: bd8c85600611ad8408d04c1916a16ce4, type: 2}
+  - {fileID: 2100000, guid: d122d5f67e6e6b04d9ae68c7a1f758f2, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -80,9 +85,11 @@ MeshRenderer:
   m_AutoUVMaxDistance: 0.5
   m_AutoUVMaxAngle: 89
   m_LightmapParameters: {fileID: 0}
+  m_GlobalIlluminationMeshLod: 0
   m_SortingLayerID: 0
   m_SortingLayer: 0
   m_SortingOrder: 0
+  m_MaskInteraction: 0
   m_AdditionalVertexStreams: {fileID: 0}
 --- !u!1 &3197086238112897237
 GameObject:
@@ -93,17 +100,17 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 4790632926802580682}
-  - component: {fileID: 8928486514550231922}
-  - component: {fileID: 6195002381174702858}
-  - component: {fileID: 6562998353812398397}
-  - component: {fileID: 2415867761661642735}
+  - component: {fileID: 7176327820542271839}
+  - component: {fileID: 4605893001596610312}
+  - component: {fileID: 8201561120131513630}
+  - component: {fileID: 8485473699367037704}
   - component: {fileID: 6462583564701765492}
-  - component: {fileID: 564135747767920101}
+  - component: {fileID: 6844417555737454668}
   m_Layer: 6
   m_Name: SHP_LV_Knob1
   m_TagString: Untagged
   m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
+  m_NavMeshLayer: 2172550911
   m_StaticEditorFlags: 0
   m_IsActive: 1
 --- !u!4 &4790632926802580682
@@ -113,6 +120,7 @@ Transform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 3197086238112897237}
+  serializedVersion: 2
   m_LocalRotation: {x: 0.6532815, y: -0.27059805, z: 0.27059805, w: 0.6532815}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
@@ -120,9 +128,8 @@ Transform:
   m_Children:
   - {fileID: 703230622566811648}
   m_Father: {fileID: 0}
-  m_RootOrder: 0
-  m_LocalEulerAnglesHint: {x: 90, y: 0, z: 45}
---- !u!114 &8928486514550231922
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &7176327820542271839
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -166,7 +173,7 @@ MonoBehaviour:
   <CanPlaceAnywhere>k__BackingField: 0
   <AttachedTo>k__BackingField: {fileID: 0}
   <RelatedSelectables>k__BackingField:
-  - {fileID: 8928486514550231922}
+  - {fileID: 7176327820542271839}
   _assemblySelectables: []
   UIButtonName: 
   canBeDuplicated: 1
@@ -183,7 +190,7 @@ MonoBehaviour:
     <ScaleZ>k__BackingField: 0
     metadata: []
   isDuplicated: 0
---- !u!114 &6195002381174702858
+--- !u!114 &4605893001596610312
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -264,6 +271,7 @@ MonoBehaviour:
     atime6: 0
     atime7: 0
     m_Mode: 0
+    m_ColorSpace: -1
     m_NumColorKeys: 2
     m_NumAlphaKeys: 2
   outlineGradientInLocalSpace: 0
@@ -349,7 +357,7 @@ MonoBehaviour:
   hitFxFadeOutDuration: 0.25
   hitFxColor: {r: 1, g: 1, b: 1, a: 1}
   hitFxRadius: 0.5
---- !u!114 &6562998353812398397
+--- !u!114 &8201561120131513630
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -388,7 +396,7 @@ MonoBehaviour:
   _canUseScaleX: 0
   _canUseScaleY: 0
   _canUseScaleZ: 0
---- !u!114 &2415867761661642735
+--- !u!114 &8485473699367037704
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -410,12 +418,20 @@ BoxCollider:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 3197086238112897237}
   m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
   m_IsTrigger: 0
+  m_ProvidesContacts: 0
   m_Enabled: 1
-  serializedVersion: 2
+  serializedVersion: 3
   m_Size: {x: 0.16, y: 0.11, z: 0.02}
   m_Center: {x: 0.0036181398, y: 0.0006764336, z: -0.002955377}
---- !u!114 &564135747767920101
+--- !u!114 &6844417555737454668
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}

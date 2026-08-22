@@ -44,7 +44,14 @@ public class UI_Prompt_AddAttachment : MonoBehaviour
 
     private void SetPosition()
     {
-        Vector2 screenPos = Camera.main.WorldToScreenPoint(AttachmentPoint.HoveredAttachmentPoint.transform.position);
+        if (AttachmentPoint.HoveredAttachmentPoint == null || _rectTransform == null)
+            return;
+
+        var cam = Camera.main;
+        if (cam == null)
+            return;
+
+        Vector2 screenPos = cam.WorldToScreenPoint(AttachmentPoint.HoveredAttachmentPoint.transform.position);
         _rectTransform.position = screenPos;
     }
 

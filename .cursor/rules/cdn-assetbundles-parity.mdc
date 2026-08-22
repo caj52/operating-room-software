@@ -1,28 +1,17 @@
 ---
-description: Prefab/selectable fixes must update CDN/AssetBundles in the same turn
+description: Play Mode loads Assets/ placeables (editor assets), not CDN/mirror
 alwaysApply: true
 ---
 
-# Play Mode loads AssetBundles, not Assets/ prefabs
+# Play Mode loads Assets/ prefabs
 
-`UseEditorAssetsIfAble` defaults to **false**. Runtime placeables come from:
+`UseEditorAssetsIfAble` is **true**. Placeables resolve via `AssetDatabase` by `AssetBundleName` on the prefab importer.
 
-1. `TestData/CdnMirror/<AssetBundleName>`
-2. `AssetBundles/StandaloneWindows64/` (and OSX if present)
-3. Remote CDN when mirror miss
+There is **no** `TestData/CdnMirror` fallback and **no** remote Unity CDN download for placeables.
 
-Editing `Assets/Prefabs/**/*.prefab` alone does **not** change what Play Mode shows.
+## Editing
 
-## Required whenever you change a placeable’s look, scale, hang, mesh, or AP
+1. Edit the prefab under `Assets/Prefabs/Selectables/`.
+2. Restart Play Mode (or place a fresh instance) — that prefab is what you get.
 
-In the **same turn** as the prefab edit:
-
-1. Resolve `AssetBundleName` / `SaveLoadGuid` from `Assets/SelectableAssetBundles.asset` (or the prefab’s bundle meta).
-2. Patch or rebuild the matching bundles under `TestData/CdnMirror/` **and** `AssetBundles/StandaloneWindows64/` (and `StandaloneOSX` if that file exists).
-3. Tell the user they must **restart Play Mode** and place a **fresh** instance (old saves keep old transforms).
-
-Reuse / extend existing tools (`Tools/patch_cdn_*.py`) rather than inventing a one-off.
-
-## Do not claim “fixed in Play Mode” until bundles are updated
-
-If you only changed YAML prefabs, say that explicitly — and then update the bundles before ending the turn.
+Mesh/material extracts for migrated placeables live under `Assets/_MirrorExtract/`.

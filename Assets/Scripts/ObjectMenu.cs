@@ -485,7 +485,16 @@ public class ObjectMenu : MonoBehaviour
 
         AssetPipelineDiagnostics.LogPrefabSnapshot("ObjectMenu.Click", newObj, "instance after Instantiate");
         var selectable = newObj.GetComponent<Selectable>();
-        selectable.UIButtonName = newMenuItem.GetComponentInChildren<TextMeshProUGUI>().text;
+        if (selectable == null)
+        {
+            AssetPipelineDiagnostics.Log("ObjectMenu.Click",
+                $"Instantiated prefab '{objectName}' has no Selectable component — destroying instance");
+            Destroy(newObj);
+            return;
+        }
+
+        var label = newMenuItem != null ? newMenuItem.GetComponentInChildren<TextMeshProUGUI>() : null;
+        selectable.UIButtonName = label != null ? label.text : objectName;
         LastOpenedSelectable = selectable;
         LastOpenedSelectableData = data;
         LastOpenedSelectableChanged?.Invoke();

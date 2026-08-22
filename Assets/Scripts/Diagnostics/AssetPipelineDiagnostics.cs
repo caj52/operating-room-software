@@ -257,7 +257,7 @@ public static class AssetPipelineDiagnostics
     {
         var settings = AssetBundleManagerSettings.Get();
         Log("Session", $"id={_sessionId} unity={Application.unityVersion} platform={Application.platform} isEditor={Application.isEditor} isPlaying={Application.isPlaying}");
-        Log("Config", $"UseEditorAssetsIfAble={settings.UseEditorAssetsIfAble} KeepLocalCopy={settings.KeepLocalCopy} Version={settings.Version} Environment={settings.ActiveEnvironmentId}");
+        Log("Config", $"AllowRemoteCdn={settings.AllowRemoteCdn} UseEditorAssetsIfAble={settings.UseEditorAssetsIfAble} KeepLocalCopy={settings.KeepLocalCopy} Version={settings.Version} Environment={settings.ActiveEnvironmentId}");
 
         if (settings.BuildTargetsByPlatform.TryGetValue(Application.platform, out int buildTarget))
         {
