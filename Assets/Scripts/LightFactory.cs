@@ -137,12 +137,15 @@ public class LightFactory : MonoBehaviour
 
         if (on)
         {
+            // URP Lit Emission checkbox is driven by GI flags, not keyword alone.
+            emissiveMaterial.globalIlluminationFlags = MaterialGlobalIlluminationFlags.BakedEmissive;
             emissiveMaterial.EnableKeyword("_EMISSION");
             emissiveMaterial.SetColor("_EmissionColor", emissionColor);
         }
         else
         {
             emissiveMaterial.DisableKeyword("_EMISSION");
+            emissiveMaterial.globalIlluminationFlags = MaterialGlobalIlluminationFlags.EmissiveIsBlack;
             emissiveMaterial.SetColor("_EmissionColor", Color.black);
         }
     }
