@@ -100,7 +100,7 @@ public class ExportOrchestrator : MonoBehaviour
 
             if (activeRequest.IncludeObj && !_cancelled)
             {
-                UI_GeneralLoadingScreen.instance.SetStatus("Exporting 3D model (OBJ/MTL)...");
+                UI_GeneralLoadingScreen.instance.SetStatus("Exporting 3D model (GLB + FBX)...");
                 UI_GeneralLoadingScreen.instance.SetProgress((float)stepIndex / stepCount);
                 yield return null;
                 yield return ExportObj(activeRequest.ObjOptions);
@@ -250,8 +250,8 @@ public class ExportOrchestrator : MonoBehaviour
             if (succeeded)
             {
                 _completedSteps.Add(activeRequestScopeIsSelection()
-                    ? "Selected 3D model (OBJ/MTL)"
-                    : "Room 3D model (OBJ/MTL)");
+                    ? "Selected 3D model (GLB + FBX)"
+                    : "Room 3D model (GLB + FBX)");
                 if (!string.IsNullOrWhiteSpace(outputPath))
                     _outputPaths.Add(outputPath);
             }

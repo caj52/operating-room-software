@@ -122,7 +122,7 @@ public class UI_ObjExportOptions : MonoBehaviour
             return;
 
         UI_DialogPrompt.Open(
-            $"3D model (OBJ/MTL) saved.",
+            "3D model (GLB + FBX) saved.",
             new ButtonAction("Done"));
         ExportFolderUtility.RevealInFileManager(path);
     }
@@ -412,7 +412,7 @@ public class UI_ObjExportOptions : MonoBehaviour
             return false;
 
         string roomName = ExportPaths.SanitizeFolderName(ExportPaths.GetRoomExportName());
-        ObjExporter.DoExport(makeSubmeshes, meshFilters, roomName, roomPackage: true);
+        GlbExporter.DoExport(makeSubmeshes, meshFilters, roomName, roomPackage: true);
         return true;
     }
 
@@ -460,7 +460,7 @@ public class UI_ObjExportOptions : MonoBehaviour
             return false;
 
         string exportName = ExportPaths.GetObjectExportName(obj, "Object");
-        ObjExporter.DoExport(makeSubmeshes, meshFilters, exportName);
+        GlbExporter.DoExport(makeSubmeshes, meshFilters, exportName);
         return true;
     }
 
