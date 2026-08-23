@@ -3375,8 +3375,9 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         if (!_isRaycastingOnSelectable)
         {
-            //int mask = 1 << LayerMask.NameToLayer("Wall");
+            // Closest-first: ExtraWall sits in front of room walls, and RaycastAll is unordered.
             var hits = Physics.RaycastAll(ray, float.MaxValue);
+            Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
             foreach (var hit in hits)
             {
                 void SetPosition(RaycastHit hit)
@@ -3490,23 +3491,23 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 }
                 else if (WallRestrictions.Count > 0)
                 {
-                    if (hit.collider.CompareTag("Wall") &&
-                        WallRestrictions.Any(x => (int)x > 1))
+                    // Wall-restricted objects may mount on ExtraWall (additional wall).
+                    // RoomBoundaryType: Ceiling=0, Floor=1, walls >= 2.
+                    bool allowsWallMount = WallRestrictions.Any(x => (int)x > 1);
+                    if (allowsWallMount &&
+                        hit.collider.GetComponentInParent<ExtraWall>() != null)
                     {
-                        // Additional Wall
                         SetPosition(hit);
                         break;
                     }
-                    else if (hit.collider.gameObject.layer == LayerMask.NameToLayer("Wall"))
+
+                    if (hit.collider.gameObject.layer == LayerMask.NameToLayer("Wall"))
                     {
-                        var wall = hit.collider.GetComponentInParent<RoomBoundary>();
+                        var wall = hit.collider.GetComponentInParent<RoomBoundary>()
+                            ?? hit.collider.GetComponent<RoomBoundary>();
 
-                        if (wall == null)
-                        {
-                            wall = hit.collider.GetComponent<RoomBoundary>();
-                        }
-
-                        if (WallRestrictions.Contains(wall.RoomBoundaryType))
+                        if (wall != null &&
+                            WallRestrictions.Contains(wall.RoomBoundaryType))
                         {
                             SetPosition(hit);
                             break;
