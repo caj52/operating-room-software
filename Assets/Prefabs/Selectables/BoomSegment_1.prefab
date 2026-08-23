@@ -2140,7 +2140,7 @@ MonoBehaviour:
   profileSync: 0
   previewInEditor: 1
   camerasLayerMask:
-    serializedVersion: 2
+  serializedVersion: 2
     m_Bits: 4294967295
   effectGroup: 0
   effectGroupLayer:
@@ -2461,7 +2461,7 @@ MonoBehaviour:
   profileSync: 0
   previewInEditor: 1
   camerasLayerMask:
-    serializedVersion: 2
+  serializedVersion: 2
     m_Bits: 4294967295
   effectGroup: 0
   effectGroupLayer:
