@@ -1123,7 +1123,6 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 4146956024851246776}
-  - {fileID: 1100127194250400950}
   m_Father: {fileID: 2776550892225099131}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!33 &5630967218382234006
@@ -1267,13 +1266,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2164230726265639030}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.5, y: 0.5, z: 0.5, w: -0.5}
-  m_LocalPosition: {x: 0.0008, y: 0.0563, z: 0.1038}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0.0997}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 1729992792038418865}
-  m_Father: {fileID: 7983649168394976490}
+  m_Father: {fileID: 6103357333319172959}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &8347415224521184633
 MonoBehaviour:
@@ -1299,10 +1298,10 @@ MonoBehaviour:
     <Guid>k__BackingField: eea30265-64d0-48d3-bf1c-01e820b6e4da
     <AllowedSelectableCategories>k__BackingField: []
     <AllowedSelectableAssetBundleNames>k__BackingField: []
-  <MoveUpOnAttach>k__BackingField: 0
+  <MoveUpOnAttach>k__BackingField: 1
   <TreatAsTopMost>k__BackingField: 0
   <Role>k__BackingField: 0
-  <MultiAttach>k__BackingField: 0
+  <MultiAttach>k__BackingField: 1
   <MultiLimit>k__BackingField: 3
   <_originalParent>k__BackingField: {fileID: 0}
   _hasNormalizedParent: 0
@@ -2645,6 +2644,7 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 2236813575908022275}
+  - {fileID: 1100127194250400950}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &2825526204261083843
