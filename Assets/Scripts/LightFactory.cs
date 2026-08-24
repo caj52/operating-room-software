@@ -23,10 +23,10 @@ public class LightFactory : MonoBehaviour
     Light _light; // Internal reference to the instantiated light
 
     [Header("Emission Settings")]
-    [Tooltip("Set the object containing the material to be emissive when ON")]
+    [Tooltip("Set the object containing the material(s) to be emissive when ON")]
     [SerializeField] GameObject emissiveObject;
-    Material emissiveMaterial; // Internal reference, cannot assign it directly
-    [Tooltip("The HDR color to emit from the emissiveObject's material")]
+    Material[] emissiveMaterials; // Internal refs; instances all slots so multi-mat cups glow together
+    [Tooltip("The HDR color to emit from the emissiveObject's materials")]
     [SerializeField] Color emissionColor; 
 
     void Start()
@@ -36,9 +36,14 @@ public class LightFactory : MonoBehaviour
             var rend = emissiveObject.GetComponent<Renderer>();
             if (rend != null)
             {
-                // Instance material so U|ONE / U|002 don't share emission state.
-                emissiveMaterial = rend.material;
-                emissiveMaterial.SetColor("_EmissionColor", emissionColor);
+                // Instance all materials so U|ONE / U|002 don't share emission state,
+                // and every slot on multi-material cups (e.g. LightCups) can glow.
+                emissiveMaterials = rend.materials;
+                foreach (var mat in emissiveMaterials)
+                {
+                    if (mat != null && mat.HasProperty("_EmissionColor"))
+                        mat.SetColor("_EmissionColor", emissionColor);
+                }
             }
         }
 
@@ -128,25 +133,31 @@ public class LightFactory : MonoBehaviour
     }
 
     /// <summary>
-    /// Sets the emissive boolean state in the material to match the light's ON/OFF state
+    /// Sets the emissive boolean state on all materials to match the light's ON/OFF state
     /// </summary>
     void ToggleEmissive()
     {
-        if (emissiveMaterial == null)
+        if (emissiveMaterials == null || emissiveMaterials.Length == 0)
             return;
 
-        if (on)
+        foreach (var mat in emissiveMaterials)
         {
-            // URP Lit Emission checkbox is driven by GI flags, not keyword alone.
-            emissiveMaterial.globalIlluminationFlags = MaterialGlobalIlluminationFlags.BakedEmissive;
-            emissiveMaterial.EnableKeyword("_EMISSION");
-            emissiveMaterial.SetColor("_EmissionColor", emissionColor);
-        }
-        else
-        {
-            emissiveMaterial.DisableKeyword("_EMISSION");
-            emissiveMaterial.globalIlluminationFlags = MaterialGlobalIlluminationFlags.EmissiveIsBlack;
-            emissiveMaterial.SetColor("_EmissionColor", Color.black);
+            if (mat == null || !mat.HasProperty("_EmissionColor"))
+                continue;
+
+            if (on)
+            {
+                // URP Lit Emission checkbox is driven by GI flags, not keyword alone.
+                mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.BakedEmissive;
+                mat.EnableKeyword("_EMISSION");
+                mat.SetColor("_EmissionColor", emissionColor);
+            }
+            else
+            {
+                mat.DisableKeyword("_EMISSION");
+                mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.EmissiveIsBlack;
+                mat.SetColor("_EmissionColor", Color.black);
+            }
         }
     }
 }
