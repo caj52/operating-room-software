@@ -52,15 +52,6 @@ public class TrackedObject : MonoBehaviour
         // New: full self path for reliable lookup post-instantiation
         public string selfPath; // NEW
 
-        /// <summary>
-        /// Local rotations of outlet face meshes under this selectable (WhiteGasOutlet,
-        /// Outlet, AVOutlet). Place mutates these via face-flip; they are not TrackedObjects.
-        /// Load restores them so facing is owned by save data, not a second heuristic.
-        /// </summary>
-        public List<string> faceMeshRelativePaths;
-        public List<Quaternion> faceMeshLocalRotations;
-
-
         public bool ShouldSerializepos() => false;
         public bool ShouldSerializerot() => false;
         public bool ShouldSerializescale() => false;
@@ -134,7 +125,6 @@ public class TrackedObject : MonoBehaviour
         data.worldPosition = transform.position;
         data.worldRotation = transform.rotation;
         data.localScale = transform.localScale;
-        CaptureFaceMeshLocalRotations();
         bool logScale = gameObject.GetComponent<AttachmentPoint>() != null
             || IsScaleRelevantName(name)
             || IsNonUniformScale(data.localScale)
@@ -333,90 +323,6 @@ public class TrackedObject : MonoBehaviour
                 transform.localRotation = _originalLocalRotation;
             }
         }
-        ApplyFaceMeshLocalRotations();
-    }
-
-    public bool FaceMeshPosesRestoredFromSave { get; private set; }
-
-    void CaptureFaceMeshLocalRotations()
-    {
-        data.faceMeshRelativePaths = null;
-        data.faceMeshLocalRotations = null;
-        TryCaptureFaceMeshIntoData(markRestored: false);
-    }
-
-    /// <summary>
-    /// After a legacy-config heuristic face-flip on load: stamp current mesh locals into
-    /// <see cref="data"/> so the next save persists facing without another heuristic.
-    /// </summary>
-    public void StampFaceMeshPosesFromCurrentHierarchy()
-    {
-        TryCaptureFaceMeshIntoData(markRestored: true);
-    }
-
-    void TryCaptureFaceMeshIntoData(bool markRestored)
-    {
-        if (!AttachmentPoint.IsBoomOutletAccessoryName(name))
-            return;
-
-        // Same meshRoot place mutates via AttachmentPoint.TryGetOutletFaceFlipTarget.
-        if (!AttachmentPoint.TryGetOutletFaceFlipTarget(transform, out _, out Transform meshRoot))
-            return;
-        if (meshRoot == null || meshRoot == transform)
-            return;
-
-        data.faceMeshRelativePaths = new List<string> { RelativePath(transform, meshRoot) };
-        data.faceMeshLocalRotations = new List<Quaternion> { meshRoot.localRotation };
-        if (markRestored)
-            FaceMeshPosesRestoredFromSave = true;
-    }
-
-    void ApplyFaceMeshLocalRotations()
-    {
-        FaceMeshPosesRestoredFromSave = false;
-        if (data.faceMeshRelativePaths == null || data.faceMeshLocalRotations == null)
-            return;
-        int n = Math.Min(data.faceMeshRelativePaths.Count, data.faceMeshLocalRotations.Count);
-        if (n == 0)
-            return;
-
-        int applied = 0;
-        for (int i = 0; i < n; i++)
-        {
-            Transform child = FindRelative(transform, data.faceMeshRelativePaths[i]);
-            if (child == null)
-                continue;
-            child.localRotation = data.faceMeshLocalRotations[i];
-            applied++;
-        }
-        FaceMeshPosesRestoredFromSave = applied > 0;
-        if (applied > 0 && ConfigurationManager.IsLoading)
-        {
-            BoomConfigLoadDiag.Event("FACE_MESH",
-                $"'{name}' restored={applied}/{n}");
-        }
-    }
-
-    static string RelativePath(Transform root, Transform child)
-    {
-        var stack = new Stack<string>();
-        for (Transform t = child; t != null && t != root; t = t.parent)
-            stack.Push(t.name);
-        return string.Join("/", stack);
-    }
-
-    static Transform FindRelative(Transform root, string relativePath)
-    {
-        if (root == null || string.IsNullOrEmpty(relativePath))
-            return null;
-        Transform t = root;
-        foreach (string part in relativePath.Split('/'))
-        {
-            if (string.IsNullOrEmpty(part)) continue;
-            t = t.Find(part);
-            if (t == null) return null;
-        }
-        return t;
     }
 
     /// <summary>

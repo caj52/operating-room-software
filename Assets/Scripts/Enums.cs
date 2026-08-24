@@ -50,6 +50,28 @@ public enum SpecialSelectableType
     Tabletop
 }
 
+/// <summary>
+/// How <see cref="Selectable"/> length / ScaleLevels interact with transforms.
+/// Tube isolation must never run on AuthoredIdentity / SkuAxisStretch / RowConfig.
+/// </summary>
+public enum LengthScaleKind
+{
+    /// <summary>Arms, drop tubes: ScaleZ = Size/authoredLength, Z-only stretch, AP inverse.</summary>
+    LengthTube = 0,
+
+    /// <summary>Service head cabinet: ScaleLevels carry row tiers; ReassembleRows owns presentation.</summary>
+    RowConfigAssembly = 1,
+
+    /// <summary>
+    /// SH rails / outlet plates / HV-LV mounts: root identity; mesh children keep prefab
+    /// import scales (e.g. Rear Rail local 0.01). Size is catalog only — never tube-bake.
+    /// </summary>
+    AuthoredIdentity = 2,
+
+    /// <summary>SH shelves: X-only SKU stretch vs base mesh; Y/Z stay 1.</summary>
+    SkuAxisStretch = 3
+}
+
 public enum MaterialGroup
 {
     None,

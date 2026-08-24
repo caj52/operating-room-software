@@ -161,18 +161,20 @@ public class BoomHeadScaleHandler : MonoBehaviour
         foreach (AttachedShelf child in shelves)
             child.shelf.SetParent(null);
 
-        // Keep rail local identity under the attach point; parent attach-chain
-        // compensation (inverse Z on the AP) is what keeps world size correct.
+        // AuthoredIdentity contract: root identity. Mesh/AP children keep prefab import
+        // scales (Rear Rail 0.01, AttachPoint 0.1). Never tube-isolate or Size/extent squash.
         rail.transform.localScale = Vector3.one;
+        rail.EnsureAuthoredIdentityMountScale();
 
         foreach (AttachedShelf child in shelves)
         {
             child.shelf.SetParent(point);
             child.shelf.localPosition = child.localPosition;
-            // Local identity under a compensated rail — do not force world (1,1,1),
-            // which undoes attach-chain inverse on the service head.
-            child.shelf.localScale = Vector3.one;
+            // Preserve SKU X stretch — do not force (1,1,1).
+            child.shelf.localScale = child.localScale;
         }
+
+        RailScaleDiag.Dump("SetRailScale", rail);
 
         // Do NOT call EnsureAttachChain here — after load/MoveUp that double-compensates.
         // Interactive SetScaleLevel / pre-MoveUp FixLoaded already own attach-chain math.
@@ -196,10 +198,12 @@ public struct AttachedShelf
 {
     [field: SerializeField] public Transform shelf;
     [field: SerializeField] public Vector3 localPosition;
+    [field: SerializeField] public Vector3 localScale;
 
     public AttachedShelf(Transform s)
     {
         shelf = s;
         localPosition = s.localPosition;
+        localScale = s.localScale;
     }
 }

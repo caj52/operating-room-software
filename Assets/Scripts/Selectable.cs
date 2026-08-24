@@ -991,6 +991,11 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             return;
         }
 
+        // Service heads / SH rails/shelves: ScaleLevels are row/SKU metadata, not tube length.
+        // Attach-chain inverse on Rear_Rail (ScaleZ≈Size/20m mesh) blew AP Z to ~34 and left X room-sized.
+        if (SkipTubeLengthScaleIsolation())
+            return;
+
         float targetZ = ResolveAttachChainTargetZ();
         if (targetZ <= 0.0001f || Mathf.Abs(targetZ - 1f) < 0.0001f)
         {
@@ -1104,6 +1109,9 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     /// </summary>
     public void ReapplyLengthScaleIsolation()
     {
+        if (SkipTubeLengthScaleIsolation())
+            return;
+
         ScaleLevel target = CurrentScaleLevel;
         float targetZ = target != null ? target.ScaleZ : 0f;
         if (target == null || targetZ <= 0.0001f)
@@ -1196,6 +1204,13 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         {
             if (p.TryGetComponent(out Selectable sel))
             {
+                // Service heads / SH rails use ScaleLevels for row/SKU metadata, not tube length.
+                // Running attach-chain inverse on them rewrites railAttachPoint / Rear_Rail scales.
+                if (sel.SkipTubeLengthScaleIsolation())
+                {
+                    p = p.parent;
+                    continue;
+                }
                 if (sel.OwnsLengthScale())
                 {
                     sel.EnsureAttachChainScaleCompensation(reapplyMeshIsolation: false);
@@ -1206,7 +1221,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             }
             p = p.parent;
         }
-        fallback?.EnsureAttachChainScaleCompensation(reapplyMeshIsolation: false);
+        if (fallback != null && !fallback.SkipTubeLengthScaleIsolation())
+            fallback.EnsureAttachChainScaleCompensation(reapplyMeshIsolation: false);
     }
 
     /// <summary>
@@ -1224,7 +1240,14 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
             Vector3 als = attached.localScale;
 
-            // Never rewrite intentional service-head shelf SKU scales (length-only X).
+            // Never rewrite intentional SH mount / shelf scales.
+            if (attached.TryGetComponent(out Selectable attachedSel))
+            {
+                LengthScaleKind attachedKind = attachedSel.GetLengthScaleKind();
+                if (attachedKind == LengthScaleKind.AuthoredIdentity
+                    || attachedKind == LengthScaleKind.SkuAxisStretch)
+                    continue;
+            }
             if (attached.name != null
                 && attached.name.StartsWith("SH_Shelf", StringComparison.Ordinal))
                 continue;
@@ -1317,8 +1340,157 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     }
 
     /// <summary>
+    /// Category boundary for length/scale writers. Tube isolation
+    /// (Bake Size/meshLen → ScaleZ, Z-only SetScaleLevel, AP inverse, Reapply unitizing mesh
+    /// children) is <see cref="LengthScaleKind.LengthTube"/> only.
+    /// Log proof of mis-category: Rear_Rail mesh child prefab scale 0.01 was wiped to 1 by
+    /// Reapply → SelfLength 20.6m → ScaleZ 0.029 → room-span X + AP inv≈34.
+    /// </summary>
+    public LengthScaleKind GetLengthScaleKind()
+    {
+        if (UsesScaleLevelsAsRowConfig())
+            return LengthScaleKind.RowConfigAssembly;
+
+        if (SpecialTypes != null
+            && SpecialTypes.Contains(SpecialSelectableType.ServiceHeadShelves))
+            return LengthScaleKind.SkuAxisStretch;
+
+        if (HasMetaCategory("Service Head Rails"))
+            return LengthScaleKind.AuthoredIdentity;
+
+        // Outlet / gas / AV face-fit mounts — identity under plate APs.
+        if (HasMetaCategory("Boom Head High Voltage")
+            || HasMetaCategory("Boom Head Low Voltage"))
+            return LengthScaleKind.AuthoredIdentity;
+
+        // Under an SH floor root with rail/shelf/drawer naming (Measurable helper).
+        if (GetComponent<BoomHeadScaleHandler>() == null
+            && Measurable.IsServiceHeadAccessoryDimOwner(this))
+            return LengthScaleKind.AuthoredIdentity;
+
+        // Prefabs not yet tagged (Standard_Rail_v1) — rail product names only.
+        if (IsServiceHeadRailProductName(name))
+            return LengthScaleKind.AuthoredIdentity;
+
+        return LengthScaleKind.LengthTube;
+    }
+
+    public bool SkipTubeLengthScaleIsolation() =>
+        GetLengthScaleKind() != LengthScaleKind.LengthTube;
+
+    bool HasMetaCategory(string category)
+    {
+        if (string.IsNullOrEmpty(category) || MetaData?.Categories == null)
+            return false;
+        for (int i = 0; i < MetaData.Categories.Count; i++)
+        {
+            string c = MetaData.Categories[i];
+            if (c != null && c.Equals(category, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
+
+    static bool IsServiceHeadRailProductName(string raw)
+    {
+        if (string.IsNullOrEmpty(raw))
+            return false;
+        string n = StripCloneSuffix(raw);
+        return n.IndexOf("Rear_Rail", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("SHP_Rail", StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("Standard_Rail", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    static string StripCloneSuffix(string raw)
+    {
+        int clone = raw.IndexOf("(Clone)", StringComparison.OrdinalIgnoreCase);
+        return clone > 0 ? raw.Substring(0, clone).TrimEnd() : raw;
+    }
+
+    /// <summary>
+    /// AuthoredIdentity contract: root (1,1,1), ScaleZ metadata = 1, mesh/AP children
+    /// untouched (prefab import scales). Repairs corrupt Z-only roots from old tube bakes.
+    /// </summary>
+    public void EnsureAuthoredIdentityMountScale()
+    {
+        if (GetLengthScaleKind() != LengthScaleKind.AuthoredIdentity)
+            return;
+
+        NormalizeAccessoryScaleZMetadataToOne();
+        Vector3 ls = transform.localScale;
+        if (IsCorruptTubeSquashLocalScale(ls))
+        {
+            transform.localScale = Vector3.one;
+            RailScaleDiag.Dump("AuthoredIdentity.repairSquash", this, $"was={ls}");
+        }
+        else
+            RailScaleDiag.Dump("AuthoredIdentity.ok", this);
+    }
+
+    /// <summary>
+    /// Classic bad tube bake on a mount: (≈1,≈1,z≠1). Does not match shelf SKU (x≠1,y=1,z=1).
+    /// </summary>
+    static bool IsCorruptTubeSquashLocalScale(Vector3 ls)
+    {
+        return Mathf.Abs(ls.x - 1f) < 0.05f
+            && Mathf.Abs(ls.y - 1f) < 0.05f
+            && Mathf.Abs(ls.z - 1f) > 0.05f;
+    }
+
+    void NormalizeAccessoryScaleZMetadataToOne()
+    {
+        if (ScaleLevels == null)
+            return;
+        for (int i = 0; i < ScaleLevels.Count; i++)
+        {
+            var level = ScaleLevels[i];
+            if (level != null)
+                level.ScaleZ = 1f;
+        }
+    }
+
+    /// <summary>
+    /// Shelves are one mesh; SKU is length only (mesh X ≈ 840.6mm).
+    /// scale.x = claim_m / 0.8406; Y/Z stay 1 so 500 vs 750 share depth/thickness.
+    /// Place and load must both call this — SetRailScale must not wipe it.
+    /// </summary>
+    public static void ApplyServiceHeadShelfSkuScale(GameObject obj)
+    {
+        if (obj == null)
+            return;
+
+        Selectable sel = obj.GetComponent<Selectable>();
+        bool byType = sel != null
+            && sel.SpecialTypes != null
+            && sel.SpecialTypes.Contains(SpecialSelectableType.ServiceHeadShelves);
+        bool byName = obj.name != null
+            && obj.name.StartsWith("SH_Shelf", StringComparison.Ordinal);
+        if (!byType && !byName)
+            return;
+
+        Vector3 sku = obj.name != null
+            && obj.name.Contains("500mm", StringComparison.Ordinal)
+            ? new Vector3(0.59481f, 1f, 1f)
+            : new Vector3(0.89221f, 1f, 1f);
+
+        Vector3 before = obj.transform.localScale;
+        obj.transform.localScale = sku;
+        Physics.SyncTransforms();
+
+        Bounds rb = default;
+        bool hasRb = Measurable.TryGetStrictOwnRendererBounds(sel, out rb);
+
+        ScaleAuditLog.Warn("Shelf.SkuScale",
+            $"name={obj.name} beforeLocal={before} afterLocal={obj.transform.localScale} " +
+            $"lossy={obj.transform.lossyScale} " +
+            $"bounds={(hasRb ? rb.size.ToString("F4") : "n/a")} " +
+            $"boundsMm={(hasRb ? (rb.size * 1000f).ToString("F1") : "n/a")}");
+    }
+
+    /// <summary>
     /// Write ScaleZ on every level. Arms/tubes: Size / authored mesh meters.
-    /// Row-config heads/rails: Size / ModelDefault.Size with MD ScaleZ=1 (historic init).
+    /// Row-config heads: Size / ModelDefault.Size with MD ScaleZ=1 (historic init).
+    /// SH rails/shelves: ScaleZ=1 (Size is accessory dim / SKU, not tube Z).
     /// </summary>
     public void BakeScaleZFromAuthoredLength()
     {
@@ -1351,6 +1523,22 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             return;
         }
 
+        LengthScaleKind accessoryKind = GetLengthScaleKind();
+        if (accessoryKind == LengthScaleKind.AuthoredIdentity
+            || accessoryKind == LengthScaleKind.SkuAxisStretch)
+        {
+            for (int i = 0; i < ScaleLevels.Count; i++)
+            {
+                var item = ScaleLevels[i];
+                if (item != null)
+                    item.ScaleZ = 1f;
+            }
+            ScaleAuditLog.Event("Sel.BakeScaleZ.accessory",
+                $"name={name} kind={accessoryKind} ScaleZ=1 (not Size/meshLen) " +
+                $"levels={string.Join(",", ScaleLevels.Where(l => l != null).Select(l => $"{l.Size:G4}→{l.ScaleZ:G4}"))}");
+            return;
+        }
+
         float authored = GetAuthoredLengthMeters();
         if (authored < 1e-4f)
             authored = 1f;
@@ -1373,6 +1561,38 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         if (scaleLevel == null)
         {
             Debug.LogWarning($"SetScaleLevel called with null on {name}", this);
+            return;
+        }
+
+        // SH mounts / shelves: never Z-isolate or unitize mesh children (prefab import scales).
+        LengthScaleKind kind = GetLengthScaleKind();
+        if (kind == LengthScaleKind.AuthoredIdentity || kind == LengthScaleKind.SkuAxisStretch)
+        {
+            if (setSelected)
+            {
+                ScaleLevels.ForEach((item) => item.Selected = false);
+                scaleLevel.Selected = true;
+                CurrentScaleLevel = scaleLevel;
+                CurrentPreviewScaleLevel = scaleLevel;
+            }
+            else
+            {
+                CurrentPreviewScaleLevel = scaleLevel;
+            }
+
+            NormalizeAccessoryScaleZMetadataToOne();
+            if (kind == LengthScaleKind.SkuAxisStretch)
+                ApplyServiceHeadShelfSkuScale(gameObject);
+            else
+                EnsureAuthoredIdentityMountScale();
+
+            if (fireEvent && setSelected)
+                OnScaleChange?.Invoke(CurrentScaleLevel);
+            else if (fireEvent)
+                OnScaleChange?.Invoke(CurrentPreviewScaleLevel);
+
+            if (setSelected)
+                StoreChildScales();
             return;
         }
 
@@ -3086,7 +3306,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     {
         if (ScaleLevels == null || ScaleLevels.Count == 0)
             return false;
-        if (UsesScaleLevelsAsRowConfig())
+        if (SkipTubeLengthScaleIsolation())
             return false;
         if (!IsVerticalCatalogLengthOwner())
             return false;

@@ -798,8 +798,16 @@ public class ConfigurationManager : MonoBehaviour
                 {
                     foreach (var to in _newObjects)
                     {
-                        if (to != null)
-                            ScaleAuditLog.Hierarchy("LoadArm.final", to.transform, to.name);
+                        if (to == null) continue;
+                        ScaleAuditLog.Hierarchy("LoadArm.final", to.transform, to.name);
+                        foreach (Selectable rail in to.GetComponentsInChildren<Selectable>(true))
+                        {
+                            if (rail == null) continue;
+                            LengthScaleKind k = rail.GetLengthScaleKind();
+                            if (k == LengthScaleKind.AuthoredIdentity
+                                || k == LengthScaleKind.SkuAxisStretch)
+                                RailScaleDiag.Dump("LoadArm.final.sh", rail, $"kind={k}");
+                        }
                     }
                 }
 
@@ -1803,6 +1811,28 @@ public class ConfigurationManager : MonoBehaviour
                 boomHead.RowsSettledByConfigLoad = true;
                 BoomConfigLoadDiag.Event("SETTLE",
                     $"ReassembleRows on {boomHead.name} scaleSize={sel.CurrentScaleLevel.Size}");
+
+                // Category settle: rails stay AuthoredIdentity; shelves re-get SKU X.
+                foreach (Selectable child in boomHead.GetComponentsInChildren<Selectable>(true))
+                {
+                    if (child == null) continue;
+                    try
+                    {
+                        switch (child.GetLengthScaleKind())
+                        {
+                            case LengthScaleKind.AuthoredIdentity:
+                                child.EnsureAuthoredIdentityMountScale();
+                                break;
+                            case LengthScaleKind.SkuAxisStretch:
+                                Selectable.ApplyServiceHeadShelfSkuScale(child.gameObject);
+                                break;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogWarning($"[SettleLoadedBoomAssembly] SH scale {child.name}: {ex.Message}");
+                    }
+                }
             }
         }
 
@@ -1822,8 +1852,8 @@ public class ConfigurationManager : MonoBehaviour
     }
 
     /// <summary>
-    /// After boom rows are active: cover visibility + facing for every AP under each
-    /// service head (saved face meshes when present; heuristic only as fallback).
+    /// After boom rows are active: same ApplyBoomAccessoryPresentation as menu place
+    /// for every AP under each service head.
     /// </summary>
     private void FinalizeLoadedBoomAccessoryAttach()
     {

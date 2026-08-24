@@ -524,7 +524,6 @@ public class ObjectMenu : MonoBehaviour
             // bake 1/coverZ into the new object's local scale.
             Selectable.EnsureAttachChainForAttachmentPoint(_attachmentPoint);
 
-            _attachmentPoint.SetAttachedSelectable(selectable);
             selectable.ParentAttachmentPoint = _attachmentPoint;
 
             // Stable ids for config/room parenting — do not rename (outlet name checks).
@@ -533,8 +532,11 @@ public class ObjectMenu : MonoBehaviour
             if (_attachmentPoint.TryGetComponent(out TrackedObject apTracked))
                 apTracked.EnsureRuntimeInstanceId();
 
+            // World-snap + parent first so presentation sees the final slot pose.
             obj.transform.SetPositionAndRotation(_attachmentPoint.transform.position, _attachmentPoint.transform.rotation);
             obj.transform.SetParent(_attachmentPoint.transform, true);
+
+            _attachmentPoint.SetAttachedSelectable(selectable);
 
             // If anything still baked an inverse onto the new root, strip it now that it is a child.
             Selectable.EnsureAttachChainForAttachmentPoint(_attachmentPoint);
@@ -552,6 +554,9 @@ public class ObjectMenu : MonoBehaviour
 
             // Attach-chain / SetParent(worldPositionStays) can warp non-uniform SKU scales.
             ReapplyServiceHeadShelfSkuScale(obj);
+
+            // Same ApplyBoomAccessoryPresentation as config load (cover + slot-aligned face).
+            _attachmentPoint.ApplyBoomAccessoryPresentation();
 
             PlacementLoadOptimizer.FinalizeInstanceColliders(obj);
             PlacementLoadOptimizer.RestoreInstanceCollidersAfterLoad(obj);
@@ -588,32 +593,12 @@ public class ObjectMenu : MonoBehaviour
     }
 
     /// <summary>
-    /// Shelves are one mesh; SKU is length only (mesh X ≈ 840.6mm).
-    /// scale.x = claim_m / 0.8406; Y/Z stay 1 so 500 vs 750 share depth/thickness.
+    /// Place-path entry for shelf SKU X. Load path uses the same
+    /// <see cref="Selectable.ApplyServiceHeadShelfSkuScale"/> from SettleLoadedBoomAssembly.
     /// </summary>
     private static void ReapplyServiceHeadShelfSkuScale(GameObject obj)
     {
-        if (obj == null || obj.name == null || !obj.name.StartsWith("SH_Shelf", StringComparison.Ordinal))
-            return;
-
-        // Check 500mm before bare SH_Shelf_1 / _2 (prefix overlap).
-        Vector3 sku = obj.name.Contains("500mm", StringComparison.Ordinal)
-            ? new Vector3(0.59481f, 1f, 1f)
-            : new Vector3(0.89221f, 1f, 1f);
-
-        Vector3 before = obj.transform.localScale;
-        obj.transform.localScale = sku;
-        Physics.SyncTransforms();
-
-        Bounds rb = default;
-        bool hasRb = Measurable.TryGetStrictOwnRendererBounds(
-            obj.GetComponent<Selectable>(), out rb);
-
-        ScaleAuditLog.Warn("Shelf.SkuScale",
-            $"name={obj.name} beforeLocal={before} afterLocal={obj.transform.localScale} " +
-            $"lossy={obj.transform.lossyScale} " +
-            $"bounds={(hasRb ? rb.size.ToString("F4") : "n/a")} " +
-            $"boundsMm={(hasRb ? (rb.size * 1000f).ToString("F1") : "n/a")}");
+        Selectable.ApplyServiceHeadShelfSkuScale(obj);
     }
 
     // Replace the HandleOutletAndPricing method in ObjectMenu.cs with this optimized version:
