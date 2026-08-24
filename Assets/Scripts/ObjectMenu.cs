@@ -526,6 +526,13 @@ public class ObjectMenu : MonoBehaviour
 
             _attachmentPoint.SetAttachedSelectable(selectable);
             selectable.ParentAttachmentPoint = _attachmentPoint;
+
+            // Stable ids for config/room parenting — do not rename (outlet name checks).
+            if (selectable.TryGetComponent(out TrackedObject childTracked))
+                childTracked.EnsureRuntimeInstanceId();
+            if (_attachmentPoint.TryGetComponent(out TrackedObject apTracked))
+                apTracked.EnsureRuntimeInstanceId();
+
             obj.transform.SetPositionAndRotation(_attachmentPoint.transform.position, _attachmentPoint.transform.rotation);
             obj.transform.SetParent(_attachmentPoint.transform, true);
 
@@ -663,13 +670,8 @@ public class ObjectMenu : MonoBehaviour
 
 
 
-    private bool IsOutlet(string objName)
-    {
-        return objName.Equals("Outlet_HV_Power(Clone)") ||
-               objName.Contains("GasOutlet") ||
-               objName.Equals("EthernetOutlet") ||
-               objName.Equals("BlankOutlet(Clone)");
-    }
+    private bool IsOutlet(string objName) =>
+        AttachmentPoint.IsBoomOutletAccessoryName(objName);
 
     private void ValidateOutletConfiguration(GameObject obj)
     {

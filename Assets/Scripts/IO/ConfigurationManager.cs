@@ -430,8 +430,10 @@ public class ConfigurationManager : MonoBehaviour
             throw new InvalidOperationException("Nothing selected to save as a configuration.");
 
         CreateTracker();
+        // Include inactive boom-head rows — same as room save. Gases on deactivated
+        // panels are otherwise omitted from the config JSON.
         TrackedObject[] foundObjects = Selectable.SelectedSelectables[0]
-            .transform.root.GetComponentsInChildren<TrackedObject>();
+            .transform.root.GetComponentsInChildren<TrackedObject>(true);
 
         ScaleAuditLog.Event("SaveConfig.begin", $"path={path} tracked={foundObjects.Length}");
         ScaleAuditLog.Hierarchy("SaveConfig.preDetach", Selectable.SelectedSelectables[0].transform.root,
@@ -482,13 +484,16 @@ public class ConfigurationManager : MonoBehaviour
 
         foreach (TrackedObject obj in foundObjects)
         {
-            if (obj.TryGetComponent(out Selectable selectable))
+            // Only re-id/rename the free-placed assembly root. Attached outlets/plates keep
+            // human-readable names (outlet detection, cover plates) and stable child IDs.
+            if (obj.TryGetComponent(out Selectable selectable) &&
+                obj.transform.parent == null &&
+                !string.IsNullOrEmpty(selectable.guid))
             {
-                if (!string.IsNullOrEmpty(selectable.guid))
-                {
-                    selectable.guid = Guid.NewGuid().ToString();
-                    selectable.name = selectable.guid;
-                }
+                string newGuid = Guid.NewGuid().ToString();
+                selectable.guid = newGuid;
+                selectable.name = newGuid;
+                obj.ApplyRuntimeInstanceId(newGuid);
             }
             if (obj.TryGetComponent(out AttachmentPoint attachmentPoint))
                 attachmentPoint.SetToProperParent();
@@ -724,6 +729,7 @@ public class ConfigurationManager : MonoBehaviour
         _coldStartFixturesSuppressed = true;
         IsLoading = true;
         AssetPipelineDiagnostics.RoomLoadQuietMode = true;
+        BoomConfigLoadDiag.BeginSession($"LoadArmAssembly file={file}");
 
         try
         {
@@ -732,6 +738,8 @@ public class ConfigurationManager : MonoBehaviour
                 CreateTracker();
                 string json = File.ReadAllText(file);
                 _tracker = JsonConvert.DeserializeObject<Tracker>(json);
+                BoomConfigLoadDiag.Event("PARSE",
+                    $"objects={_tracker?.objects?.Count ?? 0}");
 
                 _newPoints = new List<AttachmentPoint>();
                 _newObjects = new List<TrackedObject>();
@@ -744,6 +752,11 @@ public class ConfigurationManager : MonoBehaviour
                 await Task.Yield();
                 RandomizeInstanceGUIDs();
                 var gameObject = GetRoot();
+                BoomConfigLoadDiag.Event("ROOT",
+                    $"chosen={(gameObject != null ? gameObject.name : "null")} " +
+                    $"newObjects={_newObjects?.Count ?? 0} " +
+                    $"guidMap={_guidToGameObject?.Count ?? 0} " +
+                    $"sandboxRoots={CountTrackedUnderSandbox()} trueRoots={CountTrueTrackedRoots()}");
 
                 foreach (var to in _newObjects)
                 {
@@ -778,8 +791,9 @@ public class ConfigurationManager : MonoBehaviour
                 CompleteDeferredSelectableInitialization();
                 RestoreLoadedInstanceColliders();
                 SettleLoadedBoomAssembly();
-                // Zero-scale mesh repair only; attach-chain inverse already applied pre-MoveUp.
+                // Scale repair before accessory presentation — face/cover must see final poses.
                 FixLoadedNonUniformDropTubeScales(applyAttachChain: false);
+                FinalizeLoadedBoomAccessoryAttach();
                 if (_newObjects != null)
                 {
                     foreach (var to in _newObjects)
@@ -800,10 +814,15 @@ public class ConfigurationManager : MonoBehaviour
                         new ButtonAction("OK"));
                     if (gameObject != null)
                         Destroy(gameObject);
+                    BoomConfigLoadDiag.EndSession("no tracked objects after load");
                     return null;
                 }
 
+                // Clear before completion callbacks so any place/attach in listeners
+                // gets the normal (!IsLoading) face/cover contract.
+                IsLoading = false;
                 OnConfigurationLoadComplete?.Invoke(gameObject);
+                BoomConfigLoadDiag.EndSession($"ok root={(gameObject != null ? gameObject.name : "null")}");
                 return gameObject;
             }
             else
@@ -813,11 +832,13 @@ public class ConfigurationManager : MonoBehaviour
                     + "Saved configs must live under Saved/Configs to reopen after restart.",
                     new ButtonAction("OK"));
                 Debug.LogError($"File at {file} no longer exists");
+                BoomConfigLoadDiag.EndSession("file missing");
                 return null;
             }
         }
         finally
         {
+            BoomConfigLoadDiag.Flush();
             AssetPipelineDiagnostics.RoomLoadQuietMode = false;
             IsLoading = false;
             DestroyRoomLoadSandbox();
@@ -1149,8 +1170,9 @@ public class ConfigurationManager : MonoBehaviour
                     $"{restoredColliderCount} mesh collider(s) on {_newObjects.Count} object(s)");
 
                 SettleLoadedBoomAssembly();
-                // Zero-scale mesh repair only; attach-chain inverse already applied pre-MoveUp.
+                // Scale repair before accessory presentation — face/cover must see final poses.
                 FixLoadedNonUniformDropTubeScales(applyAttachChain: false);
+                FinalizeLoadedBoomAccessoryAttach();
                 LogLoadedArmScaleSnapshot("after SettleLoadedBoomAssembly");
 
                 var pricingTimer = Stopwatch.StartNew();
@@ -1165,6 +1187,8 @@ public class ConfigurationManager : MonoBehaviour
 
             var completeTimer = Stopwatch.StartNew();
             Selectable.NotifyActiveSelectablesInSceneChanged();
+            // Clear before completion callbacks (same contract as LoadArmAssembly).
+            IsLoading = false;
             OnRoomLoadComplete?.Invoke();
             completeTimer.Stop();
             AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "onRoomLoadComplete", completeTimer.ElapsedMilliseconds);
@@ -1281,51 +1305,145 @@ public class ConfigurationManager : MonoBehaviour
 
         RegisterGuidsForLoadedObjects();
         RemoveDestroyOnLoadFromLoadedObjects();
+        int bound = BindAttachmentPointInstanceIds();
+        BoomConfigLoadDiag.Event("PASS1",
+            $"instantiated={instantiateCount} pendingSetup={_pendingSetup.Count} " +
+            $"pendingAP={_pendingAttachmentPoints.Count} pendingEmbedded={_pendingEmbedded.Count} " +
+            $"apBound={bound} guidMap={_guidToGameObject.Count}");
 
         pass1Timer.Stop();
         AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "pass1_instantiate", pass1Timer.ElapsedMilliseconds,
             $"{instantiateCount} object(s)");
 
-        // Pass 2: establish hierarchy, restore saved values, apply transforms
+        // Pass 2: multi-wave hierarchy. Sphere APs under the head only become uniquely
+        // path-addressable after the head is parented — re-bind APs each wave.
         var pass2Timer = Stopwatch.StartNew();
-        foreach ((GameObject go, TrackedObject.Data data) in _pendingSetup)
+        var pending = new List<(GameObject go, TrackedObject.Data data)>(_pendingSetup);
+        var parented = new HashSet<GameObject>();
+        const int maxWaves = 8;
+        for (int wave = 0; wave < maxWaves; wave++)
         {
-            var trackedObj = go.GetComponent<TrackedObject>();
+            int newlyParented = 0;
+            int orphansThisWave = 0;
 
-            Transform parent = null;
-            if (!string.IsNullOrEmpty(data.parentGuid) && _guidToGameObject.TryGetValue(data.parentGuid, out var parentGO))
-                parent = parentGO.transform;
-
-            if (parent == null)
-                parent = FindLoadedParentTransform(data);
-
-            if (parent != null)
-                go.transform.SetParent(parent, false);
-            else
+            foreach ((GameObject go, TrackedObject.Data data) in pending)
             {
-                go.transform.SetParent(null, true);
-                if (!string.IsNullOrEmpty(data.parentPath) || !string.IsNullOrEmpty(data.parent))
+                if (go == null || parented.Contains(go))
+                    continue;
+
+                // Roots with no parent links are done once placed in sandbox.
+                bool wantsParent = !string.IsNullOrEmpty(data.parentGuid)
+                    || !string.IsNullOrEmpty(data.parentPath)
+                    || !string.IsNullOrEmpty(data.parent);
+                if (!wantsParent)
                 {
-                    Debug.LogError(
-                        $"[RoomLoad] Orphaned '{data.UIButtonname ?? data.objectName}' — " +
-                        $"could not resolve parentPath='{data.parentPath}' parent='{data.parent}' parentGuid='{data.parentGuid}'");
+                    // Leave RoomLoadSandbox so GetRoot / RandomizeInstanceGUIDs see a true root
+                    // (legacy single-pass did SetParent(null) when parent resolve returned null).
+                    go.transform.SetParent(null, true);
+                    parented.Add(go);
+                    var rootTracked = go.GetComponent<TrackedObject>();
+                    if (rootTracked != null)
+                    {
+                        rootTracked.StoreValues(data);
+                        ResetMaterialPalettes(rootTracked);
+                        rootTracked.RestoreTransform(isRoot: true);
+                    }
+                    if (!string.IsNullOrEmpty(data.keepRelativePositionParentName) &&
+                        go.TryGetComponent<KeepRelativePosition>(out var krpRoot))
+                        krpRoot.ParentName = data.keepRelativePositionParentName;
+                    BoomConfigLoadDiag.Event("PARENT",
+                        $"wave={wave} ROOT '{data.objectName}' name={go.name} inst={data.instance_guid} " +
+                        $"sceneRoot={go.transform.root.name}");
+                    continue;
+                }
+
+                string how = null;
+                Transform parent = null;
+                if (!string.IsNullOrEmpty(data.parentGuid) &&
+                    _guidToGameObject.TryGetValue(data.parentGuid, out var parentGO) &&
+                    parentGO != null)
+                {
+                    parent = parentGO.transform;
+                    how = "parentGuid";
+                }
+
+                if (parent == null)
+                {
+                    parent = FindLoadedParentTransform(data);
+                    if (parent != null)
+                        how = "path";
+                }
+
+                if (parent == null)
+                {
+                    orphansThisWave++;
+                    continue;
+                }
+
+                go.transform.SetParent(parent, false);
+                parented.Add(go);
+                newlyParented++;
+
+                var trackedObj = go.GetComponent<TrackedObject>();
+                if (trackedObj != null)
+                {
+                    trackedObj.StoreValues(data);
+                    ResetMaterialPalettes(trackedObj);
+                    trackedObj.RestoreTransform(isRoot: false);
+                }
+
+                if (!string.IsNullOrEmpty(data.keepRelativePositionParentName) &&
+                    go.TryGetComponent<KeepRelativePosition>(out var krp))
+                    krp.ParentName = data.keepRelativePositionParentName;
+
+                bool isAccessory = !string.IsNullOrEmpty(data.objectName) &&
+                    (data.objectName.IndexOf("BoomHeadAttachment_", StringComparison.Ordinal) >= 0
+                     || data.objectName.IndexOf("GasOutlet", StringComparison.Ordinal) >= 0
+                     || data.objectName.IndexOf("Outlet_HV", StringComparison.Ordinal) >= 0
+                     || data.objectName.IndexOf("BlankOutlet", StringComparison.Ordinal) >= 0
+                     || data.objectName.IndexOf("EthernetOutlet", StringComparison.Ordinal) >= 0
+                     || data.objectName.IndexOf("NewBoomHead", StringComparison.Ordinal) >= 0);
+
+                if (isAccessory || how == "parentGuid")
+                {
+                    BoomConfigLoadDiag.Event("PARENT",
+                        $"wave={wave} via={how} '{data.objectName}' -> '{parent.name}' " +
+                        $"inst={data.instance_guid} parentGuid={data.parentGuid}");
                 }
             }
 
+            int rebound = BindAttachmentPointInstanceIds();
+            BoomConfigLoadDiag.Event("WAVE",
+                $"wave={wave} newlyParented={newlyParented} stillWaiting={pending.Count - parented.Count} " +
+                $"orphansSeen={orphansThisWave} apRebound={rebound} guidMap={_guidToGameObject.Count}");
+
+            if (newlyParented == 0)
+                break;
+        }
+
+        // Anything still unresolved becomes an orphan (same as legacy single-pass failure).
+        foreach ((GameObject go, TrackedObject.Data data) in pending)
+        {
+            if (go == null || parented.Contains(go))
+                continue;
+
+            go.transform.SetParent(null, true);
+            BoomConfigLoadDiag.Event("ORPHAN",
+                $"'{data.UIButtonname ?? data.objectName}' inst={data.instance_guid} " +
+                $"parentGuid={data.parentGuid} parentPath={data.parentPath}");
+            Debug.LogError(
+                $"[RoomLoad] Orphaned '{data.UIButtonname ?? data.objectName}' — " +
+                $"could not resolve parentPath='{data.parentPath}' parent='{data.parent}' parentGuid='{data.parentGuid}'");
+
+            var trackedObj = go.GetComponent<TrackedObject>();
             if (trackedObj != null)
             {
                 trackedObj.StoreValues(data);
                 ResetMaterialPalettes(trackedObj);
+                trackedObj.RestoreTransform(isRoot: true);
             }
-
-            if (parent != null)
-                trackedObj?.RestoreTransform(isRoot: false);
-            else
-                trackedObj?.RestoreTransform(isRoot: true);
-
-            if (!string.IsNullOrEmpty(data.keepRelativePositionParentName) && go.TryGetComponent<KeepRelativePosition>(out var comp))
-                comp.ParentName = data.keepRelativePositionParentName;
         }
+
         _pendingSetup.Clear();
         pass2Timer.Stop();
         AssetPipelineDiagnostics.LogPhase("RoomLoad.Phase", "pass2_hierarchy", pass2Timer.ElapsedMilliseconds,
@@ -1363,6 +1481,7 @@ public class ConfigurationManager : MonoBehaviour
         string pathWithSlash = NormalizeLoadPathNames(rawPath[0] == '/' ? rawPath : "/" + rawPath);
         GameObject loose = null;
         int looseSegments = 0;
+        bool looseTied = false;
 
         foreach (TrackedObject to in _newObjects)
         {
@@ -1380,16 +1499,24 @@ public class ConfigurationManager : MonoBehaviour
                 // rooted at their own prefab (`/BoomSegment...(Clone)/...`) while the save
                 // path includes the full assembly prefix. Accept a unique-enough suffix match
                 // (never bare `/AttachPoint` — many boom nodes share that name).
-                if (TryGetUniquePathSuffixMatch(pathWithSlash, live, out int segments) &&
-                    segments > looseSegments)
+                // Two boom heads can share the same panel/AP tail — only accept a unique winner.
+                if (!TryGetUniquePathSuffixMatch(pathWithSlash, live, out int segments))
+                    continue;
+
+                if (segments > looseSegments)
                 {
                     looseSegments = segments;
                     loose = t.gameObject;
+                    looseTied = false;
+                }
+                else if (segments == looseSegments && loose != null && t.gameObject != loose)
+                {
+                    looseTied = true;
                 }
             }
         }
 
-        return loose;
+        return looseTied ? null : loose;
     }
 
     /// <summary>
@@ -1419,8 +1546,19 @@ public class ConfigurationManager : MonoBehaviour
         if (segments < 3)
             return false;
 
-        return longer.EndsWith(shorter, StringComparison.Ordinal)
-               && (longer.Length == shorter.Length || longer[longer.Length - shorter.Length - 1] == '/');
+        if (!longer.EndsWith(shorter, StringComparison.Ordinal))
+            return false;
+
+        if (longer.Length == shorter.Length)
+            return true;
+
+        // Paths from GetLoadComparablePath always start with '/'. EndsWith(shorter)
+        // already anchors on that slash; requiring longer[pos-1]=='/' rejects every
+        // valid suffix (char before is the previous segment's last character).
+        if (shorter[0] == '/')
+            return true;
+
+        return longer[longer.Length - shorter.Length - 1] == '/';
     }
 
     private static int CountPathSegments(string path)
@@ -1445,14 +1583,30 @@ public class ConfigurationManager : MonoBehaviour
         {
             // Try to find the embedded object by selfPath, parent, or parentPath
             GameObject go = null;
+            string how = null;
             if (!string.IsNullOrEmpty(to.selfPath))
+            {
                 go = FindInLoadedObjects(to.selfPath) ?? GameObject.Find(NormalizeFindPath(to.selfPath));
+                if (go != null) how = "selfPath";
+            }
             if (go == null && !string.IsNullOrEmpty(to.parent))
+            {
                 go = FindInLoadedObjects(to.parent) ?? GameObject.Find(NormalizeFindPath(to.parent));
+                if (go != null) how = "parent";
+            }
             if (go == null && !string.IsNullOrEmpty(to.parentPath))
+            {
                 go = FindInLoadedObjects(to.parentPath) ?? GameObject.Find(NormalizeFindPath(to.parentPath));
+                if (go != null) how = "parentPath";
+            }
             if (go == null)
+            {
+                BoomConfigLoadDiag.Event("EMBEDDED_FAIL",
+                    $"name={to.objectName} selfTail={TrimPathTail(to.selfPath, 6)}");
                 throw new NullReferenceException($"Could not find embedded selectable for path: {to.selfPath} or parent: {to.parent}");
+            }
+
+            BoomConfigLoadDiag.Event("EMBEDDED", $"via={how} name={to.objectName} live={go.name}");
 
             // Store all values from data
             var trackedObj = go.GetComponent<TrackedObject>();
@@ -1628,6 +1782,7 @@ public class ConfigurationManager : MonoBehaviour
         if (_newObjects == null)
             return;
 
+        var heads = new HashSet<BoomHeadScaleHandler>();
         foreach (TrackedObject to in _newObjects)
         {
             if (to == null)
@@ -1636,6 +1791,8 @@ public class ConfigurationManager : MonoBehaviour
             foreach (BoomHeadScaleHandler boomHead in to.GetComponentsInChildren<BoomHeadScaleHandler>(true))
             {
                 if (boomHead == null) continue;
+                if (!heads.Add(boomHead))
+                    continue;
                 if (!boomHead.TryGetComponent(out Selectable sel) || sel.CurrentScaleLevel == null)
                     continue;
                 try { boomHead.ReassembleRows(sel.CurrentScaleLevel); }
@@ -1643,6 +1800,9 @@ public class ConfigurationManager : MonoBehaviour
                 {
                     Debug.LogWarning($"[SettleLoadedBoomAssembly] ReassembleRows failed on {boomHead.name}: {ex.Message}");
                 }
+                boomHead.RowsSettledByConfigLoad = true;
+                BoomConfigLoadDiag.Event("SETTLE",
+                    $"ReassembleRows on {boomHead.name} scaleSize={sel.CurrentScaleLevel.Size}");
             }
         }
 
@@ -1657,6 +1817,187 @@ public class ConfigurationManager : MonoBehaviour
                 {
                     Debug.LogWarning($"[SettleLoadedBoomAssembly] RefreshUVs failed on {to.name}: {ex.Message}");
                 }
+            }
+        }
+    }
+
+    /// <summary>
+    /// After boom rows are active: cover visibility + facing for every AP under each
+    /// service head (saved face meshes when present; heuristic only as fallback).
+    /// </summary>
+    private void FinalizeLoadedBoomAccessoryAttach()
+    {
+        if (_newObjects == null)
+            return;
+
+        var heads = new HashSet<BoomHeadScaleHandler>();
+        foreach (TrackedObject to in _newObjects)
+        {
+            if (to == null) continue;
+            foreach (var head in to.GetComponentsInChildren<BoomHeadScaleHandler>(true))
+            {
+                if (head != null)
+                    heads.Add(head);
+            }
+        }
+
+        var seenAps = new HashSet<AttachmentPoint>();
+        int finalized = 0;
+        int withAttached = 0;
+
+        foreach (BoomHeadScaleHandler head in heads)
+        {
+            if (head == null) continue;
+            foreach (AttachmentPoint ap in head.GetComponentsInChildren<AttachmentPoint>(true))
+            {
+                if (ap == null || !seenAps.Add(ap))
+                    continue;
+                finalized++;
+                if (ap.AttachedSelectable != null && ap.AttachedSelectable.Count > 0)
+                    withAttached++;
+                try { ap.FinalizeLoadedAccessoryPresentation(); }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning(
+                        $"[FinalizeLoadedBoomAccessoryAttach] failed on {ap.name}: {ex.Message}");
+                }
+            }
+        }
+
+        BoomConfigLoadDiag.Event("ATTACH_PRESENT_DONE",
+            $"heads={heads.Count} aps={finalized} withAttached={withAttached}");
+        DumpBoomHeadAccessoryState(heads);
+    }
+
+    /// <summary>
+    /// Post-load truth for "missing / inverted / slots dead": cover on/off, attached vs
+    /// children, active flags, renderer enabled.
+    /// </summary>
+    void DumpBoomHeadAccessoryState(HashSet<BoomHeadScaleHandler> heads)
+    {
+        Camera cam = Camera.main;
+        Vector3 towardCam = cam != null ? -cam.transform.forward : Vector3.forward;
+
+        foreach (BoomHeadScaleHandler head in heads)
+        {
+            if (head == null) continue;
+            BoomConfigLoadDiag.Event("HEAD", $"name={head.name} active={head.gameObject.activeInHierarchy}");
+
+            // Empty panel spheres / plate attach slots — interactable diagnosis
+            foreach (AttachmentPoint ap in head.GetComponentsInChildren<AttachmentPoint>(true))
+            {
+                if (ap == null) continue;
+                bool isPanelSphere = ap.name.StartsWith("Sphere", StringComparison.Ordinal);
+                bool isPlateSlot = ap.name.StartsWith("AttachPoint", StringComparison.Ordinal);
+                if (!isPanelSphere && !isPlateSlot)
+                    continue;
+
+                int wired = ap.AttachedSelectable?.Count ?? 0;
+                int childSel = 0;
+                for (int i = 0; i < ap.transform.childCount; i++)
+                {
+                    if (ap.transform.GetChild(i).GetComponent<Selectable>() != null)
+                        childSel++;
+                }
+
+                Collider col = ap.GetComponentInChildren<Collider>(true);
+                bool colOn = col != null && col.enabled;
+                bool activeHier = ap.gameObject.activeInHierarchy;
+                bool expectInteractable = wired == 0 && activeHier;
+                string flag = "";
+                if (expectInteractable && !colOn)
+                    flag = " DEAD_SLOT";
+                if (wired == 0 && childSel > 0)
+                    flag += " WIRE_MISS";
+                if (wired > 0 && childSel == 0)
+                    flag += " ORPHAN_REF";
+
+                if (!string.IsNullOrEmpty(flag) || isPanelSphere || (isPlateSlot && (wired > 0 || childSel > 0)))
+                {
+                    BoomConfigLoadDiag.Event("SLOT",
+                        $"{ap.name} pathTail={ap.transform.parent?.name}/{ap.name} " +
+                        $"activeHier={activeHier} wired={wired} childSel={childSel} " +
+                        $"col={(col != null ? col.GetType().Name : "null")}:{(colOn ? "on" : "off")}{flag}");
+                }
+            }
+
+            foreach (Transform plate in head.GetComponentsInChildren<Transform>(true))
+            {
+                if (plate == null || !plate.name.StartsWith("BoomHeadAttachment_", StringComparison.Ordinal))
+                    continue;
+                if (plate.GetComponent<Selectable>() == null)
+                    continue;
+
+                bool coverOn = false;
+                bool coverColOn = false;
+                float coverVsCam = 0f;
+                if (plate.TryGetComponent(out MeshRenderer cover))
+                {
+                    coverOn = cover.enabled;
+                    coverVsCam = Vector3.Dot(plate.forward, towardCam);
+                    foreach (var col in plate.GetComponents<Collider>())
+                    {
+                        if (col != null && col.enabled)
+                            coverColOn = true;
+                    }
+                }
+
+                Vector3 lossy = plate.lossyScale;
+                bool negScale = lossy.x < 0f || lossy.y < 0f || lossy.z < 0f;
+
+                var aps = plate.GetComponentsInChildren<AttachmentPoint>(true);
+                int attached = 0;
+                int childSel = 0;
+                var detail = new System.Text.StringBuilder();
+                foreach (var ap in aps)
+                {
+                    if (ap == null) continue;
+                    int n = ap.AttachedSelectable?.Count ?? 0;
+                    attached += n;
+                    for (int i = 0; i < ap.transform.childCount; i++)
+                    {
+                        var ch = ap.transform.GetChild(i);
+                        if (!ch.TryGetComponent(out Selectable sel)) continue;
+                        childSel++;
+                        bool rendOn = false;
+                        string mat0 = "-";
+                        var mrs = sel.GetComponentsInChildren<MeshRenderer>(true);
+                        foreach (var mr in mrs)
+                        {
+                            if (mr == null) continue;
+                            if (mr.enabled && mr.gameObject.activeInHierarchy)
+                                rendOn = true;
+                            if (mat0 == "-" && mr.sharedMaterial != null)
+                                mat0 = mr.sharedMaterial.name.Replace(" (Instance)", "");
+                        }
+                        Vector3 ls = sel.transform.lossyScale;
+                        bool neg = ls.x < 0f || ls.y < 0f || ls.z < 0f;
+                        detail.Append(
+                            $" [{sel.name} activeHier={sel.gameObject.activeInHierarchy} " +
+                            $"apWired={n > 0} rend={rendOn} mat0={mat0} " +
+                            $"lossy=({ls.x:F2},{ls.y:F2},{ls.z:F2}) neg={neg}]");
+                    }
+                }
+
+                string plateFlag = "";
+                if (coverOn && childSel > 0)
+                    plateFlag += " COVER_HIDES_CHILDREN";
+                if (attached > 0 && childSel == 0)
+                    plateFlag += " ATTACHED_BUT_NO_CHILDREN";
+                if (childSel > 0 && !plate.gameObject.activeInHierarchy)
+                    plateFlag += " PLATE_INACTIVE";
+                if (negScale)
+                    plateFlag += " NEG_SCALE";
+                if (coverColOn && !coverOn)
+                    plateFlag += " COVER_COL_BLOCKS";
+                if (coverOn && coverColOn && childSel == 0)
+                    plateFlag += " COVER_BLOCKS_EMPTY";
+
+                BoomConfigLoadDiag.Event("PLATE",
+                    $"{plate.name} activeHier={plate.gameObject.activeInHierarchy} coverOn={coverOn} " +
+                    $"coverCol={coverColOn} coverVsCam={coverVsCam:F2} " +
+                    $"lossy=({lossy.x:F2},{lossy.y:F2},{lossy.z:F2}) " +
+                    $"aps={aps.Length} attachedRefs={attached} childSelectables={childSel}{plateFlag}{detail}");
             }
         }
     }
@@ -1737,16 +2078,40 @@ public class ConfigurationManager : MonoBehaviour
         if (go.TryGetComponent<RestorePositionOnLoad>(out var compRestore))
             compRestore.PositionToRestore = trackedObject.worldPosition;
 
-        if (!string.IsNullOrEmpty(trackedObject.instance_guid))
-            go.name = trackedObject.instance_guid;
+        // Load naming contract:
+        // - Assembly root: GO name = saved instance_guid (existing path system for embedded parts).
+        // - Catalog accessories: keep prefab/clone names; id lives on TrackedObject/Selectable.guid only.
+        if (go.TryGetComponent(out TrackedObject tracked) &&
+            !string.IsNullOrEmpty(trackedObject.instance_guid))
+            tracked.ApplyRuntimeInstanceId(trackedObject.instance_guid);
+        else if (go.TryGetComponent(out Selectable selectableOnly) &&
+                 !string.IsNullOrEmpty(trackedObject.instance_guid))
+            selectableOnly.guid = trackedObject.instance_guid;
 
-        if (go.TryGetComponent<Selectable>(out var selectable))
+        if (IsSaveAssemblyRoot(trackedObject) && !string.IsNullOrEmpty(trackedObject.instance_guid))
         {
-            selectable.guid = trackedObject.instance_guid;
-            selectable.UIButtonName = trackedObject.UIButtonname;
+            go.name = trackedObject.instance_guid;
+            BoomConfigLoadDiag.Event("INST_ROOT",
+                $"named root '{trackedObject.objectName}' -> {go.name}");
         }
 
+        if (go.TryGetComponent(out Selectable selectable))
+            selectable.UIButtonName = trackedObject.UIButtonname;
+
         return go;
+    }
+
+    /// <summary>
+    /// Free-placed assembly root in a save (no parent links). Roots use guid-as-name for paths;
+    /// accessories must not.
+    /// </summary>
+    private static bool IsSaveAssemblyRoot(TrackedObject.Data data)
+    {
+        if (data.isAttachmentPoint)
+            return false;
+        return string.IsNullOrEmpty(data.parentGuid)
+            && string.IsNullOrEmpty(data.parentPath)
+            && string.IsNullOrEmpty(data.parent);
     }
 
     private void RegisterGuidsForLoadedObjects()
@@ -1756,12 +2121,149 @@ public class ConfigurationManager : MonoBehaviour
             if (!string.IsNullOrEmpty(data.instance_guid))
                 _guidToGameObject[data.instance_guid] = go;
 
+            if (go.TryGetComponent(out TrackedObject rootTracked))
+            {
+                string id = rootTracked.GetRuntimeInstanceId();
+                if (string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(data.instance_guid))
+                {
+                    rootTracked.ApplyRuntimeInstanceId(data.instance_guid);
+                    id = data.instance_guid;
+                }
+                if (!string.IsNullOrEmpty(id))
+                    _guidToGameObject[id] = go;
+            }
+
             foreach (Selectable sel in go.GetComponentsInChildren<Selectable>(true))
             {
                 if (!string.IsNullOrEmpty(sel.guid))
                     _guidToGameObject[sel.guid] = sel.gameObject;
             }
         }
+    }
+
+    /// <summary>
+    /// Stamps saved attachment-point instance ids onto live APs under already-instantiated
+    /// plates/heads so pass-2 can parent outlets by parentGuid.
+    /// Prefer parentGuid + local AP name (unique under one plate); fall back to path match.
+    /// Returns how many APs newly registered this call.
+    /// </summary>
+    private int BindAttachmentPointInstanceIds()
+    {
+        if (_pendingAttachmentPoints == null || _pendingAttachmentPoints.Count == 0)
+            return 0;
+
+        int newlyBound = 0;
+        int failed = 0;
+
+        foreach (TrackedObject.Data apData in _pendingAttachmentPoints)
+        {
+            if (string.IsNullOrEmpty(apData.instance_guid))
+                continue;
+
+            if (_guidToGameObject.ContainsKey(apData.instance_guid))
+                continue;
+
+            GameObject apGO = null;
+            string how = null;
+
+            // Prefer: find parent selectable/plate by parentGuid, then child AP by leaf name.
+            // Require a unique leaf match — duplicate names under one parent must use path.
+            if (!string.IsNullOrEmpty(apData.parentGuid) &&
+                _guidToGameObject.TryGetValue(apData.parentGuid, out GameObject parentGO) &&
+                parentGO != null)
+            {
+                string leaf = GetPathLeafName(!string.IsNullOrEmpty(apData.selfPath) ? apData.selfPath : apData.parent);
+                if (!string.IsNullOrEmpty(leaf))
+                {
+                    AttachmentPoint unique = null;
+                    int hits = 0;
+                    foreach (AttachmentPoint ap in parentGO.GetComponentsInChildren<AttachmentPoint>(true))
+                    {
+                        if (ap == null || ap.name != leaf)
+                            continue;
+                        hits++;
+                        unique = ap;
+                        if (hits > 1)
+                            break;
+                    }
+                    if (hits == 1 && unique != null)
+                    {
+                        apGO = unique.gameObject;
+                        how = $"parentGuid+leaf:{leaf}";
+                    }
+                }
+            }
+
+            if (apGO == null && !string.IsNullOrEmpty(apData.selfPath))
+            {
+                apGO = FindInLoadedObjects(apData.selfPath);
+                if (apGO != null) how = "selfPath";
+            }
+            if (apGO == null && !string.IsNullOrEmpty(apData.parent))
+            {
+                apGO = FindInLoadedObjects(apData.parent);
+                if (apGO != null) how = "parent";
+            }
+            if (apGO == null && !string.IsNullOrEmpty(apData.parentPath))
+            {
+                apGO = FindInLoadedObjects(apData.parentPath);
+                if (apGO != null) how = "parentPath";
+            }
+
+            if (apGO == null)
+            {
+                failed++;
+                if (!string.IsNullOrEmpty(apData.attachedObject) ||
+                    (!string.IsNullOrEmpty(apData.selfPath) &&
+                     apData.selfPath.IndexOf("BoomHead", StringComparison.Ordinal) >= 0))
+                {
+                    BoomConfigLoadDiag.Event("AP_BIND_FAIL",
+                        $"inst={apData.instance_guid} attached={apData.attachedObject} " +
+                        $"parentGuid={apData.parentGuid} leaf={GetPathLeafName(apData.selfPath)} " +
+                        $"selfTail={TrimPathTail(apData.selfPath, 5)}");
+                }
+                continue;
+            }
+
+            AttachmentPoint attPoint = apGO.GetComponent<AttachmentPoint>()
+                ?? apGO.GetComponentInChildren<AttachmentPoint>(true);
+            if (attPoint == null || !attPoint.TryGetComponent(out TrackedObject tracked))
+            {
+                failed++;
+                BoomConfigLoadDiag.Event("AP_BIND_FAIL",
+                    $"inst={apData.instance_guid} foundGO={apGO.name} but no AttachmentPoint/TrackedObject");
+                continue;
+            }
+
+            tracked.ApplyRuntimeInstanceId(apData.instance_guid);
+            _guidToGameObject[apData.instance_guid] = attPoint.gameObject;
+            newlyBound++;
+            BoomConfigLoadDiag.Event("AP_BIND",
+                $"via={how} inst={apData.instance_guid} live={attPoint.name} attached={apData.attachedObject}");
+        }
+
+        if (failed > 0)
+            BoomConfigLoadDiag.Event("AP_BIND_SUMMARY", $"newlyBound={newlyBound} stillUnbound={failed}");
+
+        return newlyBound;
+    }
+
+    private static string TrimPathTail(string path, int segments)
+    {
+        if (string.IsNullOrEmpty(path))
+            return path;
+        var parts = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length <= segments)
+            return path;
+        return string.Join("/", parts, parts.Length - segments, segments);
+    }
+
+    private static string GetPathLeafName(string path)
+    {
+        if (string.IsNullOrEmpty(path))
+            return null;
+        int slash = path.LastIndexOf('/');
+        return slash >= 0 && slash < path.Length - 1 ? path.Substring(slash + 1) : path;
     }
 
     private void RemoveDestroyOnLoadFromLoadedObjects()
@@ -1830,13 +2332,20 @@ public class ConfigurationManager : MonoBehaviour
         if (go.TryGetComponent<RestorePositionOnLoad>(out var compRestore))
             compRestore.PositionToRestore = trackedObject.worldPosition;
 
-        if (!string.IsNullOrEmpty(trackedObject.instance_guid))
-            go.name = trackedObject.instance_guid; // retain original until randomized later
+        if (go.TryGetComponent(out TrackedObject tracked) &&
+            !string.IsNullOrEmpty(trackedObject.instance_guid))
+            tracked.ApplyRuntimeInstanceId(trackedObject.instance_guid);
+
+        // Same root-name contract as InstantiateObjectForLoad (path lookups during load).
+        if (IsLoading && IsSaveAssemblyRoot(trackedObject) &&
+            !string.IsNullOrEmpty(trackedObject.instance_guid))
+            go.name = trackedObject.instance_guid;
 
         var selectable = go.GetComponent<Selectable>();
         if (selectable != null)
         {
-            selectable.guid = trackedObject.instance_guid;
+            if (!string.IsNullOrEmpty(trackedObject.instance_guid))
+                selectable.guid = trackedObject.instance_guid;
             selectable.UIButtonName = trackedObject.UIButtonname;
             LogData(selectable, trackedObject);
 
@@ -2045,15 +2554,40 @@ public class ConfigurationManager : MonoBehaviour
             if (to.transform.root == to.transform && to.TryGetComponent(out Selectable sel))
             {
                 string newGuid = Guid.NewGuid().ToString();
-                sel.guid = newGuid;
-                to.data.instance_guid = newGuid;
+                to.ApplyRuntimeInstanceId(newGuid);
                 to.gameObject.name = newGuid;
-                _guidToGameObject[newGuid] = to.gameObject; // keep dictionary aligned
+                _guidToGameObject[newGuid] = to.gameObject;
             }
         }
     }
 
     private void LogData(Selectable s, TrackedObject.Data to) => s.GetComponent<TrackedObject>().StoreValues(to);
+
+    int CountTrueTrackedRoots()
+    {
+        if (_newObjects == null) return 0;
+        int n = 0;
+        foreach (TrackedObject x in _newObjects)
+        {
+            if (x != null && x.transform == x.transform.root)
+                n++;
+        }
+        return n;
+    }
+
+    int CountTrackedUnderSandbox()
+    {
+        if (_newObjects == null) return 0;
+        int n = 0;
+        foreach (TrackedObject x in _newObjects)
+        {
+            if (x == null) continue;
+            Transform r = x.transform.root;
+            if (r != null && r.name == "RoomLoadSandbox")
+                n++;
+        }
+        return n;
+    }
 
     /// <summary>
     /// Returns the loaded assembly root. Arm configs often orphan parts when parent paths
@@ -2069,6 +2603,20 @@ public class ConfigurationManager : MonoBehaviour
         {
             if (x != null && x.transform == x.transform.root)
                 roots.Add(x);
+        }
+
+        // Fallback: still parented under load sandbox (should be rare after root unparent).
+        if (roots.Count == 0)
+        {
+            foreach (TrackedObject x in _newObjects)
+            {
+                if (x == null || x.transform.parent == null)
+                    continue;
+                if (x.transform.parent.name == "RoomLoadSandbox" && x.GetComponent<Selectable>() != null)
+                    roots.Add(x);
+            }
+            BoomConfigLoadDiag.Event("ROOT_FALLBACK",
+                $"no true roots; sandbox-direct candidates={roots.Count}");
         }
 
         if (roots.Count == 0)

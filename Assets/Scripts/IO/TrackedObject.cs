@@ -52,6 +52,15 @@ public class TrackedObject : MonoBehaviour
         // New: full self path for reliable lookup post-instantiation
         public string selfPath; // NEW
 
+        /// <summary>
+        /// Local rotations of outlet face meshes under this selectable (WhiteGasOutlet,
+        /// Outlet, AVOutlet). Place mutates these via face-flip; they are not TrackedObjects.
+        /// Load restores them so facing is owned by save data, not a second heuristic.
+        /// </summary>
+        public List<string> faceMeshRelativePaths;
+        public List<Quaternion> faceMeshLocalRotations;
+
+
         public bool ShouldSerializepos() => false;
         public bool ShouldSerializerot() => false;
         public bool ShouldSerializescale() => false;
@@ -96,6 +105,11 @@ public class TrackedObject : MonoBehaviour
     // zero out scale/rotation if RestoreTransform ran before StoreValues was ever called
     // (e.g. dynamically-created child rows/panels that have no row in the save file).
     [NonSerialized] public bool HasStoredValues;
+    /// <summary>
+    /// Stable per-instance id for save/load parenting. Never used as the GameObject name
+    /// for attached boom accessories (names drive outlet detection / cover plates).
+    /// </summary>
+    [NonSerialized] string _runtimeInstanceId;
     private Vector3 _originalLocalPosition;
     private Quaternion _originalLocalRotation;
     private bool _hasStoredOriginalTransform;
@@ -120,6 +134,7 @@ public class TrackedObject : MonoBehaviour
         data.worldPosition = transform.position;
         data.worldRotation = transform.rotation;
         data.localScale = transform.localScale;
+        CaptureFaceMeshLocalRotations();
         bool logScale = gameObject.GetComponent<AttachmentPoint>() != null
             || IsScaleRelevantName(name)
             || IsNonUniformScale(data.localScale)
@@ -136,7 +151,12 @@ public class TrackedObject : MonoBehaviour
         {
             data.parentPath = ConfigurationManager.GetGameObjectPath(transform.parent.gameObject);
             var parentTracked = transform.parent.GetComponent<TrackedObject>();
-            data.parentGuid = parentTracked != null ? parentTracked.data.instance_guid : null;
+            // Only write parentGuid when the parent actually participates in id parenting
+            // (catalog placeable or attach slot). Embedded parents stay path-only.
+            if (parentTracked != null && ParentOffersRuntimeInstanceId(parentTracked))
+                data.parentGuid = parentTracked.EnsureRuntimeInstanceId();
+            else
+                data.parentGuid = null;
         }
         else
         {
@@ -205,6 +225,8 @@ public class TrackedObject : MonoBehaviour
         d.ApplyLegacyFields();
         data = d;
         HasStoredValues = true;
+        if (!string.IsNullOrEmpty(d.instance_guid))
+            ApplyRuntimeInstanceId(d.instance_guid);
         if (data.isAttachmentPoint && !_hasStoredOriginalTransform)
         {
             _originalLocalPosition = data.originalLocalPosition;
@@ -311,6 +333,90 @@ public class TrackedObject : MonoBehaviour
                 transform.localRotation = _originalLocalRotation;
             }
         }
+        ApplyFaceMeshLocalRotations();
+    }
+
+    public bool FaceMeshPosesRestoredFromSave { get; private set; }
+
+    void CaptureFaceMeshLocalRotations()
+    {
+        data.faceMeshRelativePaths = null;
+        data.faceMeshLocalRotations = null;
+        TryCaptureFaceMeshIntoData(markRestored: false);
+    }
+
+    /// <summary>
+    /// After a legacy-config heuristic face-flip on load: stamp current mesh locals into
+    /// <see cref="data"/> so the next save persists facing without another heuristic.
+    /// </summary>
+    public void StampFaceMeshPosesFromCurrentHierarchy()
+    {
+        TryCaptureFaceMeshIntoData(markRestored: true);
+    }
+
+    void TryCaptureFaceMeshIntoData(bool markRestored)
+    {
+        if (!AttachmentPoint.IsBoomOutletAccessoryName(name))
+            return;
+
+        // Same meshRoot place mutates via AttachmentPoint.TryGetOutletFaceFlipTarget.
+        if (!AttachmentPoint.TryGetOutletFaceFlipTarget(transform, out _, out Transform meshRoot))
+            return;
+        if (meshRoot == null || meshRoot == transform)
+            return;
+
+        data.faceMeshRelativePaths = new List<string> { RelativePath(transform, meshRoot) };
+        data.faceMeshLocalRotations = new List<Quaternion> { meshRoot.localRotation };
+        if (markRestored)
+            FaceMeshPosesRestoredFromSave = true;
+    }
+
+    void ApplyFaceMeshLocalRotations()
+    {
+        FaceMeshPosesRestoredFromSave = false;
+        if (data.faceMeshRelativePaths == null || data.faceMeshLocalRotations == null)
+            return;
+        int n = Math.Min(data.faceMeshRelativePaths.Count, data.faceMeshLocalRotations.Count);
+        if (n == 0)
+            return;
+
+        int applied = 0;
+        for (int i = 0; i < n; i++)
+        {
+            Transform child = FindRelative(transform, data.faceMeshRelativePaths[i]);
+            if (child == null)
+                continue;
+            child.localRotation = data.faceMeshLocalRotations[i];
+            applied++;
+        }
+        FaceMeshPosesRestoredFromSave = applied > 0;
+        if (applied > 0 && ConfigurationManager.IsLoading)
+        {
+            BoomConfigLoadDiag.Event("FACE_MESH",
+                $"'{name}' restored={applied}/{n}");
+        }
+    }
+
+    static string RelativePath(Transform root, Transform child)
+    {
+        var stack = new Stack<string>();
+        for (Transform t = child; t != null && t != root; t = t.parent)
+            stack.Push(t.name);
+        return string.Join("/", stack);
+    }
+
+    static Transform FindRelative(Transform root, string relativePath)
+    {
+        if (root == null || string.IsNullOrEmpty(relativePath))
+            return null;
+        Transform t = root;
+        foreach (string part in relativePath.Split('/'))
+        {
+            if (string.IsNullOrEmpty(part)) continue;
+            t = t.Find(part);
+            if (t == null) return null;
+        }
+        return t;
     }
 
     /// <summary>
@@ -392,9 +498,21 @@ public class TrackedObject : MonoBehaviour
 
     void GetGUIDs()
     {
+        // Only mint/save runtime instance ids for catalog placeables and attach slots.
+        // Embedded prefab parts (empty Selectable.GUID) stay path-resolved like before —
+        // assigning them ids does not help parenting and pollutes the save.
+        if (gameObject.TryGetComponent(out AttachmentPoint _))
+            data.instance_guid = EnsureRuntimeInstanceId();
+        else if (gameObject.TryGetComponent(out Selectable s0) &&
+                 (!string.IsNullOrEmpty(s0.GUID) || !string.IsNullOrEmpty(s0.guid)))
+            data.instance_guid = EnsureRuntimeInstanceId();
+        else if (!string.IsNullOrEmpty(_runtimeInstanceId))
+            data.instance_guid = _runtimeInstanceId;
+        else
+            data.instance_guid = null;
+
         if (gameObject.TryGetComponent(out Selectable s))
         {
-            if (s.guid != null) data.instance_guid = s.guid.ToString();
             data.global_guid = s.GUID;
             if (s.ParentAttachmentPoint != null) data.parent = ConfigurationManager.GetGameObjectPath(s.ParentAttachmentPoint.gameObject);
             else if (s.AttachedTo != null) { data.parent = s.AttachedTo.gameObject.name; data.attachedTo = data.parent; }
@@ -414,10 +532,66 @@ public class TrackedObject : MonoBehaviour
             // scrub before reading so room save cannot NRE mid-collect.
             ap.PurgeDestroyedAttachedSelectables();
             data.global_guid = ap.GUID;
-            Selectable attached = ap.AttachedSelectable.FirstOrDefault(s => s != null);
+            Selectable attached = ap.AttachedSelectable.FirstOrDefault(sel => sel != null);
             data.attachedObject = attached != null ? attached.name : null;
             data.parent = ConfigurationManager.GetGameObjectPath(gameObject);
         }
+    }
+
+    /// <summary>
+    /// Ensures a stable instance id exists for save/load parenting without renaming the GO.
+    /// </summary>
+    public string EnsureRuntimeInstanceId()
+    {
+        if (!string.IsNullOrEmpty(_runtimeInstanceId))
+        {
+            data.instance_guid = _runtimeInstanceId;
+            return _runtimeInstanceId;
+        }
+
+        if (TryGetComponent(out Selectable selectable) && !string.IsNullOrEmpty(selectable.guid))
+        {
+            _runtimeInstanceId = selectable.guid;
+            data.instance_guid = _runtimeInstanceId;
+            return _runtimeInstanceId;
+        }
+
+        if (!string.IsNullOrEmpty(data.instance_guid))
+        {
+            ApplyRuntimeInstanceId(data.instance_guid);
+            return _runtimeInstanceId;
+        }
+
+        string id = Guid.NewGuid().ToString();
+        ApplyRuntimeInstanceId(id);
+        return _runtimeInstanceId;
+    }
+
+    /// <summary>
+    /// Applies a saved/runtime instance id without renaming the GameObject.
+    /// Assembly roots still rename via GenerateGuidName / load root naming — not here.
+    /// </summary>
+    public void ApplyRuntimeInstanceId(string id)
+    {
+        if (string.IsNullOrEmpty(id))
+            return;
+
+        _runtimeInstanceId = id;
+        data.instance_guid = id;
+        if (TryGetComponent(out Selectable selectable))
+            selectable.guid = id;
+    }
+
+    public string GetRuntimeInstanceId() => _runtimeInstanceId;
+
+    static bool ParentOffersRuntimeInstanceId(TrackedObject parent)
+    {
+        if (parent.GetComponent<AttachmentPoint>() != null)
+            return true;
+        if (parent.TryGetComponent(out Selectable s) &&
+            (!string.IsNullOrEmpty(s.GUID) || !string.IsNullOrEmpty(s.guid)))
+            return true;
+        return !string.IsNullOrEmpty(parent.GetRuntimeInstanceId());
     }
 
     public bool IsDecal()

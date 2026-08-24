@@ -85,7 +85,9 @@ public partial class AttachmentPoint : MonoBehaviour
 
     [field: SerializeField] private bool _hasNormalizedParent = false;
     [field: SerializeField] private MeshRenderer Renderer { get; set; }
-    private Collider _collider; 
+    private Collider _collider;
+    /// <summary>True after config-load replayed place-style attach presentation.</summary>
+    bool _loadPresentationFinalized; 
     private bool _isDestroyed;
 
     // Add new fields to track state
@@ -152,13 +154,54 @@ public partial class AttachmentPoint : MonoBehaviour
         if (!ConfigurationManager.IsLoading)
             SetToProperParent();
         RefreshSolidCoverPlateVisibility();
-        // Room-load / already-parented accessories: same face contract as SetAttachedSelectable.
+        // Place: face-flip here for APs that already had children before Start.
+        // Load: skip while IsLoading; after load Finalize owns facing (_loadPresentationFinalized).
+        if (ConfigurationManager.IsLoading || _loadPresentationFinalized)
+            return;
         RemoveNullSelectables();
         if (AttachedSelectable != null)
         {
             for (int i = 0; i < AttachedSelectable.Count; i++)
                 EnsureBoomHeadAccessoryFacesCover(AttachedSelectable[i]);
         }
+    }
+
+    /// <summary>
+    /// LOAD ONLY — after boom rows settle.
+    /// Hides solid covers; restores facing from saved face-mesh locals when present
+    /// (place already flipped those meshes). Heuristic <see cref="EnsureBoomHeadAccessoryFacesCover"/>
+    /// only for accessories that lack saved face meshes (older configs).
+    /// Does not touch attach-chain or parenting. Place path unchanged.
+    /// </summary>
+    public void FinalizeLoadedAccessoryPresentation()
+    {
+        RemoveNullSelectables();
+        RefreshSolidCoverPlateVisibility();
+        if (AttachedSelectable != null)
+        {
+            for (int i = 0; i < AttachedSelectable.Count; i++)
+            {
+                Selectable sel = AttachedSelectable[i];
+                if (sel == null) continue;
+                if (sel.TryGetComponent(out TrackedObject tracked) &&
+                    tracked.FaceMeshPosesRestoredFromSave)
+                {
+                    BoomConfigLoadDiag.Event("FACE_FROM_SAVE", $"'{sel.name}'");
+                    continue;
+                }
+                // Legacy configs: one heuristic flip, then stamp poses into TrackedObject
+                // so the next save persists them (no durable invert risk after re-save).
+                EnsureBoomHeadAccessoryFacesCover(sel);
+                if (sel.TryGetComponent(out TrackedObject toStamp))
+                    toStamp.StampFaceMeshPosesFromCurrentHierarchy();
+            }
+        }
+        UpdateComponentStatus();
+        RefreshStatusForLoad();
+        _loadPresentationFinalized = true;
+
+        BoomConfigLoadDiag.Event("ATTACH_PRESENT",
+            $"ap='{name}' n={AttachedSelectable?.Count ?? 0}");
     }
 
     private void OnDestroy()
@@ -227,7 +270,9 @@ public partial class AttachmentPoint : MonoBehaviour
         EndHoverStateIfHovered();
         UpdateComponentStatus();
         RefreshSolidCoverPlateVisibility();
-        EnsureBoomHeadAccessoryFacesCover(selectable);
+        // Place: flip now. Load: skip — FinalizeLoadedAccessoryPresentation runs after settle.
+        if (!ConfigurationManager.IsLoading)
+            EnsureBoomHeadAccessoryFacesCover(selectable);
     }
 
     private void OnAttachedSelectableDestroyed(Selectable selectable)
@@ -275,69 +320,36 @@ public partial class AttachmentPoint : MonoBehaviour
     }
 
     /// <summary>
-    /// CDN/local outlet meshes often face into the head (elev logs: cover towardCam≈+0.7,
-    /// GasOutletPlate towardCam≈−0.4, cull Back). Flip once so the accessory face matches
-    /// the cover outward normal — attach/load contract, not elevation capture.
+    /// Catalog outlet / blank / AV names used by place pricing and face-mesh save/load.
     /// </summary>
-    void EnsureBoomHeadAccessoryFacesCover(Selectable accessory)
+    public static bool IsBoomOutletAccessoryName(string n)
     {
-        if (accessory == null)
-            return;
-
-        MeshRenderer cover = FindBoomHeadCoverRenderer();
-        if (cover == null)
-            return;
-
-        MeshRenderer face = FindPreferredOutletFaceRenderer(accessory);
-        if (face == null)
-            return;
-
-        Vector3 coverOut = AverageWorldNormal(cover);
-        Vector3 faceOut = AverageWorldNormal(face);
-        if (coverOut.sqrMagnitude < 1e-6f || faceOut.sqrMagnitude < 1e-6f)
-            return;
-
-        float coverVsFace = Vector3.Dot(faceOut.normalized, coverOut.normalized);
-        if (coverVsFace >= 0f)
-        {
-            Debug.Log(
-                $"[ElevOutletDiag] AttachmentPoint face-ok '{accessory.name}' " +
-                $"coverVsFaceDot={coverVsFace:F3}",
-                accessory);
-            return;
-        }
-
-        Transform meshRoot = face.transform;
-        while (meshRoot.parent != null && meshRoot.parent != accessory.transform)
-            meshRoot = meshRoot.parent;
-
-        meshRoot.Rotate(0f, 180f, 0f, Space.Self);
-
-        float after = Vector3.Dot(AverageWorldNormal(face).normalized, coverOut.normalized);
-        Debug.Log(
-            $"[ElevOutletDiag] AttachmentPoint face-fix '{accessory.name}' " +
-            $"coverVsFaceDot {coverVsFace:F3} -> {after:F3} (meshRoot={meshRoot.name})",
-            accessory);
+        if (string.IsNullOrEmpty(n)) return false;
+        return n.StartsWith("GasOutlet", StringComparison.Ordinal)
+            || n.StartsWith("Outlet_", StringComparison.Ordinal)
+            || n.StartsWith("BlankOutlet", StringComparison.Ordinal)
+            || n.StartsWith("EthernetOutlet", StringComparison.Ordinal)
+            || n.StartsWith("StorzAV", StringComparison.Ordinal)
+            || n.IndexOf("GasOutlet", StringComparison.Ordinal) >= 0;
     }
 
-    MeshRenderer FindBoomHeadCoverRenderer()
+    /// <summary>
+    /// Shared place + save target: GasOutletPlate mat, then named face mesh, then first
+    /// non-Sphere renderer. meshRoot is the accessory child that place Y-180s; face is
+    /// the renderer used for facing normals.
+    /// </summary>
+    public static bool TryGetOutletFaceFlipTarget(
+        Transform accessoryRoot, out MeshRenderer face, out Transform meshRoot)
     {
-        Transform t = transform;
-        while (t != null)
-        {
-            if (t.name.StartsWith("BoomHeadAttachment_", StringComparison.Ordinal) &&
-                t.TryGetComponent(out MeshRenderer cover))
-                return cover;
-            t = t.parent;
-        }
-        return null;
-    }
+        face = null;
+        meshRoot = null;
+        if (accessoryRoot == null)
+            return false;
 
-    static MeshRenderer FindPreferredOutletFaceRenderer(Selectable accessory)
-    {
         MeshRenderer idPlate = null;
+        MeshRenderer named = null;
         MeshRenderer fallback = null;
-        foreach (var mr in accessory.GetComponentsInChildren<MeshRenderer>(true))
+        foreach (var mr in accessoryRoot.GetComponentsInChildren<MeshRenderer>(true))
         {
             if (mr == null || !mr.enabled)
                 continue;
@@ -357,10 +369,65 @@ public partial class AttachmentPoint : MonoBehaviour
             }
             if (idPlate != null)
                 break;
-            if (fallback == null)
-                fallback = mr;
+
+            string mn = mr.gameObject.name;
+            if (mn == "WhiteGasOutlet" || mn == "Outlet" || mn == "AVOutlet"
+                || mn.StartsWith("WhiteGasOutlet", StringComparison.Ordinal))
+                named = named ?? mr;
+            else
+                fallback = fallback ?? mr;
         }
-        return idPlate != null ? idPlate : fallback;
+
+        face = idPlate ?? named ?? fallback;
+        if (face == null)
+            return false;
+
+        meshRoot = face.transform;
+        while (meshRoot.parent != null && meshRoot.parent != accessoryRoot)
+            meshRoot = meshRoot.parent;
+        return meshRoot != null;
+    }
+
+    /// <summary>
+    /// CDN/local outlet meshes often face into the head (elev logs: cover towardCam≈+0.7,
+    /// GasOutletPlate towardCam≈−0.4, cull Back). Flip once so the accessory face matches
+    /// the cover outward normal — attach/load contract, not elevation capture.
+    /// </summary>
+    void EnsureBoomHeadAccessoryFacesCover(Selectable accessory)
+    {
+        if (accessory == null)
+            return;
+
+        MeshRenderer cover = FindBoomHeadCoverRenderer();
+        if (cover == null)
+            return;
+
+        if (!TryGetOutletFaceFlipTarget(accessory.transform, out MeshRenderer face, out Transform meshRoot))
+            return;
+
+        Vector3 coverOut = AverageWorldNormal(cover);
+        Vector3 faceOut = AverageWorldNormal(face);
+        if (coverOut.sqrMagnitude < 1e-6f || faceOut.sqrMagnitude < 1e-6f)
+            return;
+
+        float coverVsFace = Vector3.Dot(faceOut.normalized, coverOut.normalized);
+        if (coverVsFace >= 0f)
+            return;
+
+        meshRoot.Rotate(0f, 180f, 0f, Space.Self);
+    }
+
+    MeshRenderer FindBoomHeadCoverRenderer()
+    {
+        Transform t = transform;
+        while (t != null)
+        {
+            if (t.name.StartsWith("BoomHeadAttachment_", StringComparison.Ordinal) &&
+                t.TryGetComponent(out MeshRenderer cover))
+                return cover;
+            t = t.parent;
+        }
+        return null;
     }
 
     static Vector3 AverageWorldNormal(MeshRenderer mr)

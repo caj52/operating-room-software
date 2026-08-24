@@ -17,6 +17,8 @@ public class BoomHeadScaleHandler : MonoBehaviour
     [field: SerializeField] public Selectable.ScaleLevel scale;
 
     private UnityAction<Selectable.ScaleLevel> _onScaleChangeHandler;
+    /// <summary>Set by config load after SettleLoadedBoomAssembly so OnEnable does not reassemble again.</summary>
+    public bool RowsSettledByConfigLoad;
 
     [field: SerializeField]
     private List<GameObject> GameObjectsDisabledOnRuntime
@@ -50,6 +52,13 @@ public class BoomHeadScaleHandler : MonoBehaviour
     {
         yield return new WaitUntil(() => !ConfigurationManager.IsLoading);
         yield return null;
+        // Config load already ran ReassembleRows in SettleLoadedBoomAssembly.
+        // Skip only that one deferred pass; clear so a later OnEnable still works.
+        if (RowsSettledByConfigLoad)
+        {
+            RowsSettledByConfigLoad = false;
+            yield break;
+        }
         if (_selectable != null && _selectable.CurrentScaleLevel != null)
         {
             ReassembleRows(_selectable.CurrentScaleLevel);
