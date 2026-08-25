@@ -75,8 +75,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 775104609507784314}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 1, w: 0}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalRotation: {x: -0.7071068, y: 0, z: 0, w: 0.7071068}
+  m_LocalPosition: {x: 0, y: 0, z: 0.12065}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -440,16 +440,8 @@ MonoBehaviour:
     <AttachmentPointGuidMetaData>k__BackingField: []
   <AttachmentPointDatas>k__BackingField: []
   <SpecialTypes>k__BackingField: 00000000
-  <WallRestrictions>k__BackingField: 01000000
+  <WallRestrictions>k__BackingField: 02000000030000000400000005000000
   <GizmoSettingsList>k__BackingField:
-  - <Axis>k__BackingField: 1
-    <GizmoType>k__BackingField: 0
-    <Unrestricted>k__BackingField: 1
-    <MaxValue>k__BackingField: 0
-    <MinValue>k__BackingField: 0
-    <IgnoreScale>k__BackingField: 0
-    <OnlyIfRoot>k__BackingField: 0
-    <Invert>k__BackingField: 0
   - <Axis>k__BackingField: 0
     <GizmoType>k__BackingField: 0
     <Unrestricted>k__BackingField: 1
@@ -458,8 +450,8 @@ MonoBehaviour:
     <IgnoreScale>k__BackingField: 0
     <OnlyIfRoot>k__BackingField: 0
     <Invert>k__BackingField: 0
-  - <Axis>k__BackingField: 2
-    <GizmoType>k__BackingField: 1
+  - <Axis>k__BackingField: 1
+    <GizmoType>k__BackingField: 0
     <Unrestricted>k__BackingField: 1
     <MaxValue>k__BackingField: 0
     <MinValue>k__BackingField: 0
