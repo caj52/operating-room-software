@@ -1803,7 +1803,12 @@ public class ConfigurationManager : MonoBehaviour
                     continue;
                 if (!boomHead.TryGetComponent(out Selectable sel) || sel.CurrentScaleLevel == null)
                     continue;
-                try { boomHead.ReassembleRows(sel.CurrentScaleLevel); }
+                try
+                {
+                    // Same SetScaleLevel row-config path as interactive Size change, then rows.
+                    sel.SetScaleLevel(sel.CurrentScaleLevel, setSelected: true, fireEvent: false);
+                    boomHead.ReassembleRows(sel.CurrentScaleLevel);
+                }
                 catch (Exception ex)
                 {
                     Debug.LogWarning($"[SettleLoadedBoomAssembly] ReassembleRows failed on {boomHead.name}: {ex.Message}");

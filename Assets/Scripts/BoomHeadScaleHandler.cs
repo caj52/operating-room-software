@@ -27,6 +27,13 @@ public class BoomHeadScaleHandler : MonoBehaviour
     private void Awake()
     {
         _selectable = GetComponent<Selectable>();
+        // Subscribe before Selectable.Start → SetScaleLevel so the first Size apply
+        // always reaches ReassembleRows (script order must not matter).
+        if (_selectable != null)
+        {
+            _onScaleChangeHandler = ReassembleRows;
+            _selectable.OnScaleChange.AddListener(_onScaleChangeHandler);
+        }
         if (SceneManager.GetActiveScene().name == "Main")
         {
             GameObjectsDisabledOnRuntime.ForEach(x =>
@@ -34,13 +41,6 @@ public class BoomHeadScaleHandler : MonoBehaviour
                 x.SetActive(false);
             });
         }
-    }
-
-    private void Start()
-    {
-        if (_selectable == null) return;
-        _onScaleChangeHandler = ReassembleRows;
-        _selectable.OnScaleChange?.AddListener(_onScaleChangeHandler);
     }
 
     private void OnEnable()

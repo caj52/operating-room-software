@@ -52,14 +52,20 @@ public enum SpecialSelectableType
 
 /// <summary>
 /// How <see cref="Selectable"/> length / ScaleLevels interact with transforms.
-/// Tube isolation must never run on AuthoredIdentity / SkuAxisStretch / RowConfig.
+/// Tube isolation (<c>IsolateDirectChildrenPreservingWorldScale</c>) runs on
+/// <see cref="LengthTube"/> only — never AuthoredIdentity / SkuAxisStretch / RowConfig.
 /// </summary>
 public enum LengthScaleKind
 {
     /// <summary>Arms, drop tubes: ScaleZ = Size/authoredLength, Z-only stretch, AP inverse.</summary>
     LengthTube = 0,
 
-    /// <summary>Service head cabinet: ScaleLevels carry row tiers; ReassembleRows owns presentation.</summary>
+    /// <summary>
+    /// Service head cabinet. ScaleZ = Size/ModelDefault (body height).
+    /// Body shells inherit Z. Other direct children keep authored world scale
+    /// (lossy at local identity under ScaleZ=1). <see cref="BoomHeadScaleHandler.ReassembleRows"/>
+    /// owns row show/hide + offsets via <c>OnScaleChange</c>.
+    /// </summary>
     RowConfigAssembly = 1,
 
     /// <summary>

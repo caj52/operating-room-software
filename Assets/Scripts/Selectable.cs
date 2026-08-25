@@ -1320,9 +1320,9 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     }
 
     /// <summary>
-    /// Service heads / SH rails carry row-count metadata on ScaleLevels. Those still use
-    /// normal <see cref="SetScaleLevel"/> (git: OnScaleChange → ReassembleRows) but must
-    /// bake ScaleZ from ModelDefault Size ratios — not mesh length (Size is a tier proxy).
+    /// Service heads carry row-count metadata on ScaleLevels. Size is a tier proxy;
+    /// <see cref="SetScaleLevel"/> uses the <see cref="LengthScaleKind.RowConfigAssembly"/>
+    /// path (cabinet height + <c>OnScaleChange</c> → <c>ReassembleRows</c>), not tube isolation.
     /// </summary>
     public bool UsesScaleLevelsAsRowConfig()
     {
@@ -1409,7 +1409,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
     /// <summary>
     /// AuthoredIdentity contract: root (1,1,1), ScaleZ metadata = 1, mesh/AP children
-    /// untouched (prefab import scales). Repairs corrupt Z-only roots from old tube bakes.
+    /// untouched (prefab import scales). Enforces identity after load/cabinet ScaleZ so
+    /// sockets under panels do not keep an inherited stretch.
     /// </summary>
     public void EnsureAuthoredIdentityMountScale()
     {
@@ -1418,23 +1419,16 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         NormalizeAccessoryScaleZMetadataToOne();
         Vector3 ls = transform.localScale;
-        if (IsCorruptTubeSquashLocalScale(ls))
+        bool nonIdentity = Mathf.Abs(ls.x - 1f) > 0.05f
+            || Mathf.Abs(ls.y - 1f) > 0.05f
+            || Mathf.Abs(ls.z - 1f) > 0.05f;
+        if (nonIdentity)
         {
             transform.localScale = Vector3.one;
-            RailScaleDiag.Dump("AuthoredIdentity.repairSquash", this, $"was={ls}");
+            RailScaleDiag.Dump("AuthoredIdentity.repair", this, $"was={ls}");
         }
         else
             RailScaleDiag.Dump("AuthoredIdentity.ok", this);
-    }
-
-    /// <summary>
-    /// Classic bad tube bake on a mount: (≈1,≈1,z≠1). Does not match shelf SKU (x≠1,y=1,z=1).
-    /// </summary>
-    static bool IsCorruptTubeSquashLocalScale(Vector3 ls)
-    {
-        return Mathf.Abs(ls.x - 1f) < 0.05f
-            && Mathf.Abs(ls.y - 1f) < 0.05f
-            && Mathf.Abs(ls.z - 1f) > 0.05f;
     }
 
     void NormalizeAccessoryScaleZMetadataToOne()
@@ -1564,8 +1558,9 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             return;
         }
 
-        // SH mounts / shelves: never Z-isolate or unitize mesh children (prefab import scales).
         LengthScaleKind kind = GetLengthScaleKind();
+
+        // Non-tube kinds never share the LengthTube isolation writer.
         if (kind == LengthScaleKind.AuthoredIdentity || kind == LengthScaleKind.SkuAxisStretch)
         {
             if (setSelected)
@@ -1593,6 +1588,12 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
             if (setSelected)
                 StoreChildScales();
+            return;
+        }
+
+        if (kind == LengthScaleKind.RowConfigAssembly)
+        {
+            ApplyRowConfigScaleLevel(scaleLevel, setSelected, fireEvent);
             return;
         }
 
@@ -1676,11 +1677,6 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 OnScaleChange?.Invoke(CurrentScaleLevel);
             }
 
-            //if (TryGetComponent(out ScaleGroup group))
-            //{
-            //    ScaleGroupManager.OnScaleLevelChanged?.Invoke(group.id, CurrentScaleLevel);
-            //}
-
             StoreChildScales();
         }
 
@@ -1699,11 +1695,163 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             ScaleAuditLog.Hierarchy("Sel.SetScaleLevel.after", transform,
                 $"name={name} scaleZ={(scaleLevel != null ? scaleLevel.ScaleZ.ToString("G6") : "null")} setSelected={setSelected}");
         }
+    }
 
-        //if (TryGetComponent(out ScaleGroup _))
-        //{
-        //    transform.SetParent(oldParent);
-        //}
+    /// <summary>
+    /// Service-head Size change. Contract (<see cref="LengthScaleKind.RowConfigAssembly"/>):
+    /// <list type="number">
+    /// <item>Root ScaleZ = Size / ModelDefault (cabinet height; root mesh stretches).</item>
+    /// <item>Body shells inherit that ScaleZ.</item>
+    /// <item>Every other direct child keeps authored world scale — lossy scale at local
+    /// identity under ScaleZ=1 — so panels, nitrogen mount, and sockets never resize
+    /// with Size (place, scrub, or load).</item>
+    /// <item><see cref="BoomHeadScaleHandler.ReassembleRows"/> (via <see cref="OnScaleChange"/>)
+    /// owns row show/hide and panel Z offsets.</item>
+    /// </list>
+    /// Does not use LengthTube isolation.
+    /// </summary>
+    void ApplyRowConfigScaleLevel(ScaleLevel scaleLevel, bool setSelected, bool fireEvent)
+    {
+        if (scaleLevel.ScaleZ <= 0.0001f)
+            BakeScaleZFromAuthoredLength();
+
+        float targetZ = scaleLevel.ScaleZ > 0.0001f ? scaleLevel.ScaleZ : 1f;
+
+        ScaleAuditLog.Event("Sel.SetScaleLevel.rowConfig",
+            $"name={name} setSelected={setSelected} fireEvent={fireEvent} " +
+            $"size={scaleLevel.Size} scaleZ={targetZ:G6} " +
+            $"beforeLocal={transform.localScale}");
+
+        if (setSelected)
+        {
+            ScaleLevels.ForEach((item) => item.Selected = false);
+            scaleLevel.Selected = true;
+            CurrentScaleLevel = scaleLevel;
+            CurrentPreviewScaleLevel = scaleLevel;
+        }
+        else
+        {
+            CurrentPreviewScaleLevel = scaleLevel;
+        }
+
+        ApplyRowConfigCabinetHeight(new Vector3(transform.localScale.x, transform.localScale.y, targetZ));
+
+        if (fireEvent)
+            OnScaleChange?.Invoke(setSelected ? CurrentScaleLevel : CurrentPreviewScaleLevel);
+
+        if (setSelected)
+            StoreChildScales();
+    }
+
+    /// <summary>
+    /// Applies root ScaleZ and the row-config child scale invariant:
+    /// accessory world scale == lossy scale at (child local identity, cabinet ScaleZ = 1).
+    /// The Z=1 reference pose evaluates that invariant; it is the definition of authored
+    /// size for place, scrub, and load — not a load-only repair.
+    /// </summary>
+    void ApplyRowConfigCabinetHeight(Vector3 newParentLocalScale)
+    {
+        float targetZ = newParentLocalScale.z;
+        if (Mathf.Abs(targetZ) < 1e-4f)
+            targetZ = 1f;
+        newParentLocalScale = new Vector3(newParentLocalScale.x, newParentLocalScale.y, targetZ);
+
+        int n = transform.childCount;
+        if (n == 0)
+        {
+            transform.localScale = newParentLocalScale;
+            return;
+        }
+
+        var kind = new RowConfigChildKind[n];
+        for (int i = 0; i < n; i++)
+            kind[i] = ClassifyRowConfigChild(transform.GetChild(i));
+
+        Vector3[] authoredWorld = CaptureAuthoredAccessoryWorldScales(kind, newParentLocalScale);
+
+        transform.localScale = newParentLocalScale;
+
+        for (int i = 0; i < n; i++)
+        {
+            Transform child = transform.GetChild(i);
+            if (child == null) continue;
+
+            switch (kind[i])
+            {
+                case RowConfigChildKind.BodyInherit:
+                    child.localScale = Vector3.one;
+                    break;
+                case RowConfigChildKind.AccessoryFixedWorld:
+                    AttachmentPoint.SetWorldScale(child, authoredWorld[i]);
+                    break;
+            }
+        }
+    }
+
+    enum RowConfigChildKind : byte
+    {
+        /// <summary>e.g. RailPlate — leave local scale alone.</summary>
+        IgnoreInverse = 0,
+        /// <summary>Panels, nitrogen AP, mounts — fixed authored world size.</summary>
+        AccessoryFixedWorld = 1,
+        /// <summary>Plane / posts / handle — inherit cabinet ScaleZ.</summary>
+        BodyInherit = 2,
+    }
+
+    static RowConfigChildKind ClassifyRowConfigChild(Transform child)
+    {
+        if (child == null)
+            return RowConfigChildKind.IgnoreInverse;
+
+        if (child.TryGetComponent(out IgnoreInverseScaling ignore)
+            && ignore.IgnoreX && ignore.IgnoreY && ignore.IgnoreZ)
+            return RowConfigChildKind.IgnoreInverse;
+
+        if (IsRowConfigBodyInheritChild(child.name))
+            return RowConfigChildKind.BodyInherit;
+
+        return RowConfigChildKind.AccessoryFixedWorld;
+    }
+
+    /// <summary>
+    /// World scale each accessory should keep at any cabinet ScaleZ: local identity
+    /// under this head at ScaleZ = 1 (same ancestors / hierarchy).
+    /// </summary>
+    Vector3[] CaptureAuthoredAccessoryWorldScales(RowConfigChildKind[] kind, Vector3 targetParentLocal)
+    {
+        int n = kind.Length;
+        var authoredWorld = new Vector3[n];
+
+        transform.localScale = new Vector3(targetParentLocal.x, targetParentLocal.y, 1f);
+
+        for (int i = 0; i < n; i++)
+        {
+            if (kind[i] != RowConfigChildKind.AccessoryFixedWorld)
+                continue;
+            Transform child = transform.GetChild(i);
+            if (child == null)
+                continue;
+            child.localScale = Vector3.one;
+            authoredWorld[i] = child.lossyScale;
+        }
+
+        return authoredWorld;
+    }
+
+    /// <summary>
+    /// Cabinet shell meshes that stretch with ScaleZ. Attach points, outlet panels,
+    /// and accessories are not listed here.
+    /// </summary>
+    static bool IsRowConfigBodyInheritChild(string rawName)
+    {
+        if (string.IsNullOrEmpty(rawName))
+            return false;
+        string n = StripCloneSuffix(rawName);
+
+        return n.Equals("Plane", StringComparison.OrdinalIgnoreCase)
+            || n.Equals("Plane.001", StringComparison.OrdinalIgnoreCase)
+            || n.Equals("PullHandle", StringComparison.OrdinalIgnoreCase)
+            || n.Equals("BoomHeadBottomPosts", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -1711,6 +1859,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     /// scale so the next arm / light head does not inherit the stretch. Attach points and
     /// untracked mesh wrappers are forced to world (1,1,1); length-capable Selectable
     /// children keep the world size they had before the tube change.
+    /// LengthTube only — service heads use <see cref="ApplyRowConfigCabinetHeight"/>.
     /// </summary>
     private void IsolateDirectChildrenPreservingWorldScale(Vector3 newParentLocalScale)
     {
@@ -1723,7 +1872,6 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         var targetWorld = new Vector3[n];
         var mode = new byte[n]; // 0=skip, 1=worldOne, 2=preserveWorld
-        bool boomHead = GetComponent<BoomHeadScaleHandler>() != null;
 
         for (int i = 0; i < n; i++)
         {
@@ -1761,10 +1909,9 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             }
 
             // Untracked mesh wrapper (.002, boom mesh pieces): world (1,1,1) so tip APs
-            // and attached gear do not inherit tube stretch. Boom-head children preserve
-            // their current world size (rails/shelves may not be unit).
-            mode[i] = boomHead ? (byte)2 : (byte)1;
-            targetWorld[i] = boomHead ? child.lossyScale : Vector3.one;
+            // and attached gear do not inherit tube stretch.
+            mode[i] = 1;
+            targetWorld[i] = Vector3.one;
         }
 
         transform.localScale = newParentLocalScale;
@@ -1783,6 +1930,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         if (ScaleLevels == null || ScaleLevels.Count == 0) return;
 
         // Broken / free-scale lists (all ScaleZ ≈ 0): do not snap to a zero level.
+        // Row-config heads: ensure Size→ScaleZ bake so discrete snaps still reach SetScaleLevel.
         bool anyPositive = false;
         for (int i = 0; i < ScaleLevels.Count; i++)
         {
@@ -1792,7 +1940,22 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 break;
             }
         }
-        if (!anyPositive) return;
+        if (!anyPositive)
+        {
+            if (!UsesScaleLevelsAsRowConfig())
+                return;
+            BakeScaleZFromAuthoredLength();
+            for (int i = 0; i < ScaleLevels.Count; i++)
+            {
+                if (ScaleLevels[i] != null && ScaleLevels[i].ScaleZ > 0.0001f)
+                {
+                    anyPositive = true;
+                    break;
+                }
+            }
+            if (!anyPositive)
+                return;
+        }
 
         //get closest scale in list
         ScaleLevel closest = ScaleLevels.OrderBy(item => Math.Abs(_gizmoHandler.CurrentScaleDrag.z - item.ScaleZ)).First();
