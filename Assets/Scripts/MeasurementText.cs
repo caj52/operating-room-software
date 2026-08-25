@@ -30,6 +30,9 @@ public class MeasurementText : MonoBehaviour
 
         Measurable.ActiveMeasurablesChanged.AddListener(CheckActiveState);
         Text = GetComponent<TextMeshProUGUI>();
+        // Labels are display-only overlays; they must not steal UI / scene mouse hits.
+        if (Text != null)
+            Text.raycastTarget = false;
     }
 
     private void OnDestroy()
@@ -132,7 +135,11 @@ public class MeasurementText : MonoBehaviour
         }
 
         if (Text == null)
+        {
             Text = GetComponent<TextMeshProUGUI>();
+            if (Text != null)
+                Text.raycastTarget = false;
+        }
         if (Text == null)
         {
             HideElevTextBacking();
