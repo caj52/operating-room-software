@@ -40,6 +40,12 @@ public class GizmoHandler : MonoBehaviour
     private bool TranslateEnabled() => GizmoSelector.CurrentGizmoMode ==
         GizmoMode.Translate && _selectable.IsSelected;
 
+    /// <summary>
+    /// Wall objects sit flush on the surface; pull the rotate ring into the room
+    /// so torus thickness does not sit inside the wall mesh.
+    /// </summary>
+    private const float WallRotateGizmoPullForwardMeters = 0.1f;
+
     private bool ScaleEnabled() => GizmoSelector.CurrentGizmoMode ==
         GizmoMode.Scale && _selectable.IsSelected;
 
@@ -162,7 +168,10 @@ private IEnumerator Start()
         _canUseAnyScale = _canUseScaleX || _canUseScaleY || _canUseScaleZ;
 
         if (_gizmosInitialized)
+        {
+            ApplyRotatePivot();
             EnableGizmo();
+        }
         else
             enabled = AnyEnabled();
     }
@@ -187,12 +196,82 @@ private IEnumerator Start()
 
     public void SelectableDeselected()
     {
+        // Restore shared Z-ring cull so other objects keep the default half-ring fade.
+        if (_selectable != null && _selectable.RotateAroundRendererCenter &&
+            _rotateGizmo?.Gizmo?.RotationGizmo?._zSlider != null)
+        {
+            _rotateGizmo.Gizmo.RotationGizmo._zSlider.LookAndFeel
+                .BorderCircleCullAlphaScale = 0f;
+        }
+
         EnableGizmo();
     }
 
     private bool AnyEnabled()
     {
         return RotateGizmoEnabled() || TranslateEnabled() || ScaleEnabled();
+    }
+
+    private void ApplyRotatePivot()
+    {
+        if (_rotateGizmo == null || _selectable == null)
+            return;
+
+        ApplyWallRotateRingVisibility();
+
+        if (_selectable.RotateAroundRendererCenter)
+        {
+            // Local mesh center stays fixed on the object during drag (unlike
+            // ObjectCenterPivot, which re-reads world AABB each frame and can drift).
+            try
+            {
+                Vector3 localCenter = transform.InverseTransformPoint(
+                    _selectable.GetBounds().center);
+                _rotateGizmo.SetObjectCustomLocalPivot(gameObject, localCenter);
+                _rotateGizmo.SetTransformPivot(
+                    GizmoObjectTransformPivot.CustomObjectLocalPivot);
+                return;
+            }
+            catch (System.Exception)
+            {
+                // Fall through to transform origin.
+            }
+        }
+
+        _rotateGizmo.SetTransformPivot(GizmoObjectTransformPivot.ObjectMeshPivot);
+    }
+
+    /// <summary>
+    /// RTGizmo CircleCull fades the far half of each ring to
+    /// <c>BorderCircleCullAlphaScale</c> (default 0 = invisible). Looking
+    /// dead-on at a wall makes half the Z ring vanish and read as buried in
+    /// the wall — keep the full ring for wall-unlocked objects.
+    /// </summary>
+    private void ApplyWallRotateRingVisibility()
+    {
+        if (_rotateGizmo?.Gizmo?.RotationGizmo?._zSlider == null)
+            return;
+
+        bool showFullRing = _selectable != null &&
+            _selectable.RotateAroundRendererCenter;
+
+        _rotateGizmo.Gizmo.RotationGizmo._zSlider.LookAndFeel
+            .BorderCircleCullAlphaScale = showFullRing ? 1f : 0f;
+    }
+
+    private Vector3 GetRotateGizmoWorldPivot()
+    {
+        Vector3 pivot = transform.position;
+        if (_selectable != null && _selectable.RotateAroundRendererCenter)
+        {
+            try { pivot = _selectable.GetBounds().center; }
+            catch (System.Exception) { /* keep transform origin */ }
+
+            // Placement faces into the room; nudge the drawn ring off the wall.
+            pivot += transform.forward * WallRotateGizmoPullForwardMeters;
+        }
+
+        return pivot;
     }
 
     private void UpdatePositionAndRotation()
@@ -204,7 +283,7 @@ private IEnumerator Start()
         _translateGizmo.Gizmo.Transform.LocalRotation3D = transform.localRotation;
         _translateGizmo.Gizmo.Transform.Rotation3D = transform.rotation;
 
-        _rotateGizmo.Gizmo.Transform.Position3D = transform.position;
+        _rotateGizmo.Gizmo.Transform.Position3D = GetRotateGizmoWorldPivot();
         _rotateGizmo.Gizmo.Transform.Rotation3D = transform.rotation;
 
         _scaleGizmo.Gizmo.Transform.LocalPosition3D = transform.position;
@@ -244,6 +323,8 @@ private IEnumerator Start()
         // Caching, RotateGizmoEnabled is expensive
         bool rotationEnabled = RotateGizmoEnabled();
 
+        ApplyWallRotateRingVisibility();
+
         _rotateGizmo.Gizmo.RotationGizmo
             .SetSnapEnabled(UI_ToggleSnapping.SnappingEnabled);
 
@@ -267,8 +348,13 @@ private IEnumerator Start()
         bool allowHorizontal = currentCameraType !=
             OperatingRoomCameraType.OrthoSide;
 
-        bool allowRotationZ = rotationEnabled &&
-            allowHorizontal && _canUseRotationZ;
+        // Wall objects only rotate on local Z (surface normal). Keep that ring
+        // visible in elevation view — it faces the camera when looking at a wall.
+        bool zIsOnlyRotation = _canUseRotationZ &&
+            !_canUseRotationX && !_canUseRotationY;
+
+        bool allowRotationZ = rotationEnabled && _canUseRotationZ &&
+            (allowHorizontal || zIsOnlyRotation);
 
         _rotateGizmo.Gizmo.RotationGizmo._zSlider
             .SetBorderVisible(allowRotationZ);
@@ -359,7 +445,7 @@ private IEnumerator Start()
         _rotateGizmo.Gizmo.PostDragUpdate += OnGizmoPostDragUpdate;
         _rotateGizmo.Gizmo.PostDragBegin += OnGizmoPostDragBegin;
         _rotateGizmo.Gizmo.PostDragEnd += OnGizmoPostDragEnd;
-        _rotateGizmo.SetTransformPivot(GizmoObjectTransformPivot.ObjectMeshPivot);
+        ApplyRotatePivot();
         UpdateRotationGizmo();
 
         _scaleGizmo = RTGizmosEngine.Get.CreateObjectScaleGizmo();

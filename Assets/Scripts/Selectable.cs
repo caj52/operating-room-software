@@ -285,6 +285,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             GizmoSettings[item.GizmoType][item.Axis] = item;
         });
 
+        UnlockWallInPlaneRotationIfNeeded();
+
         if (!ConfigurationManager.IsLoading)
             NotifyActiveSelectablesInSceneChanged();
     }
@@ -1986,6 +1988,56 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         if (!GizmoSettings[gizmoType].ContainsKey(axis)) return false;
         gizmoSetting = GizmoSettings[gizmoType][axis];
         return true;
+    }
+
+    /// <summary>
+    /// True when this selectable received runtime wall Z-rotation unlock.
+    /// Those objects should rotate around renderer bounds center, not the
+    /// wall-mount transform origin.
+    /// </summary>
+    public bool RotateAroundRendererCenter { get; private set; }
+
+    /// <summary>
+    /// Wall-mounted objects are placed with <see cref="Quaternion.LookRotation"/>
+    /// on the surface normal, so local Z is the in-plane spin. Unlock that axis
+    /// when rotation is fully locked. Doors stay locked. Only placeables that
+    /// attach exclusively to walls (not floor/ceiling) are unlocked.
+    /// </summary>
+    private void UnlockWallInPlaneRotationIfNeeded()
+    {
+        if (SpecialTypes != null &&
+            SpecialTypes.Contains(SpecialSelectableType.Door))
+            return;
+
+        if (IsGizmoSettingAllowed(GizmoType.Rotate, Axis.X) ||
+            IsGizmoSettingAllowed(GizmoType.Rotate, Axis.Y) ||
+            IsGizmoSettingAllowed(GizmoType.Rotate, Axis.Z))
+            return;
+
+        // Wall-only: every restriction must be a wall face (not floor/ceiling).
+        if (WallRestrictions == null ||
+            WallRestrictions.Count == 0 ||
+            WallRestrictions.Any(r => r < RoomBoundaryType.WallSouth))
+            return;
+
+        // Nested boom logos inherit wall restrictions but have no move gizmos.
+        // Real wall placeables already slide on X/Y.
+        if (!IsGizmoSettingAllowed(GizmoType.Move, Axis.X) &&
+            !IsGizmoSettingAllowed(GizmoType.Move, Axis.Y) &&
+            !IsGizmoSettingAllowed(GizmoType.Move, Axis.Z))
+            return;
+
+        if (!GizmoSettings.ContainsKey(GizmoType.Rotate))
+            GizmoSettings[GizmoType.Rotate] = new();
+
+        GizmoSettings[GizmoType.Rotate][Axis.Z] = new GizmoSetting
+        {
+            Axis = Axis.Z,
+            GizmoType = GizmoType.Rotate,
+            Unrestricted = true
+        };
+
+        RotateAroundRendererCenter = true;
     }
 
     public bool IsGizmoSettingAllowed(GizmoType gizmoType, Axis axis) => TryGetGizmoSetting(gizmoType, axis, out _);
