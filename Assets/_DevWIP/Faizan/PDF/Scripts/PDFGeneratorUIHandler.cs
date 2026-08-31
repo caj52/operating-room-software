@@ -154,7 +154,7 @@ public class PDFGeneratorUIHandler : MonoBehaviour
             return;
         }
 
-        if (!ExportPaths.EnsureRoomSavedForExport(OnGeneratePdfButtonClicked))
+        if (!ExportPaths.EnsureRoomSavedForExport())
             return;
 
         // Capture sales rep before generate (GeneratePDF also applies room/client defaults).

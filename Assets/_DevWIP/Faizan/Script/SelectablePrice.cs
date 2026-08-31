@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using UnityEngine;
 using System.Linq;
 
@@ -155,13 +155,6 @@ public class SelectablePrice : MonoBehaviour
         _isInitialized = true;
         PricingManager.Instance.RegisterExistingPricingComponent(this);
         return true;
-    }
-
-    /// <summary>Drop cached Excel row so the next load can pick up imported prices.</summary>
-    public void InvalidateLoadedPricing()
-    {
-        objectPricingData = null;
-        _isInitialized = false;
     }
 
     // Determine pricing data with and without size (logic now handled by PricingManager.GetCachedPricingData)

@@ -264,7 +264,7 @@ public sealed class ProposalPreviewModel
             // Keep page-1 preview blocks aligned with ProposalPricingResolver / PDF page 1.
             var boomRoot = group.Key != null ? group.Key.gameObject : null;
             var lightLines = ProposalPricingResolver.ResolveLightLines(lights);
-            var boomLines = ProposalPricingResolver.ResolveBoomLines(boomRoot, booms);
+            var boomLine = ProposalPricingResolver.ResolveBoomLine(boomRoot, booms);
             var boomExtras = ProposalPricingResolver.ResolveBoomExtraLines(boomRoot, booms);
             double subtotal = ProposalPricingResolver.SumEquipment(group);
 
@@ -284,11 +284,9 @@ public sealed class ProposalPreviewModel
                     : "",
                 LightOptionsText = lightText,
                 LightLines = lightLines,
-                HasBooms = boomLines.Count > 0 || boomExtras.Count > 0,
-                BoomQty = boomLines.Sum(l => Math.Max(1, l.Qty)),
-                BoomDescription = boomLines.Count > 0
-                    ? string.Join(" + ", boomLines.Select(l => l.Description).Where(d => !string.IsNullOrWhiteSpace(d)))
-                    : "",
+                HasBooms = boomLine != null || boomExtras.Count > 0,
+                BoomQty = boomLine != null ? Math.Max(1, boomLine.Qty) : 0,
+                BoomDescription = boomLine?.Description ?? "",
                 BoomOptionsText = boomText,
                 Subtotal = subtotal
             });
@@ -331,7 +329,7 @@ public sealed class ProposalPreviewModel
             var booms = configGroup.Where(sp => sp.isBoomObject).ToList();
             var boomRoot = first != null ? first.transform.root.gameObject : null;
             var lightLines = ProposalPricingResolver.ResolveLightLines(lights);
-            var boomLines = ProposalPricingResolver.ResolveBoomLines(boomRoot, booms);
+            var boomLine = ProposalPricingResolver.ResolveBoomLine(boomRoot, booms);
             var boomExtras = ProposalPricingResolver.ResolveBoomExtraLines(boomRoot, booms);
 
             PricingLines.Add(new LineItem
@@ -383,23 +381,20 @@ public sealed class ProposalPreviewModel
                 }
             }
 
-            if (boomLines.Count > 0)
+            if (boomLine != null)
             {
                 PricingLines.Add(new LineItem { IsSectionHeader = true, SectionTitle = "MODEL DESCRIPTION" });
-                foreach (var boomLine in boomLines)
+                PricingLines.Add(new LineItem
                 {
-                    PricingLines.Add(new LineItem
-                    {
-                        PartNumber = string.IsNullOrEmpty(boomLine.PartNumber) ? "N/A" : boomLine.PartNumber,
-                        Description = string.IsNullOrWhiteSpace(boomLine.Description)
-                            ? "ARTICULATING BOOM"
-                            : boomLine.Description,
-                        Qty = boomLine.Qty,
-                        UnitPrice = boomLine.UnitPrice,
-                        ExtPrice = boomLine.ExtPrice
-                    });
-                    subtotal += boomLine.ExtPrice;
-                }
+                    PartNumber = string.IsNullOrEmpty(boomLine.PartNumber) ? "N/A" : boomLine.PartNumber,
+                    Description = string.IsNullOrWhiteSpace(boomLine.Description)
+                        ? "ARTICULATING BOOM"
+                        : boomLine.Description,
+                    Qty = boomLine.Qty,
+                    UnitPrice = boomLine.UnitPrice,
+                    ExtPrice = boomLine.ExtPrice
+                });
+                subtotal += boomLine.ExtPrice;
             }
 
             if (boomExtras.Count > 0)
@@ -453,7 +448,7 @@ public sealed class ProposalPreviewModel
                 }
             }
 
-            if (lightLines.Count > 0 || lightOptions.Count > 0 || boomLines.Count > 0
+            if (lightLines.Count > 0 || lightOptions.Count > 0 || boomLine != null
                 || boomExtras.Count > 0 || boomOptions.Count > 0)
             {
                 PricingLines.Add(new LineItem
@@ -576,17 +571,34 @@ public sealed class ProposalPreviewModel
 
     static SelectablePrice[] CollectPricedSelectables()
     {
-        var found = PricingManager.CollectActiveSelectablePrices();
+        var found = UnityEngine.Object.FindObjectsByType<SelectablePrice>(
+            FindObjectsInactive.Include, FindObjectsSortMode.None);
 
-        if (PricingManager.AnyMissingLoadedPricing(found))
+        // Avoid full rebuild on every preview refresh — only when nothing is priced yet
+        // (e.g. legacy saves that never got SelectablePrice during load).
+        bool anyPriced = false;
+        if (found != null)
         {
-            PricingManager.RebuildPricingFromTrackedObjects(forceReload: false);
-            found = PricingManager.CollectActiveSelectablePrices();
+            for (int i = 0; i < found.Length; i++)
+            {
+                if (found[i] != null && found[i].objectPricingData != null)
+                {
+                    anyPriced = true;
+                    break;
+                }
+            }
         }
 
+        if (!anyPriced)
+            PricingManager.RebuildPricingFromTrackedObjects();
+
+        found = UnityEngine.Object.FindObjectsByType<SelectablePrice>(
+            FindObjectsInactive.Include, FindObjectsSortMode.None);
         if (found == null || found.Length == 0)
             return Array.Empty<SelectablePrice>();
 
+        // Only retry Excel for items that actually have pricing identity.
+        // Accessories without sheet/name used to force hundreds of full-sheet miss scans.
         for (int i = 0; i < found.Length; i++)
         {
             var sp = found[i];

@@ -43,7 +43,7 @@ public class ExcelReader : MonoBehaviour
         InvalidateWorkbookCache();
     }
 
-    public void InvalidateWorkbookCache()
+    void InvalidateWorkbookCache()
     {
         lock (_workbookLock)
         {
@@ -90,9 +90,7 @@ public class ExcelReader : MonoBehaviour
             using (FileStream stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
                 // HSSFWorkbook copies into memory; safe to close the stream afterward.
-                _workbook = OpenWorkbook(stream, filePath);
-                if (_workbook == null)
-                    return null;
+                _workbook = new HSSFWorkbook(stream);
             }
 
             _workbookFileWriteTimeUtc = writeUtc;
@@ -133,20 +131,15 @@ public class ExcelReader : MonoBehaviour
                 if (excelRow == null) continue;
 
                 string excelObjectName = GetCellValue(excelRow.GetCell(columnMapping.ObjectName));
-                // Light option rows (ceiling covers, tandem mounts) store the name in
-                // column 1 (Configuration) with column 2 (3D combo) empty.
-                string excelConfigName = columnMapping.ObjectName != 1
-                    ? GetCellValue(excelRow.GetCell(1))
-                    : null;
-                string excelPartNumber = GetCellValue(excelRow.GetCell(columnMapping.PartNumber));
                 string excelObjectSize = columnMapping.ObjectSize != -1
                     ? GetCellValue(excelRow.GetCell(columnMapping.ObjectSize))
                     : "";
 
-                bool isMatchedName =
-                    NamesEqual(excelObjectName, objectNameToSearch)
-                    || NamesEqual(excelConfigName, objectNameToSearch)
-                    || NamesEqual(excelPartNumber, objectNameToSearch);
+                bool isMatchedName = String.Compare(
+                    excelObjectName,
+                    objectNameToSearch,
+                    CultureInfo.CurrentCulture,
+                    CompareOptions.IgnoreCase | CompareOptions.IgnoreSymbols) == 0;
 
                 bool isMatchedSize = string.IsNullOrWhiteSpace(objectSizeToSearch) ||
                     String.Compare(
@@ -157,9 +150,6 @@ public class ExcelReader : MonoBehaviour
 
                 if (!isMatchedName || !isMatchedSize)
                     continue;
-
-                if (string.IsNullOrWhiteSpace(excelObjectName))
-                    excelObjectName = excelConfigName;
 
                 string listPrice = GetCellValue(excelRow.GetCell(columnMapping.ListPrice));
                 if (string.IsNullOrEmpty(listPrice)) continue;
@@ -191,13 +181,10 @@ public class ExcelReader : MonoBehaviour
 
         using (FileStream stream = new FileStream(filePath, FileMode.Open, FileAccess.Read))
         {
-            IWorkbook workbook = OpenWorkbook(stream, filePath);
-            if (workbook == null)
-                return null;
-
-            ISheet sheet = workbook.GetSheet(sheetName);
-            if (sheet == null)
-                return null;
+            //IWorkbook workbook = new XSSFWorkbook(stream);
+            IWorkbook workbook = new HSSFWorkbook(stream);
+            //ISheet sheet = workbook.GetSheetAt(0); // First sheet
+            ISheet sheet = workbook.GetSheet(sheetName); // First sheet
 
             List<PriceExcelData> columnData = new List<PriceExcelData>();
 
@@ -206,36 +193,25 @@ public class ExcelReader : MonoBehaviour
                 IRow excelRow = sheet.GetRow(row);
                 if (excelRow == null) continue;
 
-                string cellValue = GetCellValue(excelRow.GetCell(priceColumnNumber));
+                //string cellValue = excelRow.GetCell(priceColumnNumber)?.ToString();///Price Sell value
+                string cellValue = GetCellValue(excelRow.GetCell(priceColumnNumber));///Price Sell value
                 CultureInfo culture = CultureInfo.GetCultureInfo("en-US");
                 double listPriceValue = double.Parse(cellValue, NumberStyles.Currency, culture);
                 if (!string.IsNullOrEmpty(cellValue))
                 {
+                    string listPrice = GetCellValue(excelRow.GetCell(3));
+              
                     columnData.Add(new PriceExcelData
                     {
                         PartNumber = excelRow.GetCell(0)?.ToString(),
                         ObjectName = excelRow.GetCell(1)?.ToString(),
-                        ListPrice = listPriceValue
+                        ListPrice = listPriceValue//double.TryParse(cellValue, out double price) ? price : 0
                     });
                 }
             }
 
             return columnData.ToArray();
         }
-    }
-
-    static IWorkbook OpenWorkbook(Stream stream, string path)
-    {
-        string ext = Path.GetExtension(path)?.ToLowerInvariant();
-        if (ext == ".xlsx" || ext == ".xlsm")
-        {
-            Debug.LogError(
-                $"Pricing workbook is {ext}, but this build's Excel reader only opens .xls (Excel 97-2003). " +
-                $"Save/export the sheet as .xls, or replace StreamingAssets with an .xls copy. Path: {path}");
-            return null;
-        }
-
-        return new HSSFWorkbook(stream);
     }
     
     /// <summary>
@@ -254,13 +230,8 @@ public class ExcelReader : MonoBehaviour
 
         using (FileStream stream = new FileStream(filePath, FileMode.Open, FileAccess.Read))
         {
-            IWorkbook workbook = OpenWorkbook(stream, filePath);
-            if (workbook == null)
-                return null;
-
-            ISheet sheet = workbook.GetSheet(sheetName);
-            if (sheet == null)
-                return null;
+            IWorkbook workbook = new HSSFWorkbook(stream);
+            ISheet sheet = workbook.GetSheet(sheetName); // First sheet
 
             if (rowNumber < 0 || rowNumber > sheet.LastRowNum)
             {
@@ -314,19 +285,11 @@ public class ExcelReader : MonoBehaviour
 
     public PriceExcelData GetInstallationLightsCharges()
     {
-        return ApplyBridgeOverride(GetRowData(98, DataFilePaths.sheetNameLight), DataFilePaths.sheetNameLight);
+        return GetRowData(98, DataFilePaths.sheetNameLight);
     }
     public PriceExcelData GetShippingLightsCharges()
     {
-        return ApplyBridgeOverride(GetRowData(99, DataFilePaths.sheetNameLight), DataFilePaths.sheetNameLight);
-    }
-
-    static PriceExcelData ApplyBridgeOverride(PriceExcelData data, string sheetName)
-    {
-        if (data == null) return null;
-        if (PricingBridgeStore.TryGetOverride(sheetName, data.ObjectName, null, out double price))
-            data.ListPrice = price;
-        return data;
+        return GetRowData(99, DataFilePaths.sheetNameLight);
     }
 
     private double ParseCurrency(string value)
@@ -407,17 +370,6 @@ public class ExcelReader : MonoBehaviour
         }
     }
 
-    static bool NamesEqual(string a, string b)
-    {
-        if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b))
-            return false;
-        return string.Compare(
-            a.Trim(),
-            b.Trim(),
-            CultureInfo.CurrentCulture,
-            CompareOptions.IgnoreCase | CompareOptions.IgnoreSymbols) == 0;
-    }
-
 
     /*
     public PriceExcelData GetInstallationLightsCharges()
@@ -463,9 +415,7 @@ public class ExcelReader : MonoBehaviour
 
         using (FileStream stream = new FileStream(filePath, FileMode.Open, FileAccess.Read))
         {
-            IWorkbook workbook = OpenWorkbook(stream, filePath);
-            if (workbook == null) return rows;
-
+            IWorkbook workbook = new HSSFWorkbook(stream);
             ISheet sheet = workbook.GetSheet(sheetName);
             if (sheet == null) return rows;
 

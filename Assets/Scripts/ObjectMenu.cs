@@ -723,11 +723,21 @@ public class ObjectMenu : MonoBehaviour
             int duplexCount = outletParent.GetComponentsInChildren<Selectable>()
                 .Count(s => s.MetaData?.Name == "HV Power Outlet");
 
-            if (duplexCount >= 1)
+            switch (duplexCount)
             {
-                config.UIName = $"Electrical ({duplexCount} Duplex)";
-                config.PricingName = config.UIName;
-                config.RemoveExisting = duplexCount > 1;
+                case 2:
+                    config.UIName = "Electrical (2 Duplex)";
+                    config.PricingName = config.UIName;
+                    break;
+                case 3:
+                    config.UIName = "Electrical (3 Duplex)";
+                    config.PricingName = config.UIName;
+                    config.RemoveExisting = true;
+                    break;
+                default:
+                    config.UIName = "";
+                    config.PricingName = "";
+                    break;
             }
         }
 

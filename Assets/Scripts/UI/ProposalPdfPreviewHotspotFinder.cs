@@ -39,8 +39,7 @@ public static class ProposalPdfPreviewHotspotFinder
 
         try
         {
-            byte[] pdfBytes = File.ReadAllBytes(pdfPath);
-            using var reader = new PdfReader(pdfBytes);
+            using var reader = new PdfReader(pdfPath);
             for (int page = 1; page <= reader.NumberOfPages; page++)
             {
                 var pageSize = reader.GetPageSize(page);

@@ -406,72 +406,33 @@ public class ScreenshotCapture : MonoBehaviour
     // Modified CaptureCeilingOnly method
     public IEnumerator CaptureCeilingOnly(Vector3 position, Quaternion? rotation, Action<string> onComplete)
     {
-        CameraCaptureState originalState = null;
-        bool restored = false;
-        void Restore()
-        {
-            if (restored) return;
-            restored = true;
-            SetCeilingRenderersEnabled(true);
-            AdjustExposureForScreenshot(false);
-            if (originalState != null && captureCamera != null)
-                originalState.Restore(captureCamera, urpCameraData);
-            if (uiCanvas != null)
-                ToggleUI(true);
-        }
 
-        if (captureCamera == null)
-        {
-            Debug.LogError("[Screenshot] captureCamera is missing; skip ceiling still.");
-            onComplete?.Invoke(null);
-            yield break;
-        }
+        if (uiCanvas != null)
+            ToggleUI(false);
+        captureCamera.enabled = true;
+        CameraCaptureState originalState = new CameraCaptureState(captureCamera, urpCameraData);
+        AdjustExposureForScreenshot(true);
+        captureCamera.transform.position = position;
+        captureCamera.transform.rotation = rotation ?? Quaternion.Euler(90, 0, 0);
+        captureCamera.orthographic = true;
+        SetCeilingRenderersEnabled(false);
+        yield return new WaitForEndOfFrame();
 
-        try
-        {
-            if (uiCanvas != null)
-                ToggleUI(false);
-            captureCamera.enabled = true;
-            originalState = new CameraCaptureState(captureCamera, urpCameraData);
-            AdjustExposureForScreenshot(true);
-            captureCamera.transform.position = position;
-            captureCamera.transform.rotation = rotation ?? Quaternion.Euler(90, 0, 0);
-            captureCamera.orthographic = true;
-            SetCeilingRenderersEnabled(false);
-            yield return new WaitForEndOfFrame();
+        filePath = TakeScreenshot(999);
 
-            filePath = TakeScreenshot(999);
+        // Wait until the screenshot is ACTUALLY completed
+        yield return new WaitUntil(() => screenshotCompleted);
 
-            float elapsed = 0f;
-            const float timeout = 8f;
-            while (!screenshotCompleted && elapsed < timeout)
-            {
-                elapsed += Time.unscaledDeltaTime;
-                yield return null;
-            }
-
-            if (!screenshotCompleted)
-                Debug.LogError($"[Screenshot] ceiling capture timed out after {timeout}s");
-            else
-                Debug.Log("Custom ceiling shot captured.");
-
-            Restore();
-            onComplete?.Invoke(screenshotCompleted ? filePath : null);
-        }
-        finally
-        {
-            Restore();
-        }
-    }
-
-    /// <summary>Undo half-finished capture if PDF bake is cancelled mid-screenshot.</summary>
-    public void RestoreAfterAbortedCapture()
-    {
-        screenshotCompleted = true;
+        // Always restore ceiling visibility after the shot is saved.
         SetCeilingRenderersEnabled(true);
+
         AdjustExposureForScreenshot(false);
+        originalState.Restore(captureCamera, urpCameraData);
         if (uiCanvas != null)
             ToggleUI(true);
+
+        Debug.Log("Custom ceiling shot captured.");
+        onComplete?.Invoke(filePath);
     }
     void ToggleUI(bool isVisible)
     {
