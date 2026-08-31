@@ -18,6 +18,8 @@ public static class ExportPaths
     /// </summary>
     private static string _sessionExportBaseOverride;
 
+    static Action _resumeAfterSave;
+
     /// <summary>
     /// Ensures the room is saved, creates {persistentDataPath}/{RoomName}/, then runs
     /// <paramref name="onReady"/>. No File Explorer — exports always land under AppData.
@@ -27,7 +29,7 @@ public static class ExportPaths
         if (onReady == null)
             return;
 
-        if (!EnsureRoomSavedForExport())
+        if (!EnsureRoomSavedForExport(() => PromptForExportFolderThen(onReady)))
             return;
 
         ClearExportBaseOverride();
@@ -155,12 +157,17 @@ public static class ExportPaths
 
     /// <summary>
     /// Exports require a saved room name. If missing, prompts the user to save and returns false.
+    /// When <paramref name="resumeAfterSave"/> is set, that action runs after a successful save.
     /// </summary>
-    public static bool EnsureRoomSavedForExport()
+    public static bool EnsureRoomSavedForExport(Action resumeAfterSave = null)
     {
         if (HasSavedRoomName())
+        {
+            _resumeAfterSave = null;
             return true;
+        }
 
+        _resumeAfterSave = resumeAfterSave;
         UI_DialogPrompt.Open(
             "Save the room before exporting.\nFiles are organized under the room's save name.",
             new ButtonAction("Save Room", () =>
@@ -168,8 +175,23 @@ public static class ExportPaths
                 UI_DialogPrompt.Close();
                 Save.OpenSaveRoomPrompt();
             }),
-            new ButtonAction("Cancel"));
+            new ButtonAction("Cancel", () =>
+            {
+                _resumeAfterSave = null;
+                UI_DialogPrompt.Close();
+            }));
         return false;
+    }
+
+    /// <summary>If an export was waiting on a room save, run it now. Returns true when one ran.</summary>
+    public static bool TryResumeAfterSave()
+    {
+        var resume = _resumeAfterSave;
+        _resumeAfterSave = null;
+        if (resume == null)
+            return false;
+        resume();
+        return true;
     }
 
     public static string SanitizeFolderName(string name)

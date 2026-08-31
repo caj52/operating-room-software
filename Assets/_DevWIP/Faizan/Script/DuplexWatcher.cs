@@ -31,46 +31,22 @@ public class DuplexWatcher : MonoBehaviour
             }
         }
 
-        if (redDuplextCount <= 1)
+        if (redDuplextCount <= 0)
         {
             if (selectablePrice)
                 Destroy(selectablePrice);
-
         }
-
         else
         {
-            if (redDuplextCount == 2)
+            boomObjectExcelName = $"Electrical ({redDuplextCount} Duplex)";
+            if (selectablePrice == null)
             {
-                Debug.Log("Red Duplex found");
-                boomObjectExcelName = "Electrical (2 Duplex)";
-                if (selectablePrice == null)
-                {
-
-                    AddSelectablePrice(selectables, boomObjectExcelName);
-                }
-                else if (selectablePrice.pricingObjectName != "Electrical (2 Duplex)")
-                {
-                    Destroy(selectablePrice);
-                    AddSelectablePrice(selectables, boomObjectExcelName);
-                }
-
+                AddSelectablePrice(selectables, boomObjectExcelName);
             }
-            else if (redDuplextCount == 3)
+            else if (selectablePrice.pricingObjectName != boomObjectExcelName)
             {
-                Debug.Log("Red Duplex found");
-                boomObjectExcelName = "Electrical (3 Duplex)";
-
-                if (selectablePrice == null)
-                {
-
-                    AddSelectablePrice(selectables, boomObjectExcelName);
-                }
-                else if (selectablePrice.pricingObjectName != "Electrical (2 Duplex)")
-                {
-                    Destroy(selectablePrice);
-                    AddSelectablePrice(selectables, boomObjectExcelName);
-                }
+                Destroy(selectablePrice);
+                AddSelectablePrice(selectables, boomObjectExcelName);
             }
         }
     }

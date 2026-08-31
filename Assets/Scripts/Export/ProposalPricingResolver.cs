@@ -27,17 +27,18 @@ public static class ProposalPricingResolver
         if (allPrices == null)
             return lines;
 
-        var priced = allPrices.Where(sp => sp != null && sp.objectPricingData != null).ToList();
+        var priced = allPrices
+            .Where(sp => sp != null && sp.objectPricingData != null && sp.gameObject.activeInHierarchy)
+            .ToList();
         foreach (var group in priced.GroupBy(sp => sp.transform.root))
         {
             var lights = group.Where(sp => !sp.isBoomObject).ToList();
             var booms = group.Where(sp => sp.isBoomObject).ToList();
             var boomRoot = group.Key != null ? group.Key.gameObject : null;
 
-            lines.AddRange(ResolveLightLines(lights));
-            var boomLine = ResolveBoomLine(boomRoot, booms);
-            if (boomLine != null)
-                lines.Add(boomLine);
+            var lightLines = ResolveLightLines(lights);
+            lines.AddRange(lightLines);
+            lines.AddRange(ResolveBoomLines(boomRoot, booms));
             // Extras (shelves, duplexes, gas, covers, …) sit on top of the bundled boom package —
             // same stack Carlyn's Estimating Form puts in Configuration List Price.
             lines.AddRange(ResolveBoomExtraLines(boomRoot, booms));
@@ -91,6 +92,13 @@ public static class ProposalPricingResolver
         if (lights == null || lights.Count == 0)
             return lines;
 
+        lights = lights
+            .Where(sp => sp != null && IsLightComboHead(sp))
+            .OrderBy(sp => LightHierarchySortKey(sp.transform), StringComparer.Ordinal)
+            .ToList();
+        if (lights.Count == 0)
+            return lines;
+
         var pm = PricingManager.Instance;
         if (pm == null)
         {
@@ -142,6 +150,10 @@ public static class ProposalPricingResolver
                 take = 1;
             }
 
+            if (data != null && (LooksLikeMultiHeadLightPackage(data.ObjectName) && take == 1
+                                 || !ComboRowFitsAskedHeads(data, names.Take(take).ToList())))
+                data = null;
+
             if (data != null)
             {
                 double unit = data.ListPrice + (simFlex ? data.SimFlexPrice : 0);
@@ -178,6 +190,26 @@ public static class ProposalPricingResolver
             i += take;
         }
 
+        if (RoomHasTandemCeilingCover(lights)
+            || RoomHasTandemCeilingCover(PricingManager.CollectActiveSelectablePrices()))
+            ApplyTandemSecondPositionCoverCredit(lines, lights);
+
+        return lines;
+    }
+
+    /// <summary>
+    /// One bundled boom package per arm stack. A tandem with mixed arms
+    /// (Spring + Powered XL) must emit two lines, not one combined fingerprint.
+    /// </summary>
+    public static List<Line> ResolveBoomLines(GameObject boomRoot, List<SelectablePrice> boomParts)
+    {
+        var lines = new List<Line>();
+        foreach (var (root, parts) in SplitBoomAssemblies(boomRoot, boomParts))
+        {
+            var line = ResolveBoomLine(root, parts);
+            if (line != null)
+                lines.Add(line);
+        }
         return lines;
     }
 
@@ -275,7 +307,8 @@ public static class ProposalPricingResolver
         lines.AddRange(ResolveShelfPackageLines(extras));
 
         var remaining = extras
-            .Where(sp => !IsElectricalExtra(sp) && !IsMedGasExtra(sp) && !IsShelfExtra(sp) && !IsRailExtra(sp))
+            .Where(sp => !IsElectricalExtra(sp) && !IsMedGasExtra(sp) && !IsShelfExtra(sp)
+                         && !IsRailExtra(sp) && !IsUnpricedEstimatingSkip(sp))
             .GroupBy(BoomExtraGroupKey)
             .ToList();
 
@@ -311,6 +344,61 @@ public static class ProposalPricingResolver
         }
 
         return lines;
+    }
+
+    static bool LooksLikeCeilingFlange(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return false;
+        string n = raw.Trim().ToLowerInvariant();
+        return n.Contains("ceiling flange");
+    }
+
+    /// <summary>
+    /// Tandem cover is one scene root with two flange stacks. Price each stack
+    /// on its own subtree so Spring vs Powered XL don't collapse into one package.
+    /// </summary>
+    static List<(GameObject root, List<SelectablePrice> parts)> SplitBoomAssemblies(
+        GameObject boomRoot, List<SelectablePrice> boomParts)
+    {
+        var single = new List<(GameObject root, List<SelectablePrice> parts)>();
+        if (boomParts == null || boomParts.Count == 0)
+            return single;
+
+        if (boomRoot == null)
+        {
+            single.Add((null, boomParts));
+            return single;
+        }
+
+        var flanges = new List<Selectable>();
+        foreach (var sel in boomRoot.GetComponentsInChildren<Selectable>(true))
+        {
+            if (sel == null)
+                continue;
+            if (LooksLikeCeilingFlange(sel.UIButtonName))
+                flanges.Add(sel);
+        }
+
+        if (flanges.Count < 2)
+        {
+            single.Add((boomRoot, boomParts));
+            return single;
+        }
+
+        var split = new List<(GameObject root, List<SelectablePrice> parts)>();
+        foreach (var flange in flanges)
+        {
+            var parts = boomParts.Where(sp =>
+                sp != null
+                && (sp.transform == flange.transform || sp.transform.IsChildOf(flange.transform)))
+                .ToList();
+            if (parts.Count == 0)
+                continue;
+            split.Add((flange.gameObject, parts));
+        }
+
+        return split.Count > 0 ? split : new List<(GameObject, List<SelectablePrice>)> { (boomRoot, boomParts) };
     }
 
     static Line ResolveOutletPackageLine(
@@ -485,6 +573,80 @@ public static class ProposalPricingResolver
         return blob.Contains("500") || size.Contains("500") || !blob.Contains("750");
     }
 
+    static bool RoomHasTandemCeilingCover(IEnumerable<SelectablePrice> prices)
+    {
+        if (prices == null)
+            return false;
+        foreach (var sp in prices)
+        {
+            if (sp == null)
+                continue;
+            string blob = ExtraBlob(sp);
+            if (blob.Contains("tandem") && blob.Contains("cover"))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Estimating: light on tandem 2nd position does not pay a second ceiling cover.
+    /// The 3D combo row still includes a single-mount cover — credit it off.
+    /// </summary>
+    static void ApplyTandemSecondPositionCoverCredit(List<Line> lightLines, List<SelectablePrice> lightParts)
+    {
+        if (lightLines == null || lightLines.Count == 0)
+            return;
+
+        double credit = 0;
+        if (lightParts != null)
+        {
+            foreach (var sp in lightParts)
+            {
+                if (sp?.objectPricingData == null)
+                    continue;
+                string blob = ExtraBlob(sp);
+                if (!blob.Contains("ceiling cover"))
+                    continue;
+                if (sp.objectPricingData.ListPrice > 0)
+                    credit += sp.objectPricingData.ListPrice;
+            }
+        }
+
+        if (credit <= 0)
+        {
+            var pm = PricingManager.Instance;
+            var row = pm?.GetCachedPricingData(
+                          DataFilePaths.sheetNameLight, "Lights - Single Ceiling Cover (Standard)")
+                      ?? pm?.GetCachedPricingData(
+                          DataFilePaths.sheetNameLight, "Lights - Single Ceiling Cover (Slim)")
+                      ?? pm?.GetCachedPricingData(
+                          DataFilePaths.sheetNameLight, "115-001112");
+            if (row != null && row.ListPrice > 0)
+                credit = row.ListPrice;
+        }
+
+        // Catalog Single Ceiling Cover (Standard) if the 3D combo column has no name.
+        if (credit <= 0)
+            credit = 3398.97;
+
+        var main = lightLines
+            .Where(l => l != null && l.IsLight)
+            .OrderByDescending(l => l.ExtPrice)
+            .FirstOrDefault();
+        if (main == null || main.ExtPrice <= credit)
+            return;
+
+        main.ExtPrice -= credit;
+        main.UnitPrice = main.Qty > 0 ? main.ExtPrice / main.Qty : main.ExtPrice;
+    }
+
+    static bool IsUnpricedEstimatingSkip(SelectablePrice sp)
+    {
+        string blob = ExtraBlob(sp);
+        return blob.Contains("blank plate") || blob.Contains("blank preparation")
+               || blob.Contains("data plate") || blob.Contains("data pass");
+    }
+
     static bool IsRailExtra(SelectablePrice sp)
     {
         // Estimating Config sheets do not line-item SH rails; keep them off the money total.
@@ -501,64 +663,192 @@ public static class ProposalPricingResolver
             sp.gameObject != null ? sp.gameObject.name : "").ToLowerInvariant();
     }
 
+    /// <summary>
+    /// Estimating quotes electrical from HV plate capacity (3 duplex positions per
+    /// high-voltage module), not from however many red-duplex meshes happen to be
+    /// snapped in. Empty positions on a purchased plate are still in the package.
+    /// </summary>
     static int CountDuplexOutletsOnBoom(GameObject boomRoot, List<SelectablePrice> electricalPrices)
     {
         Transform root = boomRoot != null
             ? boomRoot.transform
-            : (electricalPrices.Count > 0 ? electricalPrices[0].transform.root : null);
+            : (electricalPrices != null && electricalPrices.Count > 0
+                ? electricalPrices[0].transform.root
+                : null);
         if (root == null)
             return electricalPrices?.Count ?? 0;
 
-        var seen = new HashSet<int>();
-        int fromScene = 0;
-        foreach (var sel in root.GetComponentsInChildren<Selectable>(true))
-        {
-            if (sel == null) continue;
-            string meta = sel.MetaData.Name ?? "";
-            // Prefer the real outlet selectable — avoids double-counting parent/child duplex labels.
-            if (meta.IndexOf("HV Power Outlet", StringComparison.OrdinalIgnoreCase) < 0)
-                continue;
-            if (!seen.Add(sel.GetInstanceID()))
-                continue;
-            fromScene++;
-        }
+        int fromPlates = 0;
+        foreach (var plate in FindBoomHeadPlates(root, highVoltage: true))
+            fromPlates += CountNativeAttachSlots(plate);
+        if (fromPlates > 0)
+            return fromPlates;
 
+        int fromScene = CountSelectablesOnBoom(root, IsHvPowerOutletSelectable);
         if (fromScene > 0)
             return fromScene;
 
         return electricalPrices?.Count ?? 0;
     }
 
+    /// <summary>
+    /// LV plates are the med-gas manifold (2 positions each). Slots filled with
+    /// blank/data/AV are not gas. Empty slots count as gas only when the head
+    /// already has at least one gas outlet (anes / mixed heads), so a data-only
+    /// boom does not invent gas.
+    /// </summary>
     static int CountMedGasOutletsOnBoom(GameObject boomRoot, List<SelectablePrice> gasPrices)
     {
         Transform root = boomRoot != null
             ? boomRoot.transform
-            : (gasPrices.Count > 0 ? gasPrices[0].transform.root : null);
+            : (gasPrices != null && gasPrices.Count > 0
+                ? gasPrices[0].transform.root
+                : null);
         if (root == null)
             return gasPrices?.Count ?? 0;
 
-        var seen = new HashSet<int>();
-        int fromScene = 0;
-        foreach (var sel in root.GetComponentsInChildren<Selectable>(true))
+        int placedGas = CountSelectablesOnBoom(root, IsGasOutletSelectable);
+        int fromPlates = 0;
+        foreach (var plate in FindBoomHeadPlates(root, highVoltage: false))
         {
-            if (sel == null) continue;
-            string meta = sel.MetaData.Name ?? "";
-            string ui = sel.UIButtonName ?? "";
-            string blob = $"{meta} {ui} {sel.name}".ToLowerInvariant();
-            bool isGas = meta.StartsWith("Gas Outlet", StringComparison.OrdinalIgnoreCase)
-                         || ui.StartsWith("Gas Outlet", StringComparison.OrdinalIgnoreCase)
-                         || (blob.Contains("gas outlet"));
-            if (!isGas)
-                continue;
-            if (!seen.Add(sel.GetInstanceID()))
-                continue;
-            fromScene++;
+            foreach (var ap in NativeAttachPoints(plate))
+            {
+                string occ = SlotOccupantBlob(ap);
+                if (IsNonGasLvOccupant(occ))
+                    continue;
+                if (IsGasOccupant(occ) || (string.IsNullOrEmpty(occ) && placedGas > 0))
+                    fromPlates++;
+            }
         }
 
-        if (fromScene > 0)
-            return fromScene;
-
+        if (fromPlates > 0)
+            return fromPlates;
+        if (placedGas > 0)
+            return placedGas;
         return gasPrices?.Count ?? 0;
+    }
+
+    static IEnumerable<Transform> FindBoomHeadPlates(Transform root, bool highVoltage)
+    {
+        string namePrefix = highVoltage
+            ? "BoomHeadAttachment_HighVoltage"
+            : "BoomHeadAttachment_LowVoltage";
+        string uiNeedle = highVoltage ? "high voltage" : "low voltage";
+        var seen = new HashSet<int>();
+        foreach (var t in root.GetComponentsInChildren<Transform>(true))
+        {
+            if (t == null || !seen.Add(t.GetInstanceID()))
+                continue;
+            if (t.name.StartsWith(namePrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                yield return t;
+                continue;
+            }
+            if (!t.TryGetComponent<Selectable>(out var sel))
+                continue;
+            string ui = sel.UIButtonName ?? "";
+            if (ui.IndexOf(uiNeedle, StringComparison.OrdinalIgnoreCase) >= 0
+                && ui.IndexOf("module", StringComparison.OrdinalIgnoreCase) >= 0)
+                yield return t;
+        }
+    }
+
+    static int CountNativeAttachSlots(Transform plate)
+        => NativeAttachPoints(plate).Count();
+
+    static IEnumerable<AttachmentPoint> NativeAttachPoints(Transform plate)
+    {
+        if (plate == null)
+            yield break;
+        var plateSel = plate.GetComponent<Selectable>();
+        foreach (var ap in plate.GetComponentsInChildren<AttachmentPoint>(true))
+        {
+            if (ap == null)
+                continue;
+            var enclosing = ap.GetComponentInParent<Selectable>();
+            if (plateSel != null && enclosing != null && enclosing != plateSel)
+                continue;
+            yield return ap;
+        }
+    }
+
+    static string SlotOccupantBlob(AttachmentPoint ap)
+    {
+        if (ap == null)
+            return "";
+        var parts = new List<string>();
+        if (ap.AttachedSelectable != null)
+        {
+            foreach (var sel in ap.AttachedSelectable)
+            {
+                if (sel == null)
+                    continue;
+                parts.Add(sel.UIButtonName ?? "");
+                parts.Add(sel.MetaData.Name ?? "");
+                parts.Add(sel.name ?? "");
+            }
+        }
+        foreach (var sel in ap.GetComponentsInChildren<Selectable>(true))
+        {
+            if (sel == null || sel.transform == ap.transform)
+                continue;
+            parts.Add(sel.UIButtonName ?? "");
+            parts.Add(sel.MetaData.Name ?? "");
+            parts.Add(sel.name ?? "");
+        }
+        return string.Join(" ", parts).ToLowerInvariant();
+    }
+
+    static bool IsNonGasLvOccupant(string blob)
+    {
+        if (string.IsNullOrEmpty(blob))
+            return false;
+        return blob.Contains("blank")
+               || blob.Contains("ethernet")
+               || blob.Contains("data plate")
+               || blob.Contains("storz")
+               || blob.Contains("duplex")
+               || blob.Contains("hv power");
+    }
+
+    static bool IsGasOccupant(string blob)
+    {
+        if (string.IsNullOrEmpty(blob))
+            return false;
+        return blob.Contains("gas outlet") || blob.Contains("medical gas");
+    }
+
+    static bool IsHvPowerOutletSelectable(Selectable sel)
+    {
+        if (sel == null)
+            return false;
+        string meta = sel.MetaData.Name ?? "";
+        return meta.IndexOf("HV Power Outlet", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    static bool IsGasOutletSelectable(Selectable sel)
+    {
+        if (sel == null)
+            return false;
+        string meta = sel.MetaData.Name ?? "";
+        string ui = sel.UIButtonName ?? "";
+        string blob = $"{meta} {ui} {sel.name}".ToLowerInvariant();
+        return meta.StartsWith("Gas Outlet", StringComparison.OrdinalIgnoreCase)
+               || ui.IndexOf("Gas Outlet", StringComparison.OrdinalIgnoreCase) >= 0
+               || blob.Contains("gas outlet");
+    }
+
+    static int CountSelectablesOnBoom(Transform root, Func<Selectable, bool> match)
+    {
+        var seen = new HashSet<int>();
+        int n = 0;
+        foreach (var sel in root.GetComponentsInChildren<Selectable>(true))
+        {
+            if (!match(sel) || !seen.Add(sel.GetInstanceID()))
+                continue;
+            n++;
+        }
+        return n;
     }
 
     /// <summary>
@@ -936,6 +1226,59 @@ public static class ProposalPricingResolver
         return sp.transform.root
             .GetComponentsInChildren<Selectable>(true)
             .Any(s => s != null && s.name.ToLowerInvariant().Contains("simflexarm"));
+    }
+
+    static bool IsLightComboHead(SelectablePrice sp)
+    {
+        string n = sp.pricingObjectName ?? sp.objectPricingData?.ObjectName;
+        return GetAttachedObjects.IsSurgicalLightPricingName(n)
+               || GetAttachedObjects.IsFlatPanelPricingName(n);
+    }
+
+    static bool LooksLikeMultiHeadLightPackage(string objectName)
+    {
+        if (string.IsNullOrWhiteSpace(objectName) || objectName.IndexOf(',') < 0)
+            return false;
+        int heads = 0;
+        foreach (var bit in objectName.Split(','))
+        {
+            if (GetAttachedObjects.IsSurgicalLightPricingName(bit)
+                || GetAttachedObjects.IsFlatPanelPricingName(bit))
+                heads++;
+        }
+        return heads >= 2;
+    }
+
+    static bool ComboRowFitsAskedHeads(PriceExcelData data, List<string> usedNames)
+    {
+        if (data == null || usedNames == null || usedNames.Count == 0)
+            return false;
+        string row = data.ObjectName ?? "";
+        bool askedOne = usedNames.Any(n => n != null && n.IndexOf("ONE", StringComparison.OrdinalIgnoreCase) >= 0);
+        bool askedPanel = usedNames.Any(GetAttachedObjects.IsFlatPanelPricingName);
+        bool rowHasOne = row.IndexOf("ONE", StringComparison.OrdinalIgnoreCase) >= 0;
+        bool rowHasPanel = GetAttachedObjects.IsFlatPanelPricingName(row);
+        if (askedOne && !rowHasOne)
+            return false;
+        if (askedPanel && !rowHasPanel)
+            return false;
+        if (!askedPanel && rowHasPanel)
+            return false;
+        return true;
+    }
+
+    static string LightHierarchySortKey(Transform t)
+    {
+        if (t == null)
+            return "";
+        var parts = new List<int>();
+        while (t != null)
+        {
+            parts.Add(t.GetSiblingIndex());
+            t = t.parent;
+        }
+        parts.Reverse();
+        return string.Join(".", parts);
     }
 
     static List<string> GetValidLightNames(List<SelectablePrice> lights, int startIndex, int maxCount)

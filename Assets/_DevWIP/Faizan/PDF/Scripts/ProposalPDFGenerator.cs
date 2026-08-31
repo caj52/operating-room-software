@@ -92,6 +92,10 @@ public class ProposalPDFGenerator : MonoBehaviour
     public static bool PreviewVisualsStale { get; set; } = true;
     /// <summary>When set, export writes to this path instead of the default proposals folder.</summary>
     string _exportPathOverride;
+    Document _openDocument;
+    PdfWriter _openWriter;
+    FileStream _pdfOutputStream;
+    string _lastWrittenPdfPath;
 
     // Image cleanup tracking
     private List<string> tempImagePaths = new List<string>();
@@ -119,7 +123,7 @@ public class ProposalPDFGenerator : MonoBehaviour
     }
 
     /// <summary>Export the sales proposal PDF, optionally to an explicit file path from a save dialog.</summary>
-    public void GeneratePDF(string outputPathOverride)
+    public void GeneratePDF(string outputPathOverride, Action<bool, string, string> callback = null)
     {
         StopActiveGeneration(notifyCallback: true);
         ApplyExportDefaults();
@@ -129,8 +133,9 @@ public class ProposalPDFGenerator : MonoBehaviour
         _reuseCachedVisuals = false;
         SuppressCompletionDialog = false;
         FastPreviewCapture = false;
-        _completionCallback = null;
+        _completionCallback = callback;
         _exportPathOverride = string.IsNullOrWhiteSpace(outputPathOverride) ? null : outputPathOverride.Trim();
+        Debug.Log($"[ProposalPDF] export start path={_exportPathOverride ?? "(default)"}");
         pdfGenerationCoroutine = StartCoroutine(GeneratePDFCoroutine());
     }
 
@@ -173,6 +178,17 @@ public class ProposalPDFGenerator : MonoBehaviour
         {
             StopCoroutine(pdfGenerationCoroutine);
             pdfGenerationCoroutine = null;
+        }
+
+        ReleasePdfOutput();
+
+        if (screenshot != null)
+            screenshot.RestoreAfterAbortedCapture();
+
+        if (UI_GeneralLoadingScreen.instance != null)
+        {
+            UI_GeneralLoadingScreen.instance.OnCancel -= HandleCancellation;
+            UI_GeneralLoadingScreen.instance.HideLoadingScreen();
         }
 
         FastPreviewCapture = false;
@@ -374,15 +390,21 @@ public class ProposalPDFGenerator : MonoBehaviour
             if (screenshot == null)
                 screenshot = FindObjectOfType<ScreenshotCapture>();
 
-            if (screenshot != null)
+            var ceiling = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling);
+            if (screenshot != null && ceiling != null)
             {
+                Debug.Log("[ProposalPDF] capturing ceiling still");
                 yield return StartCoroutine(
                     screenshot.CaptureCeilingOnly(
-                        RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling).transform.position + new Vector3(0, 10, 0),
+                        ceiling.transform.position + new Vector3(0, 10, 0),
                         null,
                         (resultPath) => path = resultPath
                     )
                 );
+            }
+            else
+            {
+                Debug.LogWarning("[ProposalPDF] skip ceiling still (camera or ceiling missing)");
             }
 
             if (isCancelled)
@@ -490,13 +512,9 @@ public class ProposalPDFGenerator : MonoBehaviour
         // Step 3: Generate PDF
         if (_previewMode)
         {
-            filePath = Path.Combine(Application.temporaryCachePath, "SalesProposal_WorkspacePreview.pdf");
-            try
-            {
-                if (File.Exists(filePath))
-                    File.Delete(filePath);
-            }
-            catch { /* overwrite below */ }
+            filePath = Path.Combine(
+                Application.temporaryCachePath,
+                $"SalesProposal_WorkspacePreview_{DateTime.UtcNow.Ticks}.pdf");
         }
         else if (!string.IsNullOrWhiteSpace(_exportPathOverride))
         {
@@ -541,6 +559,8 @@ public class ProposalPDFGenerator : MonoBehaviour
         yield return SafeCoroutine(
             GeneratePDFDocumentCoroutine(filePath, ok => pdfGenerated = ok),
             e => pdfError = e);
+        if (!string.IsNullOrEmpty(_lastWrittenPdfPath))
+            filePath = _lastWrittenPdfPath;
         if (pdfError != null)
         {
             hasError = true;
@@ -584,6 +604,53 @@ public class ProposalPDFGenerator : MonoBehaviour
         }
     }
 
+    void ReleasePdfOutput()
+    {
+        var doc = _openDocument;
+        _openDocument = null;
+        var writer = _openWriter;
+        _openWriter = null;
+        var stream = _pdfOutputStream;
+        _pdfOutputStream = null;
+
+        try
+        {
+            if (doc != null && doc.IsOpen())
+                doc.Close();
+        }
+        catch { /* best effort */ }
+
+        try { writer?.Close(); }
+        catch { /* already closed with document */ }
+
+        try { stream?.Dispose(); }
+        catch { /* best effort */ }
+    }
+
+    static FileStream OpenPdfWriteStream(ref string filePath)
+    {
+        IOException last = null;
+        for (int i = 0; i < 8; i++)
+        {
+            try
+            {
+                return new FileStream(
+                    filePath, FileMode.Create, FileAccess.Write, FileShare.None);
+            }
+            catch (IOException e)
+            {
+                last = e;
+                string dir = Path.GetDirectoryName(filePath);
+                string stem = Path.GetFileNameWithoutExtension(filePath);
+                filePath = Path.Combine(
+                    string.IsNullOrEmpty(dir) ? Application.temporaryCachePath : dir,
+                    $"{stem}_{i + 1}.pdf");
+            }
+        }
+
+        throw last ?? new IOException("Could not open PDF output file.");
+    }
+
     private IEnumerator GeneratePDFDocumentCoroutine(string filePath, Action<bool> onComplete)
     {
         Document document = null;
@@ -596,8 +663,13 @@ public class ProposalPDFGenerator : MonoBehaviour
             if (_previewMode && !_reuseCachedVisuals)
                 ClearPreviewElevationCache();
 
+            ReleasePdfOutput();
             document = new Document(PageSize.A4, 18, 18, 18, 18);
-            writer = PdfWriter.GetInstance(document, new FileStream(filePath, FileMode.Create));
+            _pdfOutputStream = OpenPdfWriteStream(ref filePath);
+            _lastWrittenPdfPath = filePath;
+            writer = PdfWriter.GetInstance(document, _pdfOutputStream);
+            _openDocument = document;
+            _openWriter = writer;
             writer.PageEvent = new PageEventHelper
             {
                 clientName = clientName,
@@ -646,6 +718,11 @@ public class ProposalPDFGenerator : MonoBehaviour
 
             document.Close();
             document = null;
+            _openDocument = null;
+            _openWriter = null;
+            try { _pdfOutputStream?.Dispose(); }
+            catch { /* already closed with document */ }
+            _pdfOutputStream = null;
             // Finished preview bake → stills are current. Cancelled / stopped bakes never reach here.
             if (_previewMode && !isCancelled)
                 PreviewVisualsStale = false;
@@ -654,11 +731,7 @@ public class ProposalPDFGenerator : MonoBehaviour
         finally
         {
             FastPreviewCapture = false;
-            if (document != null && document.IsOpen())
-            {
-                try { document.Close(); }
-                catch { /* best effort */ }
-            }
+            ReleasePdfOutput();
         }
 
         onComplete?.Invoke(success);
@@ -824,26 +897,14 @@ public class ProposalPDFGenerator : MonoBehaviour
 
     private IEnumerator PrepareQuoteDataCoroutine()
     {
-        // Prefer already-loaded SelectablePrice from room load — full rebuild is expensive.
-        selectablePrices = UnityEngine.Object.FindObjectsByType<SelectablePrice>(
-            FindObjectsInactive.Include, FindObjectsSortMode.None) ?? Array.Empty<SelectablePrice>();
-
-        bool anyPriced = false;
-        for (int i = 0; i < selectablePrices.Length; i++)
+        // Only rebuild when live objects are missing Excel data. A full force-reload
+        // on every preview/export (V6 overrides stay "active") froze generation.
+        selectablePrices = PricingManager.CollectActiveSelectablePrices();
+        if (PricingManager.AnyMissingLoadedPricing(selectablePrices))
         {
-            if (selectablePrices[i] != null && selectablePrices[i].objectPricingData != null)
-            {
-                anyPriced = true;
-                break;
-            }
-        }
-
-        if (!anyPriced)
-        {
-            PricingManager.RebuildPricingFromTrackedObjects();
+            PricingManager.RebuildPricingFromTrackedObjects(forceReload: false);
             yield return null;
-            selectablePrices = UnityEngine.Object.FindObjectsByType<SelectablePrice>(
-                FindObjectsInactive.Include, FindObjectsSortMode.None) ?? Array.Empty<SelectablePrice>();
+            selectablePrices = PricingManager.CollectActiveSelectablePrices();
         }
 
         int ensuredThisFrame = 0;
@@ -868,9 +929,19 @@ public class ProposalPDFGenerator : MonoBehaviour
         }
 
         selectablePrices = selectablePrices
-            .Where(sp => sp != null)
+            .Where(sp => sp != null && sp.gameObject.activeInHierarchy)
             .OrderBy(sp => sp.objectPricingData != null ? 0 : 1)
             .ToArray();
+
+        Debug.Log(
+            $"[ProposalPDF] {selectablePrices.Length} active price objects: " +
+            string.Join("; ", selectablePrices.Select(sp =>
+            {
+                string n = sp.objectPricingData != null
+                    ? sp.objectPricingData.ObjectName
+                    : (sp.pricingObjectName ?? sp.UIObjectName ?? sp.name);
+                return $"{n}{(sp.isBoomObject ? " [boom]" : "")}{(sp.objectPricingData == null ? " (unpriced)" : "")}";
+            })));
 
         selectables = new Selectable[selectablePrices.Length];
 
@@ -940,16 +1011,24 @@ public class ProposalPDFGenerator : MonoBehaviour
     /// </summary>
     private bool HasUnpricedAssemblies()
     {
+        // A priced leftover light must not hide an unpriced boom sitting in the room.
+        if (PdfBatchExporter.CollectBoomAssemblyRoots().Count > 0)
+        {
+            bool boomPriced = selectablePrices != null && selectablePrices.Any(sp =>
+                sp != null && sp.isBoomObject && sp.objectPricingData != null);
+            if (!boomPriced)
+                return true;
+        }
+
         int priced = selectablePrices?.Count(sp => sp != null && sp.objectPricingData != null) ?? 0;
         if (priced > 0)
             return false;
 
-        // Any SelectablePrice identity without data, or boom roots in the room.
         if (selectablePrices != null
             && selectablePrices.Any(sp => sp != null && !string.IsNullOrEmpty(sp.pricingObjectName)))
             return true;
 
-        return PdfBatchExporter.CollectBoomAssemblyRoots().Count > 0;
+        return false;
     }
 
 
@@ -1103,9 +1182,9 @@ public class ProposalPDFGenerator : MonoBehaviour
             }
 
             var boomRoot = group.Key != null ? group.Key.gameObject : null;
-            var boomLine = ProposalPricingResolver.ResolveBoomLine(boomRoot, booms);
+            var boomLines = ProposalPricingResolver.ResolveBoomLines(boomRoot, booms);
             var boomExtras = ProposalPricingResolver.ResolveBoomExtraLines(boomRoot, booms);
-            if (boomLine != null)
+            foreach (var boomLine in boomLines)
             {
                 string boomDesc = string.IsNullOrWhiteSpace(boomLine.Description)
                     ? "ARTICULATING BOOM"
@@ -1113,7 +1192,10 @@ public class ProposalPDFGenerator : MonoBehaviour
                 document.Add(CreateModelTable(
                     "MODEL DESCRIPTION", "QTY", boomDesc, Math.Max(1, boomLine.Qty).ToString()));
                 AddHorizontalLine(document);
+            }
 
+            if (boomLines.Count > 0 || boomExtras.Count > 0)
+            {
                 AddSectionHeader(document, "OPTION/ACCESSORY DESCRIPTION");
                 // Prefer priced extra names; fall back to the old name dump if none resolved.
                 string boomOptionsText = boomExtras.Count > 0
@@ -1135,7 +1217,7 @@ public class ProposalPDFGenerator : MonoBehaviour
             }
 
             // Lights + boom package + priced extras (Estimating-style config list; install/ship on page 3).
-            if (lightLines.Count > 0 || boomLine != null || boomExtras.Count > 0)
+            if (lightLines.Count > 0 || boomLines.Count > 0 || boomExtras.Count > 0)
             {
                 double configTotal = ProposalPricingResolver.SumEquipment(group);
                 document.Add(CreateTotalTable("EQUIPMENT TOTAL LIST PRICE", configTotal.ToString("C")));
@@ -1193,7 +1275,16 @@ public class ProposalPDFGenerator : MonoBehaviour
                 if (isCancelled)
                     yield break;
 
-                List<PdfExporter.PdfImageData> imageData = list[i].ExportElevationPdf();
+                Debug.Log("[ProposalPDF] capturing elevation still");
+                List<PdfExporter.PdfImageData> imageData = null;
+                try
+                {
+                    imageData = list[i].ExportElevationPdf();
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"[ProposalPDF] elevation capture failed: {e.Message}");
+                }
                 yield return null;
 
                 if (imageData != null && imageData.Count > 0 && !string.IsNullOrEmpty(imageData[0].Path))
@@ -1314,8 +1405,8 @@ public class ProposalPDFGenerator : MonoBehaviour
             var lights = configGroup.Where(sp => !sp.isBoomObject).ToList();
             var booms = configGroup.Where(sp => sp.isBoomObject).ToList();
             var lightLines = ProposalPricingResolver.ResolveLightLines(lights);
-            var boomLine = ProposalPricingResolver.ResolveBoomLine(
-                firstSp != null ? firstSp.transform.root.gameObject : null, booms);
+            var boomRoot = firstSp != null ? firstSp.transform.root.gameObject : null;
+            var boomLines = ProposalPricingResolver.ResolveBoomLines(boomRoot, booms);
 
             // ---------- LIGHT MODELS (combo sheet, same as pricing UI) ----------
             if (lightLines.Count > 0)
@@ -1379,18 +1470,20 @@ public class ProposalPDFGenerator : MonoBehaviour
             }
 
             // ---------- BOOM MODELS (bundled 3D config sheet) ----------
-            var boomExtras = ProposalPricingResolver.ResolveBoomExtraLines(
-                firstSp != null ? firstSp.transform.root.gameObject : null, booms);
-            if (boomLine != null)
+            var boomExtras = ProposalPricingResolver.ResolveBoomExtraLines(boomRoot, booms);
+            if (boomLines.Count > 0)
             {
                 AddRowToTable(table, "MODEL DESCRIPTION", BaseColor.WHITE, BaseColor.BLACK, PdfPCell.NO_BORDER);
 
-                table.AddCell(CreateLeftAlignedCell(boomLine.PartNumber ?? "N/A", normalFont));
-                table.AddCell(CreateLeftAlignedCell(boomLine.Description ?? "", normalFont));
-                table.AddCell(CreateCenteredCell(boomLine.Qty.ToString(), normalFont));
-                table.AddCell(CreateRightAlignedCell(boomLine.UnitPrice.ToString("C"), normalFont));
-                table.AddCell(CreateRightAlignedCell(boomLine.ExtPrice.ToString("C"), normalFont));
-                subtotal += boomLine.ExtPrice;
+                foreach (var boomLine in boomLines)
+                {
+                    table.AddCell(CreateLeftAlignedCell(boomLine.PartNumber ?? "N/A", normalFont));
+                    table.AddCell(CreateLeftAlignedCell(boomLine.Description ?? "", normalFont));
+                    table.AddCell(CreateCenteredCell(boomLine.Qty.ToString(), normalFont));
+                    table.AddCell(CreateRightAlignedCell(boomLine.UnitPrice.ToString("C"), normalFont));
+                    table.AddCell(CreateRightAlignedCell(boomLine.ExtPrice.ToString("C"), normalFont));
+                    subtotal += boomLine.ExtPrice;
+                }
 
                 for (int i = 0; i < 5; i++)
                 {
@@ -1444,7 +1537,7 @@ public class ProposalPDFGenerator : MonoBehaviour
 
             // ---------- SUBTOTAL ----------
             // Only add subtotal if we have any content in the table
-            if (lightLines.Count > 0 || lightOptionData.Count > 0 || boomLine != null
+            if (lightLines.Count > 0 || lightOptionData.Count > 0 || boomLines.Count > 0
                 || boomExtras.Count > 0 || boomOptionData.Count > 0)
             {
                 // Add a spacer row before subtotal
@@ -1994,8 +2087,13 @@ public class ProposalPDFGenerator : MonoBehaviour
 
     private Selectable GetRootParent(Selectable selectable)
     {
-        while (selectable.ParentSelectable != null)
+        var seen = new HashSet<Selectable>();
+        while (selectable != null && selectable.ParentSelectable != null)
+        {
+            if (!seen.Add(selectable))
+                break;
             selectable = selectable.ParentSelectable;
+        }
         return selectable;
     }
 
