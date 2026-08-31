@@ -107,6 +107,10 @@ public class UI_ProposalWorkspace : MonoBehaviour
     Coroutine _previewDebounce;
     Coroutine _previewBuildRoutine;
     bool _pendingForceVisuals;
+    /// <summary>True while a preview bake is running — pricing events must not restart it.</summary>
+    bool _suppressAutoPreviewRefresh;
+    bool _queuedUserPreviewRefresh;
+    bool _queuedUserForceVisuals;
 
     /// <summary>1 = fit page in viewport; higher values zoom in.</summary>
     float _pageZoom = 1f;
@@ -140,9 +144,8 @@ public class UI_ProposalWorkspace : MonoBehaviour
             }
             EnsurePricingOptionsInitialized();
             HideLegacyPricingPanel();
+            Instance._suppressAutoPreviewRefresh = true;
             DropdownPopulator.RestoreAllPersistedSelections();
-            // Don't carry a config title from a previous room/session into this open.
-            ProposalPreviewModel.ConfigNameOverride = null;
 
             // Show UI + loading first — defer Capture()/PDF bake so they don't freeze the frame.
             Instance._model ??= new ProposalPreviewModel();
@@ -384,8 +387,15 @@ public class UI_ProposalWorkspace : MonoBehaviour
 
     void OnPricingChanged()
     {
+        if (_suppressAutoPreviewRefresh || _previewLoading || _previewBuildRoutine != null)
+        {
+            Debug.Log(
+                $"[ProposalPreview] ignore pricing event (suppress={_suppressAutoPreviewRefresh} loading={_previewLoading} bake={_previewBuildRoutine != null})");
+            return;
+        }
+
         RefreshLiveData(syncSalesRep: false);
-        SchedulePreviewRefresh(forceVisuals: false);
+        SchedulePreviewRefresh(forceVisuals: false, reason: "pricing");
     }
 
     void OnClientDataClosed()
@@ -403,7 +413,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
             return;
         }
 
-        SchedulePreviewRefresh(forceVisuals: false);
+        SchedulePreviewRefresh(forceVisuals: false, reason: "client-data");
     }
 
     void RefreshLiveData(bool syncSalesRep = false)
@@ -655,10 +665,25 @@ public class UI_ProposalWorkspace : MonoBehaviour
 
     #region PDF preview
 
-    void SchedulePreviewRefresh(bool forceVisuals = false)
+    void SchedulePreviewRefresh(bool forceVisuals = false, string reason = "unspecified")
     {
         if (!isActiveAndEnabled)
             return;
+
+        bool bakeBusy = _suppressAutoPreviewRefresh || _previewLoading || _previewBuildRoutine != null;
+        Debug.Log(
+            $"[ProposalPreview] schedule reason={reason} force={forceVisuals} " +
+            $"busy={bakeBusy} gen={_previewGenerationId}");
+
+        if (bakeBusy)
+        {
+            if (reason != "pricing")
+            {
+                _queuedUserPreviewRefresh = true;
+                _queuedUserForceVisuals |= forceVisuals;
+            }
+            return;
+        }
 
         if (forceVisuals)
             _pendingForceVisuals = true;
@@ -670,11 +695,31 @@ public class UI_ProposalWorkspace : MonoBehaviour
 
     IEnumerator PreviewDebounceRoutine()
     {
+        Debug.Log($"[ProposalPreview] debounce {PreviewDebounceSeconds:0.00}s then bake");
         yield return new WaitForSecondsRealtime(PreviewDebounceSeconds);
         _previewDebounce = null;
         bool forceVisuals = _pendingForceVisuals;
         _pendingForceVisuals = false;
         BeginPreviewGeneration(forceVisuals);
+    }
+
+    void FinishPreviewBake(int generationId)
+    {
+        if (generationId != _previewGenerationId)
+            return;
+
+        _previewBuildRoutine = null;
+        _suppressAutoPreviewRefresh = false;
+        Debug.Log(
+            $"[ProposalPreview] bake finished gen={generationId} queuedUser={_queuedUserPreviewRefresh}");
+
+        if (!_queuedUserPreviewRefresh || !isActiveAndEnabled)
+            return;
+
+        bool force = _queuedUserForceVisuals;
+        _queuedUserPreviewRefresh = false;
+        _queuedUserForceVisuals = false;
+        SchedulePreviewRefresh(force, reason: "queued-user");
     }
 
     void CancelPreviewRefresh()
@@ -691,6 +736,8 @@ public class UI_ProposalWorkspace : MonoBehaviour
         }
         _previewGenerationId++;
         _pendingForceVisuals = false;
+        _suppressAutoPreviewRefresh = false;
+        _queuedUserPreviewRefresh = false;
         SetPreviewLoading(false);
 
         var generator = FindAnyObjectByType<ProposalPDFGenerator>(FindObjectsInactive.Include);
@@ -702,12 +749,23 @@ public class UI_ProposalWorkspace : MonoBehaviour
         if (!isActiveAndEnabled)
             return;
 
+        _suppressAutoPreviewRefresh = true;
+        if (_previewDebounce != null)
+        {
+            StopCoroutine(_previewDebounce);
+            _previewDebounce = null;
+        }
+
         if (_previewBuildRoutine != null)
         {
             StopCoroutine(_previewBuildRoutine);
             _previewBuildRoutine = null;
         }
 
+        var generator = FindAnyObjectByType<ProposalPDFGenerator>(FindObjectsInactive.Include);
+        generator?.CancelPreview();
+
+        Debug.Log($"[ProposalPreview] start bake forceVisuals={forceVisuals} gen={_previewGenerationId + 1}");
         _previewBuildRoutine = StartCoroutine(BeginPreviewGenerationRoutine(forceVisuals));
     }
 
@@ -722,7 +780,10 @@ public class UI_ProposalWorkspace : MonoBehaviour
         // Let the loading overlay paint before heavy Capture / PDF work.
         yield return null;
         if (generationId != _previewGenerationId || !isActiveAndEnabled)
+        {
+            FinishPreviewBake(generationId);
             yield break;
+        }
 
         if (_model == null)
             _model = ProposalPreviewModel.Capture();
@@ -731,7 +792,10 @@ public class UI_ProposalWorkspace : MonoBehaviour
 
         yield return null;
         if (generationId != _previewGenerationId || !isActiveAndEnabled)
+        {
+            FinishPreviewBake(generationId);
             yield break;
+        }
 
         _model.PersistEditableFields();
 
@@ -740,7 +804,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
         {
             SetPreviewLoading(false);
             SetStatus("Sales proposal generator is missing from the scene.");
-            _previewBuildRoutine = null;
+            FinishPreviewBake(generationId);
             yield break;
         }
 
@@ -763,7 +827,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
             if (generationId != _previewGenerationId || !isActiveAndEnabled)
             {
                 generator.CancelPreview();
-                _previewBuildRoutine = null;
+                FinishPreviewBake(generationId);
                 yield break;
             }
             yield return null;
@@ -771,7 +835,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
 
         if (generationId != _previewGenerationId || !isActiveAndEnabled)
         {
-            _previewBuildRoutine = null;
+            FinishPreviewBake(generationId);
             yield break;
         }
 
@@ -780,7 +844,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
             SetPreviewLoading(false);
             if (!string.Equals(errResult, "cancelled", StringComparison.OrdinalIgnoreCase))
                 SetStatus(string.IsNullOrWhiteSpace(errResult) ? "Preview failed." : errResult);
-            _previewBuildRoutine = null;
+            FinishPreviewBake(generationId);
             yield break;
         }
 
@@ -815,7 +879,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
                 if (textures[i] != null)
                     Destroy(textures[i]);
             }
-            _previewBuildRoutine = null;
+            FinishPreviewBake(generationId);
             yield break;
         }
 
@@ -824,7 +888,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
             Debug.LogWarning($"Proposal preview rasterize failed: {rasterError.Message}");
             SetPreviewLoading(false);
             SetStatus("Could not rasterize preview: " + rasterError.Message);
-            _previewBuildRoutine = null;
+            FinishPreviewBake(generationId);
             yield break;
         }
 
@@ -846,7 +910,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
             SetStatus("Could not apply preview: " + e.Message);
         }
 
-        _previewBuildRoutine = null;
+        FinishPreviewBake(generationId);
     }
 
     void ApplyPageTextures(List<Texture2D> textures)
@@ -1452,6 +1516,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
         CreateGhostButton(rail.transform, "Options", EditOptions, -1f, 34f);
         CreateGhostButton(rail.transform, "Sales Rep", EditSalesRep, -1f, 34f);
         CreateGhostButton(rail.transform, "Client Data", EditClientData, -1f, 34f);
+        CreateGhostButton(rail.transform, "Pricing…", UI_PricingBridge.Open, -1f, 34f);
         CreateGhostButton(rail.transform, "Refresh visuals", () => BeginPreviewGeneration(forceVisuals: true), -1f, 34f);
 
         var spacer = new GameObject("RailSpacer", typeof(RectTransform), typeof(LayoutElement));
@@ -2439,7 +2504,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
         _model.PersistEditableFields();
         DropdownPopulator.PersistAllCurrentSelections();
 
-        if (!ExportPaths.EnsureRoomSavedForExport())
+        if (!ExportPaths.EnsureRoomSavedForExport(ExportPdf))
             return;
 
         var generator = FindAnyObjectByType<ProposalPDFGenerator>(FindObjectsInactive.Include);
@@ -2475,9 +2540,23 @@ public class UI_ProposalWorkspace : MonoBehaviour
             safeConfig = ExportPaths.GetSuggestedExportFolderName();
         string path = Path.Combine(folder, $"SalesProposal_{safeConfig}.pdf");
 
-        // Drop any in-flight preview first so export owns the generator cleanly.
         CancelPreviewRefresh();
-        generator.GeneratePDF(path);
+        SetPreviewLoading(true, "Exporting sales proposal…");
+        Debug.Log($"[ProposalExport] writing {path}");
+        generator.GeneratePDF(path, (ok, written, err) =>
+        {
+            SetPreviewLoading(false);
+            if (ok)
+            {
+                SetStatus("Sales proposal exported.");
+                Debug.Log($"[ProposalExport] done {written}");
+            }
+            else
+            {
+                SetStatus(string.IsNullOrWhiteSpace(err) ? "Export failed." : err);
+                Debug.LogError($"[ProposalExport] failed: {err}");
+            }
+        });
     }
 
     #region UI helpers

@@ -108,7 +108,8 @@ public class PricingManager : MonoBehaviour
         string pricingObjectName,
         string uiObjectName,
         string size,
-        bool isBoomObject)
+        bool isBoomObject,
+        bool forceReload = false)
     {
         if (targetObject == null
             || string.IsNullOrEmpty(sheetName)
@@ -132,7 +133,7 @@ public class PricingManager : MonoBehaviour
             || price.isBoomObject != isBoomObject;
         ApplyIdentity(price, isBoomObject, pricingObjectName, uiObjectName, sheetName, price.rootParentName, size);
         RegisterExistingPricingComponent(price);
-        price.EnsurePricingDataLoaded(force: identityChanged || price.objectPricingData == null);
+        price.EnsurePricingDataLoaded(force: forceReload || identityChanged || price.objectPricingData == null);
         return price;
     }
 
@@ -141,17 +142,32 @@ public class PricingManager : MonoBehaviour
     /// and/or catalog UI button names (legacy saves often omit sheet/price fields).
     /// Call after room/config load (and before proposal export as a safety net).
     /// </summary>
-    public static int RebuildPricingFromTrackedObjects()
+    /// <param name="forceReload">
+    /// When true, drop already-loaded Excel data and re-fetch so imported prices apply
+    /// to objects already in the scene.
+    /// </param>
+    public static int RebuildPricingFromTrackedObjects(bool forceReload = false)
     {
         if (Instance == null)
             return 0;
 
+        if (forceReload)
+        {
+            Instance.ClearCache();
+            var existing = CollectActiveSelectablePrices();
+            foreach (var sp in existing)
+            {
+                if (sp == null) continue;
+                sp.InvalidateLoadedPricing();
+            }
+        }
+
         var tracked = UnityEngine.Object.FindObjectsByType<TrackedObject>(
-            FindObjectsInactive.Include, FindObjectsSortMode.None);
+            FindObjectsInactive.Exclude, FindObjectsSortMode.None);
         int ensured = 0;
         foreach (var to in tracked)
         {
-            if (to == null)
+            if (to == null || !to.gameObject.activeInHierarchy)
                 continue;
             var d = to.data;
 
@@ -167,7 +183,8 @@ public class PricingManager : MonoBehaviour
                     d.priceObjectName,
                     d.UIObjectName,
                     d.size,
-                    isBoom);
+                    isBoom,
+                    forceReload: forceReload);
                 if (price != null && price.objectPricingData != null)
                     ensured++;
                 continue;
@@ -188,18 +205,59 @@ public class PricingManager : MonoBehaviour
                 ensured++;
         }
 
-        // Refresh any SelectablePrice still missing Excel data.
-        var orphans = UnityEngine.Object.FindObjectsByType<SelectablePrice>(
-            FindObjectsInactive.Include, FindObjectsSortMode.None);
+        var orphans = CollectActiveSelectablePrices();
         foreach (var sp in orphans)
         {
-            if (sp == null || sp.objectPricingData != null)
+            if (sp == null)
+                continue;
+            if (!forceReload && sp.objectPricingData != null)
                 continue;
             if (sp.EnsurePricingDataLoaded(force: true) && sp.objectPricingData != null)
                 ensured++;
         }
 
         return ensured;
+    }
+
+    /// <summary>
+    /// SelectablePrice on objects that are actually in the room (not leftover
+    /// inactive configs still sitting in the hierarchy).
+    /// </summary>
+    public static SelectablePrice[] CollectActiveSelectablePrices()
+    {
+        var found = UnityEngine.Object.FindObjectsByType<SelectablePrice>(
+            FindObjectsInactive.Exclude, FindObjectsSortMode.None)
+            ?? Array.Empty<SelectablePrice>();
+
+        int keep = 0;
+        for (int i = 0; i < found.Length; i++)
+        {
+            var sp = found[i];
+            if (sp == null || !sp.gameObject.activeInHierarchy)
+                continue;
+            found[keep++] = sp;
+        }
+
+        if (keep != found.Length)
+            Array.Resize(ref found, keep);
+        return found;
+    }
+
+    public static bool AnyMissingLoadedPricing(SelectablePrice[] prices)
+    {
+        if (prices == null)
+            return false;
+        for (int i = 0; i < prices.Length; i++)
+        {
+            var sp = prices[i];
+            if (sp == null || sp.objectPricingData != null)
+                continue;
+            if (sp.isBoomObject)
+                return true;
+            if (!string.IsNullOrEmpty(sp.sheetName) && !string.IsNullOrEmpty(sp.pricingObjectName))
+                return true;
+        }
+        return false;
     }
 
     public static bool InferIsBoomObject(string sheetName, string pricingObjectName, string uiObjectName)
@@ -363,6 +421,12 @@ public class PricingManager : MonoBehaviour
 
                 data = _excelReader?.FetchPricingDataFromExcel(sheetName, objectName);
                 if (data != null) data.ObjectSize = null;
+            }
+
+            if (data != null
+                && PricingBridgeStore.TryGetOverride(sheetName, objectName, size, out double overridePrice))
+            {
+                data.ListPrice = overridePrice;
             }
 
             if (data != null)
