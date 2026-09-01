@@ -13,7 +13,7 @@ using UnityEngine.UI;
 /// <summary>
 /// Near-fullscreen sales-proposal viewer. Shows the real generated PDF as rasterized
 /// page images with clickable hotspots over editable regions (plus a slim side rail
-/// for options / client data / refresh).
+/// for options / prices / client data / refresh).
 /// </summary>
 [RequireComponent(typeof(FullScreenMenu))]
 public class UI_ProposalWorkspace : MonoBehaviour
@@ -66,7 +66,7 @@ public class UI_ProposalWorkspace : MonoBehaviour
     bool _built;
 
     /// <summary>Bump to force-rebuild the DontDestroyOnLoad workspace after UI hierarchy fixes.</summary>
-    const int UiBuildVersion = 5;
+    const int UiBuildVersion = 6;
     static int _loadedUiBuildVersion;
 
     UnityAction _onPricingChanged;
@@ -1517,6 +1517,10 @@ public class UI_ProposalWorkspace : MonoBehaviour
         CreateGhostButton(rail.transform, "Sales Rep", EditSalesRep, -1f, 34f);
         CreateGhostButton(rail.transform, "Client Data", EditClientData, -1f, 34f);
         CreateGhostButton(rail.transform, "Refresh visuals", () => BeginPreviewGeneration(forceVisuals: true), -1f, 34f);
+
+        CreateLabel(rail.transform, "Prices", 12f, FontStyles.Bold, TextAlignmentOptions.MidlineLeft, -1f, 18f)
+            .color = Theme.InkMuted;
+        CreateGhostButton(rail.transform, "Update prices", UI_PricingBridge.Open, -1f, 34f);
 
         var spacer = new GameObject("RailSpacer", typeof(RectTransform), typeof(LayoutElement));
         spacer.transform.SetParent(rail.transform, false);

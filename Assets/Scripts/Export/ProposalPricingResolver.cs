@@ -428,6 +428,9 @@ public static class ProposalPricingResolver
         if (packaged == null && electrical)
             packaged = pm?.GetCachedPricingData(
                 DataFilePaths.sheetNameBoomIndividual, $"Electrical ({count} Duplexes)");
+        if (packaged == null && !electrical)
+            packaged = pm?.GetCachedPricingData(
+                DataFilePaths.sheetNameBoomIndividual, $"{count} Outlets");
 
         double unitEach = LookupUnitOutletRate(electrical);
         double ext;
@@ -539,7 +542,8 @@ public static class ProposalPricingResolver
         }
 
         var gas = pm.GetCachedPricingData(DataFilePaths.sheetNameBoomIndividual, "Medical Gases (1x)")
-                  ?? pm.GetCachedPricingData(DataFilePaths.sheetNameBoomIndividual, "Medical Gas");
+                  ?? pm.GetCachedPricingData(DataFilePaths.sheetNameBoomIndividual, "Medical Gas")
+                  ?? pm.GetCachedPricingData(DataFilePaths.sheetNameBoomIndividual, "1 Outlets");
         if (gas != null && gas.ListPrice > 0)
             return gas.ListPrice;
         return 814.675;

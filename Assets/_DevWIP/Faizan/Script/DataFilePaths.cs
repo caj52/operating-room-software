@@ -7,7 +7,7 @@ public class DataFilePaths
     //public static string ExcelFileBoomPricingSheet = "BoomPricingSheet_New_7Apr25.xls";// "BoomPricingSheet.xls";
     //public static string ExcelFilePricingSheetForLight = "PricingSheetForLight_New_7Apr25.xls";// "PricingSheetForLight.xls";
 
-    public static string ExcelFileNameForLightAndBoomPricing = "Boom_GroupPricing_2024.xls";// "PricingSheetForLight.xls";
+    public static string ExcelFileNameForLightAndBoomPricing = "2026_0501_-_Quote_Request_V6_(Blank).xlsx";
 
     public static string sheetNameLight = "2025_03_28 3D Light Pricing";
     public static string sheetNameBoomIndividual = "2025_03_28 Boom Pricing";

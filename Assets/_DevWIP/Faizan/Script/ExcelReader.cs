@@ -24,18 +24,9 @@ public class ExcelReader : MonoBehaviour
 
     public void SetExcelFileName()
     {
-        string fileName = DataFilePaths.ExcelFileNameForLightAndBoomPricing;
-        string excelBasePath = Path.Combine(Application.streamingAssetsPath, "Data", "quotes");
-
-        string nextPath = Path.Combine(excelBasePath, fileName);
-        if (!string.Equals(filePath, nextPath, StringComparison.OrdinalIgnoreCase))
-        {
-            filePath = nextPath;
-            InvalidateWorkbookCache();
-        }
-
-        if (!File.Exists(filePath))
-            Debug.LogWarning($"The specified Excel file does not exist at path: {filePath}");
+        // Live prices come from Quote Request V6 via PricingBridgeStore — not an .xls in quotes/.
+        filePath = null;
+        InvalidateWorkbookCache();
     }
 
     private void OnDestroy()
@@ -55,14 +46,8 @@ public class ExcelReader : MonoBehaviour
 
     private bool ValidateFilePath()
     {
-        if (string.IsNullOrEmpty(filePath))
-            SetExcelFileName();
-
-        if (!File.Exists(filePath))
-        {
-            Debug.LogError($"Excel file not found at path: {filePath}");
+        if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
             return false;
-        }
         return true;
     }
 
@@ -115,113 +100,19 @@ public class ExcelReader : MonoBehaviour
 
     public PriceExcelData FetchPricingDataFromExcel(string sheetName, string objectNameToSearch, string objectSizeToSearch = null)
     {
-        if (!DataFilePaths.SheetColumnMappings.TryGetValue(sheetName, out var columnMapping))
+        if (PricingBridgeStore.TryGetPriceExcelData(sheetName, objectNameToSearch, objectSizeToSearch, out var data)
+            && data != null)
         {
-            Debug.LogError($"No column mapping found for sheet: {sheetName}");
-            return null;
+            data.SimFlexPrice = GetSimFlexPrice();
+            return data;
         }
-
-        ISheet sheet = GetSheet(sheetName);
-        if (sheet == null)
-            return null;
-
-        lock (_workbookLock)
-        {
-            for (int row = 0; row <= sheet.LastRowNum; row++)
-            {
-                IRow excelRow = sheet.GetRow(row);
-                if (excelRow == null) continue;
-
-                string excelObjectName = GetCellValue(excelRow.GetCell(columnMapping.ObjectName));
-                // Light option rows (ceiling covers, tandem mounts) store the name in
-                // column 1 (Configuration) with column 2 (3D combo) empty.
-                string excelConfigName = columnMapping.ObjectName != 1
-                    ? GetCellValue(excelRow.GetCell(1))
-                    : null;
-                string excelPartNumber = GetCellValue(excelRow.GetCell(columnMapping.PartNumber));
-                string excelObjectSize = columnMapping.ObjectSize != -1
-                    ? GetCellValue(excelRow.GetCell(columnMapping.ObjectSize))
-                    : "";
-
-                bool isMatchedName =
-                    NamesEqual(excelObjectName, objectNameToSearch)
-                    || NamesEqual(excelConfigName, objectNameToSearch)
-                    || NamesEqual(excelPartNumber, objectNameToSearch);
-
-                bool isMatchedSize = string.IsNullOrWhiteSpace(objectSizeToSearch) ||
-                    String.Compare(
-                        excelObjectSize,
-                        objectSizeToSearch,
-                        CultureInfo.CurrentCulture,
-                        CompareOptions.IgnoreCase | CompareOptions.IgnoreSymbols) == 0;
-
-                if (!isMatchedName || !isMatchedSize)
-                    continue;
-
-                if (string.IsNullOrWhiteSpace(excelObjectName))
-                    excelObjectName = excelConfigName;
-
-                string listPrice = GetCellValue(excelRow.GetCell(columnMapping.ListPrice));
-                if (string.IsNullOrEmpty(listPrice)) continue;
-
-                CultureInfo culture = CultureInfo.GetCultureInfo("en-US");
-                double listPriceValue = double.Parse(listPrice, NumberStyles.Currency, culture);
-
-                return new PriceExcelData
-                {
-                    PartNumber = GetCellValue(excelRow.GetCell(columnMapping.PartNumber)),
-                    ObjectName = excelObjectName,
-                    ObjectSize = excelObjectSize,
-                    ListPrice = listPriceValue,
-                    SimFlexPrice = GetSimFlexPrice()
-                };
-            }
-        }
-
         return null;
     }
 
     public PriceExcelData[] GetColumnData(int priceColumnNumber, int minRowNumber, int maxRowNumber, string sheetName)
     {
-        if (!File.Exists(filePath))
-        {
-            Debug.LogError("Excel file not found!");
-            return null;
-        }
-
-        using (FileStream stream = new FileStream(filePath, FileMode.Open, FileAccess.Read))
-        {
-            IWorkbook workbook = OpenWorkbook(stream, filePath);
-            if (workbook == null)
-                return null;
-
-            ISheet sheet = workbook.GetSheet(sheetName);
-            if (sheet == null)
-                return null;
-
-            List<PriceExcelData> columnData = new List<PriceExcelData>();
-
-            for (int row = minRowNumber; row <= maxRowNumber && row <= sheet.LastRowNum; row++)
-            {
-                IRow excelRow = sheet.GetRow(row);
-                if (excelRow == null) continue;
-
-                string cellValue = GetCellValue(excelRow.GetCell(priceColumnNumber));
-                CultureInfo culture = CultureInfo.GetCultureInfo("en-US");
-                double listPriceValue = double.Parse(cellValue, NumberStyles.Currency, culture);
-                if (!string.IsNullOrEmpty(cellValue))
-                {
-                    columnData.Add(new PriceExcelData
-                    {
-                        PartNumber = excelRow.GetCell(0)?.ToString(),
-                        ObjectName = excelRow.GetCell(1)?.ToString(),
-                        ListPrice = listPriceValue
-                    });
-                }
-            }
-
-            return columnData.ToArray();
-        }
+        bool boom = (sheetName ?? "").IndexOf("Boom", StringComparison.OrdinalIgnoreCase) >= 0;
+        return PricingBridgeStore.ListFamily(boom ? "Boom" : "Light");
     }
 
     static IWorkbook OpenWorkbook(Stream stream, string path)
@@ -307,18 +198,34 @@ public class ExcelReader : MonoBehaviour
         if (_cachedSimFlexPrice.HasValue)
             return _cachedSimFlexPrice.Value;
 
-        PriceExcelData data = GetRowData(59, DataFilePaths.sheetNameLight);
+        var data = PricingBridgeStore.FindNamed("Light", "SimFlex")
+                   ?? PricingBridgeStore.FindNamed("Light", "sim.flex")
+                   ?? PricingBridgeStore.FindNamed("Light", "Horizontal Arm");
         _cachedSimFlexPrice = data?.ListPrice ?? 0.0;
         return _cachedSimFlexPrice.Value;
     }
 
     public PriceExcelData GetInstallationLightsCharges()
     {
-        return GetRowData(98, DataFilePaths.sheetNameLight);
+        if (PricingBridgeStore.TryGetPriceExcelData(
+                DataFilePaths.sheetNameLight, "Installation (Lights)", null, out var data))
+            return data;
+        return PricingBridgeStore.FindNamed("Install", "Install")
+               ?? PricingBridgeStore.FindNamed("Install", "Valia");
     }
     public PriceExcelData GetShippingLightsCharges()
     {
-        return GetRowData(99, DataFilePaths.sheetNameLight);
+        if (PricingBridgeStore.TryGetPriceExcelData(
+                DataFilePaths.sheetNameLight, "Shipping (Lights)", null, out var data))
+            return data;
+        return PricingBridgeStore.FindNamed("Install", "Shipping");
+    }
+
+    static PriceExcelData ApplyBridgeOverride(PriceExcelData data, string sheetName)
+    {
+        if (data == null) return null;
+        PricingBridgeStore.ApplyLivePrice(sheetName, data.ObjectName, data.ObjectSize, data);
+        return data;
     }
 
     private double ParseCurrency(string value)
@@ -334,14 +241,31 @@ public class ExcelReader : MonoBehaviour
         IRow row = GetRow(rowIndex, sheetName);
         if (row == null) return null;
 
-        return new PriceExcelData
+        int nameCol = 1;
+        int priceCol = 3;
+        int partCol = 0;
+        int sizeCol = -1;
+        if (DataFilePaths.SheetColumnMappings.TryGetValue(sheetName, out var cols))
         {
-            PartNumber = GetCellValue(row.GetCell(0)),
-            ObjectName = GetCellValue(row.GetCell(1)),
-            ListPrice = ParseCurrency(GetCellValue(row.GetCell(3))),
-            //SimFlexPrice = ParseCurrency(GetCellValue(row.GetCell(4))),
-           // ObjectSize = GetCellValue(row.GetCell(5))
+            nameCol = cols.ObjectName;
+            priceCol = cols.ListPrice;
+            partCol = cols.PartNumber;
+            sizeCol = cols.ObjectSize;
+        }
+
+        string objectName = GetCellValue(row.GetCell(nameCol));
+        // Light sheet install/ship rows put the label in Configuration (col 1), not Object Name.
+        if (string.IsNullOrWhiteSpace(objectName) && nameCol != 1)
+            objectName = GetCellValue(row.GetCell(1));
+
+        var data = new PriceExcelData
+        {
+            PartNumber = GetCellValue(row.GetCell(partCol)),
+            ObjectName = objectName,
+            ObjectSize = sizeCol >= 0 ? GetCellValue(row.GetCell(sizeCol)) : null,
+            ListPrice = ParseCurrency(GetCellValue(row.GetCell(priceCol))),
         };
+        return ApplyBridgeOverride(data, sheetName);
     }
 
     private IRow GetRow(int rowIndex, string sheetName)

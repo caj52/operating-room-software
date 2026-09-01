@@ -41,6 +41,7 @@ public class PricingManager : MonoBehaviour
         Instance = this;
         DontDestroyOnLoad(gameObject);
         InitializeExcelReader();
+        PricingBridgeStore.EnsureBundledPriceList();
     }
 
     private void OnDestroy()
@@ -215,6 +216,11 @@ public class PricingManager : MonoBehaviour
             if (sp.EnsurePricingDataLoaded(force: true) && sp.objectPricingData != null)
                 ensured++;
         }
+
+        var parts = orphans
+            .Where(sp => sp != null && !string.IsNullOrWhiteSpace(sp.pricingObjectName))
+            .Select(sp => (sp.sheetName ?? "", sp.pricingObjectName, sp.Size ?? ""));
+        PricingBridgeImporter.LogRoomMatches(PricingBridgeStore.State.items, parts);
 
         return ensured;
     }
@@ -403,41 +409,38 @@ public class PricingManager : MonoBehaviour
                 return null;
 
             PriceExcelData data = null;
-
-            if (!string.IsNullOrEmpty(size))
+            if (PricingBridgeImporter.IsPackageSkip(objectName, out _))
             {
-                data = _excelReader?.FetchPricingDataFromExcel(sheetName, objectName, size);
-                if (data != null) data.ObjectSize = size;
+                _missCache.Add(cacheKey);
+                return null;
             }
 
-            if (data == null)
-            {
-                string noSizeKey = GenerateCacheKey(sheetName, objectName, null);
-                if (!string.IsNullOrEmpty(size) && _missCache.Contains(noSizeKey))
-                {
-                    _missCache.Add(cacheKey);
-                    return null;
-                }
-
-                data = _excelReader?.FetchPricingDataFromExcel(sheetName, objectName);
-                if (data != null) data.ObjectSize = null;
-            }
-
-            if (data != null)
+            if (PricingBridgeStore.TryGetPriceExcelData(sheetName, objectName, size, out data))
             {
                 string finalKey = GenerateCacheKey(sheetName, objectName, data.ObjectSize);
                 CachePricingData(finalKey, data);
                 if (!string.Equals(finalKey, cacheKey, StringComparison.Ordinal))
                     CachePricingData(cacheKey, data);
-            }
-            else
-            {
-                _missCache.Add(cacheKey);
-                if (!string.IsNullOrEmpty(size))
-                    _missCache.Add(GenerateCacheKey(sheetName, objectName, null));
+                return data;
             }
 
-            return data;
+            if (PricingBridgeStore.HasLivePriceList())
+            {
+                data = new PriceExcelData
+                {
+                    PartNumber = "",
+                    ObjectName = objectName ?? "",
+                    ObjectSize = size,
+                    ListPrice = 0
+                };
+                CachePricingData(cacheKey, data);
+                return data;
+            }
+
+            _missCache.Add(cacheKey);
+            if (!string.IsNullOrEmpty(size))
+                _missCache.Add(GenerateCacheKey(sheetName, objectName, null));
+            return null;
         }
     }
 

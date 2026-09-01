@@ -66,6 +66,14 @@ public class UI_DialogPrompt : MonoBehaviour
             if (buttonAction.Action == null)
                 button.onClick.AddListener(() => Instance.gameObject.SetActive(false));
         }
+
+        var canvas = Instance.GetComponent<Canvas>();
+        if (canvas != null)
+        {
+            canvas.overrideSorting = true;
+            canvas.sortingOrder = Mathf.Max(canvas.sortingOrder, 400);
+        }
+
         Instance.gameObject.SetActive(true);
     }
 
