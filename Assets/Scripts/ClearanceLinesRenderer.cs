@@ -130,6 +130,8 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
 
     // Cache last computed extra offset to trigger regen when parts change
     private float _lastSpecialOffset = 0f;
+    private Vector3 _petCtLogPos;
+    private Vector3 _petCtLogEuler;
     #endregion
 
     #region Monobehaviour
@@ -204,6 +206,9 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
     private void Update()
     {
         //if (!UI_ToggleClearanceLines.IsActive) return;
+
+        if (Type == RendererType.PetCTscan && UI_ToggleClearanceLines.IsActive)
+            _needsUpdate = true;
 
         if (_needsUpdate && !_taskRunning)
         {
@@ -331,15 +336,29 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
 
         if (_lineRenderer == null)
         {
-            var prefab = Resources.Load<GameObject>("Prefabs/ClearanceLinesRenderer");
+            string prefabPath = Type == RendererType.PetCTscan
+                ? "Prefabs/ClearanceLinesRendererRectangle"
+                : "Prefabs/ClearanceLinesRenderer";
+            var prefab = Resources.Load<GameObject>(prefabPath);
             if (prefab == null)
                 return;
             Transform parent = Type == RendererType.ArmAssembly
                 ? _highestSelectable.transform
-                : transform.root;
+                : Type == RendererType.PetCTscan
+                    ? transform
+                    : transform.root;
             var newObj = Instantiate(prefab, parent);
             newObj.name = gameObject.name;
-            newObj.transform.rotation = Quaternion.identity;
+            if (Type == RendererType.PetCTscan)
+            {
+                newObj.transform.localPosition = Vector3.zero;
+                newObj.transform.localRotation = Quaternion.identity;
+                newObj.transform.localScale = Vector3.one;
+            }
+            else
+            {
+                newObj.transform.rotation = Quaternion.identity;
+            }
             _lineRenderer = newObj.GetComponent<LineRenderer>();
             if (_lineRenderer == null)
                 return;
@@ -772,43 +791,179 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
 
 
 
+    private static bool IsBakedClearanceOverlay(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return false;
+        return name.IndexOf("Bezier", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("Bézier", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("Nurbs", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("Clearance", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    /// <summary>Omni Legend PIM Fig.14 — table travel with 2 m scan-range option.</summary>
+    private const float PetCtTableTravelM = 2.188f;
+
+    /// <summary>Omni Legend PIM Fig.38 **** — 2 m extender past the gantry rear (350 mm is the short cradle extender).</summary>
+    private const float PetCtCradleExtenderM = 0.650f;
+
+    /// <summary>Omni Legend PIM Fig.38 — patient table width.</summary>
+    private const float PetCtTableWidthM = 0.914f;
+
     private void UpdateLineRendererBedScanner()
     {
+        if (_lineRenderer == null)
+            return;
+
+        if (_lineRenderer.transform.parent != transform)
+            _lineRenderer.transform.SetParent(transform, false);
+        _lineRenderer.useWorldSpace = false;
+        _lineRenderer.transform.localPosition = Vector3.zero;
+        _lineRenderer.transform.localRotation = Quaternion.identity;
+        _lineRenderer.transform.localScale = Vector3.one;
+
+        // Floor place uses LookRotation(hit.normal): local Z = world up, local Y = table/bore on XZ.
+        // Mesh AABBs through prefab TRS then Rx(-90): height is world Y (0.13..2.27),
+        // table/bore is ProjectOnPlane(transform.up) (prefab Y -2.25..+2.65), width is transform.right.
+        Vector3 origin = transform.position;
+        float floorY = origin.y + 0.05f;
+        Vector3 travel = Vector3.ProjectOnPlane(transform.up, Vector3.up);
+        Vector3 lateral = Vector3.ProjectOnPlane(transform.right, Vector3.up);
+        if (travel.sqrMagnitude < 1e-4f)
+            travel = Vector3.ProjectOnPlane(transform.forward, Vector3.up);
+        if (travel.sqrMagnitude < 1e-4f)
+            return;
+        travel.Normalize();
+        if (lateral.sqrMagnitude < 1e-4f)
+            lateral = Vector3.Cross(Vector3.up, travel);
+        lateral.Normalize();
+
+        float allMinT = float.PositiveInfinity, allMaxT = float.NegativeInfinity;
+        float tableMinT = float.PositiveInfinity, tableMaxT = float.NegativeInfinity;
+        float tableMinL = float.PositiveInfinity, tableMaxL = float.NegativeInfinity;
+        float gantryMinT = float.PositiveInfinity, gantryMaxT = float.NegativeInfinity;
+        bool anyTable = false;
+        bool anyGantry = false;
+
+        var filters = GetComponentsInChildren<MeshFilter>(true);
+        for (int f = 0; f < filters.Length; f++)
+        {
+            var mf = filters[f];
+            if (mf == null || mf.sharedMesh == null || !mf.gameObject.activeInHierarchy)
+                continue;
+            if (IsBakedClearanceOverlay(mf.gameObject.name))
+                continue;
+            if (mf.GetComponent<LineRenderer>() != null)
+                continue;
+
+            Bounds b = mf.sharedMesh.bounds;
+            Vector3 c = b.center;
+            Vector3 e = b.extents;
+            float minT = float.PositiveInfinity, maxT = float.NegativeInfinity;
+            float minL = float.PositiveInfinity, maxL = float.NegativeInfinity;
+            for (int i = 0; i < 8; i++)
+            {
+                Vector3 meshLocal = new Vector3(
+                    c.x + ((i & 1) == 0 ? -e.x : e.x),
+                    c.y + ((i & 2) == 0 ? -e.y : e.y),
+                    c.z + ((i & 4) == 0 ? -e.z : e.z));
+                Vector3 world = mf.transform.TransformPoint(meshLocal);
+                Vector3 d = world - origin;
+                float tt = Vector3.Dot(d, travel);
+                float ll = Vector3.Dot(d, lateral);
+                if (tt < minT) minT = tt;
+                if (tt > maxT) maxT = tt;
+                if (ll < minL) minL = ll;
+                if (ll > maxL) maxL = ll;
+            }
+
+            if (minT < allMinT) allMinT = minT;
+            if (maxT > allMaxT) allMaxT = maxT;
+
+            float travelSpan = maxT - minT;
+            float lateralSpan = maxL - minL;
+            if (travelSpan > 1.5f && lateralSpan < 1.2f)
+            {
+                anyTable = true;
+                if (minT < tableMinT) tableMinT = minT;
+                if (maxT > tableMaxT) tableMaxT = maxT;
+                if (minL < tableMinL) tableMinL = minL;
+                if (maxL > tableMaxL) tableMaxL = maxL;
+            }
+            else if (lateralSpan >= 1.2f)
+            {
+                anyGantry = true;
+                if (minT < gantryMinT) gantryMinT = minT;
+                if (maxT > gantryMaxT) gantryMaxT = maxT;
+            }
+        }
+
+        if (float.IsInfinity(allMinT))
+            return;
+
+        float startT;
+        float endT;
+        float centerL;
+        if (anyTable)
+        {
+            startT = tableMinT;
+            endT = tableMaxT;
+            centerL = (tableMinL + tableMaxL) * 0.5f;
+            // Fig.14 dashed pallet + Fig.38 item 3: when fully in, the cradle exits the gantry rear.
+            if (anyGantry)
+            {
+                float tableMid = (tableMinT + tableMaxT) * 0.5f;
+                float gantryMid = (gantryMinT + gantryMaxT) * 0.5f;
+                float farGantryT = tableMid > gantryMid ? gantryMinT : gantryMaxT;
+                float extenderT = tableMid > gantryMid
+                    ? farGantryT - PetCtCradleExtenderM
+                    : farGantryT + PetCtCradleExtenderM;
+                if (extenderT < startT) startT = extenderT;
+                if (extenderT > endT) endT = extenderT;
+            }
+        }
+        else
+        {
+            bool tablePositive = Mathf.Abs(allMaxT) >= Mathf.Abs(allMinT);
+            startT = 0f;
+            endT = tablePositive
+                ? Mathf.Max(allMaxT, PetCtTableTravelM)
+                : Mathf.Min(allMinT, -PetCtTableTravelM);
+            centerL = 0f;
+        }
+
+        float halfW = PetCtTableWidthM * 0.5f + BufferSize;
+
+        Vector3 At(float tt, float ll)
+        {
+            Vector3 p = origin + travel * tt + lateral * ll;
+            p.y = floorY;
+            return p;
+        }
+
         _positions.Clear();
-
-        // Rectangle size
-        float length = 5f; // Total length (opposite to X)
-        float width = 0.5f; // Width (Z-wise, centered)
-        float yOffset = 0.2f;
-
-        // Base position at object's center + upward offset
-        Vector3 baseCenter = transform.position + Vector3.up * yOffset;
-
-        // Directional vectors
-        Vector3 left = -transform.right * length;               // Full length toward -X
-        Vector3 forward = new Vector3(0, width * 0.5f,0);     // Half width on each side (Z)
-
-        // Define corners
-        Vector3 corner1 = baseCenter - forward;                 // Front-left (near center)
-        Vector3 corner2 = baseCenter + forward;                 // Front-right (near center)
-        Vector3 corner3 = baseCenter + left + forward;          // Back-right
-        Vector3 corner4 = baseCenter + left - forward;          // Back-left
-
-        _positions.Add(corner1);
-        _positions.Add(corner2);
-        _positions.Add(corner3);
-        _positions.Add(corner4);
-        _positions.Add(corner1); // Close the loop
+        _positions.Add(transform.InverseTransformPoint(At(startT, centerL - halfW)));
+        _positions.Add(transform.InverseTransformPoint(At(startT, centerL + halfW)));
+        _positions.Add(transform.InverseTransformPoint(At(endT, centerL + halfW)));
+        _positions.Add(transform.InverseTransformPoint(At(endT, centerL - halfW)));
+        _positions.Add(transform.InverseTransformPoint(At(startT, centerL - halfW)));
 
         _lineRenderer.positionCount = _positions.Count;
         _lineRenderer.SetPositions(_positions.ToArray());
-
-        _lineRenderer.widthMultiplier = 0.01f;
         _lineRenderer.textureMode = LineTextureMode.Tile;
-
         if (renderMaterialColor != null)
-        {
             _lineRenderer.material = renderMaterialColor;
+
+        if ((origin - _petCtLogPos).sqrMagnitude > 0.01f
+            || (transform.eulerAngles - _petCtLogEuler).sqrMagnitude > 1f)
+        {
+            _petCtLogPos = origin;
+            _petCtLogEuler = transform.eulerAngles;
+            Debug.Log(
+                $"[PetCT-CLR] pos={origin} euler={transform.eulerAngles} floorY={floorY:F3} " +
+                $"fwd={transform.forward} up={transform.up} right={transform.right} " +
+                $"travel={travel} table={anyTable} gantry={anyGantry} startT={startT:F2} endT={endT:F2} " +
+                $"allT=[{allMinT:F2},{allMaxT:F2}] p0={_positions[0]} p2={_positions[2]}");
         }
 
         _needsUpdate = false;

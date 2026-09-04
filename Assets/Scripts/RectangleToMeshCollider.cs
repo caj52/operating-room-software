@@ -1,28 +1,23 @@
-using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.Rendering.Universal;
 
 [RequireComponent(typeof(LineRenderer))]
 public class RectangleToMeshCollider : MonoBehaviour
 {
     private LineRenderer lineRenderer;
-    private MeshFilter meshFilter;
-    private Mesh mesh;
     private BoxCollider boxCollider;
-    public float height = 0.1f;
+    public float height = 0.25f;
     Selectable selectable;
+    private int _overlapCount;
+
     void Start()
     {
         lineRenderer = GetComponent<LineRenderer>();
-        meshFilter = GetComponent<MeshFilter>();
-        selectable = transform.parent.GetComponent<Selectable>();
-        if (meshFilter == null) meshFilter = gameObject.AddComponent<MeshFilter>();
+        selectable = transform.parent != null
+            ? transform.parent.GetComponent<Selectable>()
+            : GetComponentInParent<Selectable>();
 
-        var meshRenderer = GetComponent<MeshRenderer>();
-        if (meshRenderer == null) meshRenderer = gameObject.AddComponent<MeshRenderer>();
-
-        mesh = new Mesh();
-        meshFilter.mesh = mesh;
+        if (height < 0.05f)
+            height = 0.25f;
 
         boxCollider = GetComponent<BoxCollider>();
         if (boxCollider == null) boxCollider = gameObject.AddComponent<BoxCollider>();
@@ -34,9 +29,7 @@ public class RectangleToMeshCollider : MonoBehaviour
         rb.constraints = RigidbodyConstraints.FreezeRotation;
         rb.isKinematic = true;
         UpdateMesh();
-
-        DestroyImmediate(GetComponent<MeshFilter>());
-        DestroyImmediate(GetComponent<MeshRenderer>());
+        SetRendererColor(Color.green);
     }
 
     void Update()
@@ -46,95 +39,115 @@ public class RectangleToMeshCollider : MonoBehaviour
 
     void UpdateMesh()
     {
+        if (lineRenderer == null || boxCollider == null)
+            return;
+
         int pointCount = lineRenderer.positionCount;
         if (pointCount < 3) return;
 
         Vector3[] points = new Vector3[pointCount];
         lineRenderer.GetPositions(points);
 
-        List<Vector3> vertices = new List<Vector3>();
-        List<int> triangles = new List<int>();
-
-        for (int i = 0; i < pointCount - 1; i++)
+        bool world = lineRenderer.useWorldSpace;
+        Vector3 min = new Vector3(float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity);
+        Vector3 max = new Vector3(float.NegativeInfinity, float.NegativeInfinity, float.NegativeInfinity);
+        for (int i = 0; i < pointCount; i++)
         {
-            Vector3 p1 = points[i];
-            Vector3 p2 = points[i + 1];
-
-            vertices.Add(p1);
-            vertices.Add(p1 + Vector3.up * height);
-            vertices.Add(p2 + Vector3.up * height);
-            vertices.Add(p2);
-
-            int offset = i * 4;
-            triangles.Add(offset);
-            triangles.Add(offset + 1);
-            triangles.Add(offset + 2);
-            triangles.Add(offset);
-            triangles.Add(offset + 2);
-            triangles.Add(offset + 3);
+            Vector3 p = world ? transform.InverseTransformPoint(points[i]) : points[i];
+            min = Vector3.Min(min, p);
+            max = Vector3.Max(max, p);
         }
 
-        mesh.Clear();
-        mesh.SetVertices(vertices);
-        mesh.SetTriangles(triangles, 0);
-        mesh.RecalculateNormals();
-        mesh.RecalculateBounds();
+        Vector3 size = max - min;
+        Vector3 center = (min + max) * 0.5f;
+        Vector3 localUp = transform.InverseTransformDirection(Vector3.up);
+        if (localUp.sqrMagnitude < 1e-6f)
+            localUp = Vector3.up;
+        localUp.Normalize();
 
-        boxCollider.center = mesh.bounds.center;
-        boxCollider.size = mesh.bounds.size;
+        size.x += Mathf.Abs(localUp.x) * height;
+        size.y += Mathf.Abs(localUp.y) * height;
+        size.z += Mathf.Abs(localUp.z) * height;
+        center += localUp * (height * 0.5f);
+
+        boxCollider.center = center;
+        boxCollider.size = size;
+    }
+
+    private bool IsOwnEquipment(Collider other)
+    {
+        if (other == null) return true;
+        if (selectable == null)
+            selectable = GetComponentInParent<Selectable>();
+        if (selectable == null) return false;
+        return other.transform.IsChildOf(selectable.transform);
+    }
+
+    private static bool IsIgnoredBoundary(Collider other)
+    {
+        string n = other.name;
+        return n.Contains("Ceil") || n.Contains("Floor");
+    }
+
+    private bool IsBlocking(Collider other)
+    {
+        if (IsOwnEquipment(other))
+            return false;
+        if (other.CompareTag("ClearanceLine"))
+            return transform.parent != other.transform.parent;
+        if (other.gameObject.layer == LayerMask.NameToLayer("Wall") && !IsIgnoredBoundary(other))
+            return true;
+        var otherSel = other.GetComponentInParent<Selectable>();
+        return otherSel != null && otherSel != selectable;
     }
 
     private void OnTriggerEnter(Collider other)
     {
+        if (!IsBlocking(other))
+            return;
+
+        _overlapCount++;
+        SetRendererColor(Color.red);
+
+        if (!UI_ToggleProximityAlerts.IsActive || Selectable.IsInElevationPhotoMode || selectable == null)
+            return;
+
+        string label = string.IsNullOrEmpty(selectable.UIButtonName) ? selectable.name : selectable.UIButtonName;
         if (other.CompareTag("ClearanceLine"))
         {
-            if (transform.parent != other.transform.parent)
-            {
-                Debug.Log($"{name} collided with {other.name}");
-                SetRendererColor(Color.red);
-                if (UI_ToggleProximityAlerts.IsActive && !Selectable.IsInElevationPhotoMode)
-                {
-                    UI_DialogPrompt.Open($"{selectable.UIButtonName} is colliding with {other.name}",
-                           new ButtonAction { ButtonText = "Ok", Action = UI_DialogPrompt.Close });
-                }
-   
-            }
-        }
-
-        if (other.gameObject.layer == LayerMask.NameToLayer("Wall") &&
-            !other.name.Contains("Ceil") && !other.name.Contains("Floor"))
-        {
-            Debug.Log($"{name} touching Wall!");
-            SetRendererColor(Color.red);
-
-            if (UI_ToggleProximityAlerts.IsActive && !Selectable.IsInElevationPhotoMode)
-            {
-                UI_DialogPrompt.Open($"{selectable.UIButtonName} is touching the wall!",
+            UI_DialogPrompt.Open($"{label} is colliding with {other.name}",
                 new ButtonAction { ButtonText = "Ok", Action = UI_DialogPrompt.Close });
-            }
-
+        }
+        else
+        {
+            UI_DialogPrompt.Open($"{label} is touching the wall!",
+                new ButtonAction { ButtonText = "Ok", Action = UI_DialogPrompt.Close });
         }
     }
 
     private void OnTriggerStay(Collider other)
     {
-        if (other.CompareTag("ClearanceLine") && transform.parent != other.transform.parent)
-        {
-            SetRendererColor(Color.red);
-        }
+        if (!IsBlocking(other))
+            return;
+        SetRendererColor(Color.red);
     }
 
     private void OnTriggerExit(Collider other)
     {
-        Debug.Log($"{name} no longer colliding with {other.name}");
-        SetRendererColor(Color.green);
+        if (!IsBlocking(other))
+            return;
+        _overlapCount = Mathf.Max(0, _overlapCount - 1);
+        if (_overlapCount == 0)
+            SetRendererColor(Color.green);
     }
 
     private void SetRendererColor(Color color)
     {
-        if (lineRenderer != null && lineRenderer.materials.Length > 0)
-        {
-            lineRenderer.materials[0].color = color;
-        }
+        if (lineRenderer == null)
+            return;
+        lineRenderer.startColor = color;
+        lineRenderer.endColor = color;
+        if (lineRenderer.material != null && lineRenderer.material.HasProperty("_Color"))
+            lineRenderer.material.color = color;
     }
 }
