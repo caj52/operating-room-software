@@ -345,13 +345,12 @@ public static class ObjExporter
         else
             data.Mtl.Append("Ns 50.000000\n");
 
-        // Ambient and diffuse colors
-        Color color = material.HasProperty("_Color") ? material.GetColor("_Color") : Color.white;
+        Color color = GetExportAlbedoColor(material);
         data.Mtl.Append($"Ka {color.r:F6} {color.g:F6} {color.b:F6}\n");
         data.Mtl.Append($"Kd {color.r:F6} {color.g:F6} {color.b:F6}\n");
 
         // Transparency
-        float alpha = material.HasProperty("_Color") ? material.GetColor("_Color").a : 1.0f;
+        float alpha = color.a;
         data.Mtl.Append($"d {alpha:F6}\n");
         data.Mtl.Append($"Tr {1 - alpha:F6}\n");
 
@@ -386,6 +385,17 @@ public static class ObjExporter
         data.Mtl.Append("\n");
     }
 
+    private static Color GetExportAlbedoColor(Material material)
+    {
+        if (material == null)
+            return Color.white;
+        if (material.HasProperty("_BaseColor"))
+            return material.GetColor("_BaseColor");
+        if (material.HasProperty("_Color"))
+            return material.GetColor("_Color");
+        return material.color;
+    }
+
     private static string SanitizeTextureFileName(string name)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -404,7 +414,7 @@ public static class ObjExporter
         string type = material.name;
 
         string texture = material.mainTexture != null ? material.mainTexture.name : "NoTexture";
-        string color = material.HasProperty("_Color") ? ColorToHex(material.GetColor("_Color")) : "FFFFFF";
+        string color = ColorToHex(GetExportAlbedoColor(material));
         string tint = material.HasProperty("_TintColor") ? ColorToHex(material.GetColor("_TintColor")) : "NoTint";
         string fade = material.HasProperty("_Fade") ? material.GetFloat("_Fade").ToString("F2") : "NoFade";
         string heightType = material.HasProperty("_HeightType") ? material.GetFloat("_HeightType").ToString("F2") : "NoHeightType";
