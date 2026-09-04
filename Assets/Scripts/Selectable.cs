@@ -149,10 +149,14 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     private bool ChangeHeightForElevationPhoto { get; set; }
 
     [field: SerializeField,
-    Tooltip("Meant for decals. This means you can " +
-    "place it on any collider. Yes, including other " +
-    "decals. Could get messy.")]
+    Tooltip("Place on other selectables during raycast placement. " +
+    "Floor-only items snap to table/counter tops; decals still stick to any hit.")]
     private bool CanPlaceAnywhere { get; set; }
+
+    [field: SerializeField,
+    Tooltip("This object has a top that accepts small / countertop items " +
+    "(tables, desks, cabinets). Also inferred from the object name.")]
+    private bool AcceptsSurfacePlacements { get; set; }
 
     /// <summary>
     /// A forced parent with no attachment point. Only used
@@ -3783,29 +3787,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         if (CanPlaceAnywhere)
         {
-            int maskSelectable = 1 << LayerMask.NameToLayer("Selectable");
-
-            if (Physics.Raycast(ray, out RaycastHit hit,
-                float.MaxValue, maskSelectable))
-            {
-                transform.position = hit.point;
-                transform.LookAt(transform.position + hit.normal, Vector3.up);
-                _isRaycastingOnSelectable = true;
-                AttachedTo = null;
-                Transform parent = hit.transform;
-
-                while (AttachedTo == null)
-                {
-                    if (parent == null)
-                    {
-                        _isRaycastingOnSelectable = false;
-                        break;
-                    }
-
-                    AttachedTo = parent.gameObject.GetComponent<Selectable>();
-                    parent = parent.parent;
-                }
-            }
+            TryPlaceOnSelectableSurface(ray);
         }
 
         if (!_isRaycastingOnSelectable)
@@ -4020,6 +4002,75 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         }
 
+    }
+
+    private bool RestrictsPlaceAnywhereToSurfaceHosts =>
+        WallRestrictions != null &&
+        WallRestrictions.Count == 1 &&
+        WallRestrictions[0] == RoomBoundaryType.Floor;
+
+    public bool IsSurfacePlacementHost =>
+        AcceptsSurfacePlacements ||
+        NameLooksLikeSurfacePlacementHost(name) ||
+        NameLooksLikeSurfacePlacementHost(MetaData?.Name);
+
+    static bool NameLooksLikeSurfacePlacementHost(string n)
+    {
+        if (string.IsNullOrEmpty(n))
+            return false;
+        bool stand = ContainsIgnoreCase(n, "Stand") && !ContainsIgnoreCase(n, "Standard");
+        return ContainsIgnoreCase(n, "Table")
+            || ContainsIgnoreCase(n, "Desk")
+            || ContainsIgnoreCase(n, "Counter")
+            || ContainsIgnoreCase(n, "Cabinet")
+            || ContainsIgnoreCase(n, "Storage")
+            || ContainsIgnoreCase(n, "Cart")
+            || ContainsIgnoreCase(n, "Mayo")
+            || stand;
+    }
+
+    static bool ContainsIgnoreCase(string n, string token) =>
+        n.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0;
+
+    void TryPlaceOnSelectableSurface(Ray ray)
+    {
+        int maskSelectable = 1 << LayerMask.NameToLayer("Selectable");
+        RaycastHit[] hits = Physics.RaycastAll(ray, float.MaxValue, maskSelectable);
+        if (hits.Length == 0)
+            return;
+
+        Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+        bool requireHost = RestrictsPlaceAnywhereToSurfaceHosts;
+
+        foreach (RaycastHit hit in hits)
+        {
+            if (hit.collider == null || hit.collider.transform.IsChildOf(transform))
+                continue;
+
+            Selectable host = hit.collider.GetComponentInParent<Selectable>();
+            if (host == null || host == this)
+                continue;
+
+            if (requireHost)
+            {
+                if (!host.IsSurfacePlacementHost)
+                    continue;
+                if (hit.normal.y < 0.5f)
+                    continue;
+            }
+
+            if (requireHost)
+                transform.SetPositionAndRotation(hit.point, Quaternion.LookRotation(hit.normal));
+            else
+            {
+                transform.position = hit.point;
+                transform.LookAt(transform.position + hit.normal, Vector3.up);
+            }
+
+            _isRaycastingOnSelectable = true;
+            AttachedTo = host;
+            return;
+        }
     }
 
     #endregion
