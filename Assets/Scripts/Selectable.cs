@@ -724,11 +724,18 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     /// <returns></returns>
     public SelectableMetaData GetMetadata()
     {
-        var data = RelatedSelectables[0].MetaData;
+        Selectable source = this;
+        if (RelatedSelectables != null && RelatedSelectables.Count > 0
+            && RelatedSelectables[0] != null)
+            source = RelatedSelectables[0];
 
-        var matchingItem = ObjectMenu.Instance.ObjectMenuItems
+        var data = source.MetaData;
+
+        var matchingItem = ObjectMenu.Instance != null && ObjectMenu.Instance.ObjectMenuItems != null
+            ? ObjectMenu.Instance.ObjectMenuItems
                 .FirstOrDefault(x => x.SelectableData != null &&
-                    RelatedSelectables[0].GUID == x.SelectableData.AssetBundleName);
+                    source.GUID == x.SelectableData.AssetBundleName)
+            : null;
 
         if (matchingItem != null)
         {
@@ -830,6 +837,9 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
     public bool ExeedsMaxTranslation(out Vector3 totalExcess)
     {
+        if (TryGetServiceHeadRailTravelExcess(out totalExcess))
+            return totalExcess.sqrMagnitude > 1e-12f;
+
         Vector3 adjustedTransform = transform.localRotation * transform.localPosition;
 
         float ignoreScale = GetGizmoSettingTranslateIgnoreBool() ? 1 : transform.localScale.z;
@@ -864,6 +874,259 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                                             adjustedMinTranslation.z,
                         out totalExcess.z);
         return exceedsX || exceedsY || exceedsZ;
+    }
+
+    /// <summary>
+    /// Accessories on a service-head rail slide along the rail mesh, not the
+    /// prefab's hardcoded min/max relative to spawn pose (that ran off the
+    /// bottom and stopped short of the top).
+    /// </summary>
+    public void ClampServiceHeadRailTravel()
+    {
+        if (!TryGetServiceHeadRailTravelExcess(out Vector3 excess))
+            return;
+        if (excess.sqrMagnitude < 1e-12f)
+            return;
+        transform.localPosition -= excess;
+    }
+
+    public bool TryGetServiceHeadRailSlideLocalRange(Axis axis, out float min, out float max)
+    {
+        min = 0f;
+        max = 0f;
+        if (!TryGetServiceHeadRailSlideAxis(out Axis slideAxis, out Vector3 localAxis)
+            || slideAxis != axis)
+            return false;
+        if (!TryFindParentServiceHeadRail(out Selectable rail))
+            return false;
+
+        Physics.SyncTransforms();
+        Vector3 worldAxis = transform.TransformDirection(localAxis);
+        if (worldAxis.sqrMagnitude < 1e-10f)
+            return false;
+        worldAxis.Normalize();
+
+        if (!TryGetLargestOwnRendererProjection(rail, worldAxis, out float railMin, out float railMax))
+            return false;
+        if (!TryGetOwnRendererProjection(this, worldAxis, out float selfMin, out float selfMax))
+            return false;
+
+        float tMin = railMin - selfMin;
+        float tMax = railMax - selfMax;
+        if (tMin > tMax)
+        {
+            tMin = 0f;
+            tMax = 0f;
+        }
+
+        Vector3 lp = transform.localPosition;
+        Vector3 dMin = ParentInverseVector(worldAxis * tMin);
+        Vector3 dMax = ParentInverseVector(worldAxis * tMax);
+        switch (axis)
+        {
+            case Axis.X:
+                min = lp.x + dMin.x;
+                max = lp.x + dMax.x;
+                break;
+            case Axis.Y:
+                min = lp.y + dMin.y;
+                max = lp.y + dMax.y;
+                break;
+            default:
+                min = lp.z + dMin.z;
+                max = lp.z + dMax.z;
+                break;
+        }
+
+        if (min > max)
+        {
+            float tmp = min;
+            min = max;
+            max = tmp;
+        }
+
+        return true;
+    }
+
+    bool TryGetServiceHeadRailTravelExcess(out Vector3 totalExcess)
+    {
+        totalExcess = default;
+        if (!TryGetServiceHeadRailSlideAxis(out _, out Vector3 localAxis))
+            return false;
+        if (!TryFindParentServiceHeadRail(out Selectable rail))
+            return false;
+
+        Physics.SyncTransforms();
+        Vector3 worldAxis = transform.TransformDirection(localAxis);
+        if (worldAxis.sqrMagnitude < 1e-10f)
+            return false;
+        worldAxis.Normalize();
+
+        if (!TryGetLargestOwnRendererProjection(rail, worldAxis, out float railMin, out float railMax))
+            return false;
+        if (!TryGetOwnRendererProjection(this, worldAxis, out float selfMin, out float selfMax))
+            return false;
+
+        if (selfMax - selfMin >= railMax - railMin - 1e-5f)
+            return true;
+
+        float t = 0f;
+        float tMin = railMin - selfMin;
+        float tMax = railMax - selfMax;
+        if (tMin > 0f)
+            t = tMin;
+        else if (tMax < 0f)
+            t = tMax;
+
+        if (Mathf.Abs(t) < 1e-5f)
+            return true;
+
+        Vector3 localCorrection = ParentInverseVector(worldAxis * t);
+        if (!IsGizmoSettingAllowed(GizmoType.Move, Axis.X))
+            localCorrection.x = 0f;
+        if (!IsGizmoSettingAllowed(GizmoType.Move, Axis.Y))
+            localCorrection.y = 0f;
+        if (!IsGizmoSettingAllowed(GizmoType.Move, Axis.Z))
+            localCorrection.z = 0f;
+
+        totalExcess = -localCorrection;
+        return true;
+    }
+
+    bool TryGetServiceHeadRailSlideAxis(out Axis axis, out Vector3 localAxis)
+    {
+        axis = Axis.Z;
+        localAxis = default;
+        if (IsGizmoSettingAllowed(GizmoType.Move, Axis.Z))
+        {
+            axis = Axis.Z;
+            localAxis = Vector3.forward;
+            return true;
+        }
+        if (IsGizmoSettingAllowed(GizmoType.Move, Axis.Y))
+        {
+            axis = Axis.Y;
+            localAxis = Vector3.up;
+            return true;
+        }
+        if (IsGizmoSettingAllowed(GizmoType.Move, Axis.X))
+        {
+            axis = Axis.X;
+            localAxis = Vector3.right;
+            return true;
+        }
+        return false;
+    }
+
+    bool TryFindParentServiceHeadRail(out Selectable rail)
+    {
+        rail = null;
+        for (Transform t = transform.parent; t != null; t = t.parent)
+        {
+            var sel = t.GetComponent<Selectable>();
+            if (sel == null)
+                continue;
+            if (IsServiceHeadRailProductName(sel.name) || sel.HasMetaCategory("Service Head Rails"))
+            {
+                rail = sel;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    Vector3 ParentInverseVector(Vector3 world)
+    {
+        return transform.parent != null
+            ? transform.parent.InverseTransformVector(world)
+            : world;
+    }
+
+    static bool TryGetLargestOwnRendererProjection(
+        Selectable owner, Vector3 worldAxis, out float min, out float max)
+    {
+        min = 0f;
+        max = 0f;
+        bool any = false;
+        foreach (var r in owner.GetComponentsInChildren<Renderer>(true))
+        {
+            if (!IsOwnSlideRenderer(owner, r))
+                continue;
+
+            float a = ProjectBoundsMin(r.bounds, worldAxis);
+            float b = ProjectBoundsMax(r.bounds, worldAxis);
+            if (!any || b - a > max - min)
+            {
+                min = a;
+                max = b;
+                any = true;
+            }
+        }
+
+        return any && max - min > 0.02f;
+    }
+
+    static bool TryGetOwnRendererProjection(
+        Selectable owner, Vector3 worldAxis, out float min, out float max)
+    {
+        min = float.MaxValue;
+        max = float.MinValue;
+        bool any = false;
+        foreach (var r in owner.GetComponentsInChildren<Renderer>(true))
+        {
+            if (!IsOwnSlideRenderer(owner, r))
+                continue;
+
+            min = Mathf.Min(min, ProjectBoundsMin(r.bounds, worldAxis));
+            max = Mathf.Max(max, ProjectBoundsMax(r.bounds, worldAxis));
+            any = true;
+        }
+
+        return any && max > min;
+    }
+
+    static bool IsOwnSlideRenderer(Selectable owner, Renderer r)
+    {
+        if (r == null || !r.enabled || !r.gameObject.activeInHierarchy)
+            return false;
+        if (r.GetComponentInParent<Selectable>(true) != owner)
+            return false;
+        string n = r.gameObject.name;
+        if (n.IndexOf("Sphere", StringComparison.OrdinalIgnoreCase) >= 0)
+            return false;
+        if (n.IndexOf("Measurable", StringComparison.OrdinalIgnoreCase) >= 0)
+            return false;
+        return true;
+    }
+
+    static float ProjectBoundsMin(Bounds b, Vector3 axis)
+    {
+        Vector3 c = b.center;
+        Vector3 e = b.extents;
+        float min = float.MaxValue;
+        for (int ix = -1; ix <= 1; ix += 2)
+        for (int iy = -1; iy <= 1; iy += 2)
+        for (int iz = -1; iz <= 1; iz += 2)
+        {
+            Vector3 corner = c + new Vector3(ix * e.x, iy * e.y, iz * e.z);
+            min = Mathf.Min(min, Vector3.Dot(corner, axis));
+        }
+        return min;
+    }
+
+    static float ProjectBoundsMax(Bounds b, Vector3 axis)
+    {
+        Vector3 c = b.center;
+        Vector3 e = b.extents;
+        float max = float.MinValue;
+        for (int ix = -1; ix <= 1; ix += 2)
+        for (int iy = -1; iy <= 1; iy += 2)
+        for (int iz = -1; iz <= 1; iz += 2)
+        {
+            Vector3 corner = c + new Vector3(ix * e.x, iy * e.y, iz * e.z);
+            max = Mathf.Max(max, Vector3.Dot(corner, axis));
+        }
+        return max;
     }
 
     /// <returns>True if any rotation happened</returns>
@@ -972,13 +1235,6 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         RestoreScaleLevelFromSave(pick);
 
-        if (Selectable.IsInElevationPhotoMode
-            && (beforeSize <= 0f || !beforeInList || !Mathf.Approximately(beforeSize, pick.Size)))
-        {
-            Debug.Log(
-                $"[ElevDim] ScaleLevel rebound name={name} beforeSize={beforeSize:F3} beforeInList={beforeInList} " +
-                $"→ size={pick.Size:F3} z={pick.ScaleZ:F3} liveZ={liveZ:F3}");
-        }
     }
 
     /// <summary>
@@ -1485,6 +1741,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             $"lossy={obj.transform.lossyScale} " +
             $"bounds={(hasRb ? rb.size.ToString("F4") : "n/a")} " +
             $"boundsMm={(hasRb ? (rb.size * 1000f).ToString("F1") : "n/a")}");
+
+        sel.ClampServiceHeadRailTravel();
     }
 
     /// <summary>
@@ -2158,6 +2416,11 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 .ToList()
                 .ForEach(x => x.gameObject.SetActive(false));
 
+            ElevationExportContext.Begin(
+                assemblyDatas != null && assemblyDatas.Count > 0
+                    ? assemblyDatas
+                    : UI_PdfExportOptions.GenerateAssemblyDataWithTitles(this));
+
             // Single capture pass — front and back share one union-bounds frame.
             var captured = GetAssemblyPDFImageData(camera);
             if (captured != null)
@@ -2199,6 +2462,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             // then hard-clear anything left so dims never stick in the live scene.
             ToggleMeasurableActiveStates(false);
             IsInElevationPhotoMode = false;
+            ElevationExportContext.End();
             ElevationCutsheetPass.EndCaptureCleanup();
             // Final wipe after elev flag is off — OnEnable/CheckActiveState must not
             // revive measurement labels in the live room.
@@ -2215,6 +2479,11 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     public List<PdfExporter.PdfImageData> GetAssemblyPDFImageData(Camera camera)
     {
         var imageDatas = new List<PdfExporter.PdfImageData>();
+        if (camera == null || EnsureElevationTargetTexture(camera) == null)
+        {
+            Debug.LogWarning($"[ElevDim] Elevation camera or render texture missing on {name}");
+            return imageDatas;
+        }
 
         // Local helper to apply orientation for index (0=front,1=back) including ceiling avoidance
         void ApplyOrientationForIndex(int i)
@@ -2294,7 +2563,25 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         var unionBounds = unionBoundsNullable ?? GetAssemblyBounds();
         // Floor bar / ceiling height on the PDF are gospel — never fit Y to the boom AABB
         // (boom-only used to zoom in and park arms on the floor graphic).
-        unionBounds = LockElevationVerticalToRoom(unionBounds);
+        var room = ElevationRoomFrame.Current;
+        unionBounds = room.LockVertical(unionBounds);
+        float floorY = room.FloorY;
+        float ceilY = room.CeilingY;
+        camera.enabled = true;
+        camera.orthographic = true;
+        {
+            Vector3 lookAt = room.LookAtCenter(unionBounds);
+            Vector3 outward = GetElevationViewOutwardDirection(
+                unionBounds, camera.transform.position - transform.position, invertDirection: false);
+            outward.y = 0f;
+            if (outward.sqrMagnitude < 1e-8f)
+                outward = Vector3.forward;
+            outward.Normalize();
+            camera.transform.position = lookAt + outward * Mathf.Max(2f, unionBounds.extents.magnitude);
+            camera.transform.LookAt(lookAt, Vector3.up);
+        }
+        FitOrthoCameraToElevationPicturePlane(camera, unionBounds, floorY, ceilY, margin: 1.02f);
+        float sharedOrtho = camera.orthographicSize;
 
         // Second pass: capture (front only in fast preview, front+back for real exports)
         for (int i = 0; i < viewCount; i++)
@@ -2307,7 +2594,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 out var imageWidth,
                 out var imageHeight,
                 fileIndex: i,
-                invertDirection: (i == 1)
+                invertDirection: (i == 1),
+                sharedOrthoSize: sharedOrtho
             );
 
             imageDatas.Add(new PdfExporter.PdfImageData
@@ -2318,19 +2606,17 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             });
         }
 
-        // Ensure both images share the same dimensions by padding the smaller to the larger
+        // Same pixel height (room) so PDF scale-by-height keeps one m/pt. Do not
+        // pad width — that letterboxed each view and shrank the drawing on the sheet.
         if (imageDatas.Count == 2)
         {
-            int targetWidth = Mathf.Max(imageDatas[0].Width, imageDatas[1].Width);
             int targetHeight = Mathf.Max(imageDatas[0].Height, imageDatas[1].Height);
-
             for (int idx = 0; idx < imageDatas.Count; idx++)
             {
                 var img = imageDatas[idx];
-                if (img.Width != targetWidth || img.Height != targetHeight)
+                if (img.Height != targetHeight)
                 {
-                    PadImageToSize(img.Path, img.Width, img.Height, targetWidth, targetHeight, Color.white);
-                    img.Width = targetWidth;
+                    PadImageToSize(img.Path, img.Width, img.Height, img.Width, targetHeight, Color.white);
                     img.Height = targetHeight;
                     imageDatas[idx] = img;
                 }
@@ -2387,6 +2673,11 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                     .ToList()
                     .ForEach(x => x.gameObject.SetActive(false));
 
+                var datas = assemblyDatas != null && assemblyDatas.Count > 0
+                    ? assemblyDatas
+                    : UI_PdfExportOptions.GenerateAssemblyDataWithTitles(this);
+                ElevationExportContext.Begin(datas);
+
                 var captured = GetAssemblyPDFImageData(camera);
                 var images = new List<PdfExporterLocal.PdfImageData>();
                 if (captured != null)
@@ -2404,9 +2695,6 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                     }
                 }
 
-                var datas = assemblyDatas != null && assemblyDatas.Count > 0
-                    ? assemblyDatas
-                    : UI_PdfExportOptions.GenerateAssemblyDataWithTitles(this);
                 var allAssemblyJson = PdfExporterLocal.ConvertToAssemblyJsonFull(
                     datas,
                     UI_PdfExportOptions.GetAdditionalData());
@@ -2435,6 +2723,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                     floorBoundary.gameObject.SetActive(floorWasActive);
                 ToggleMeasurableActiveStates(false);
                 IsInElevationPhotoMode = false;
+                ElevationExportContext.End();
                 ElevationCutsheetPass.EndCaptureCleanup();
                 ElevationCutsheetPass.SuppressAllOverlays();
                 ActiveCameraRenderTextureElevation = null;
@@ -2490,6 +2779,9 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                     .ToList()
                     .ForEach(x => x.gameObject.SetActive(false));
 
+                var datas = UI_PdfExportOptions.GenerateAssemblyDataWithTitles(this);
+                ElevationExportContext.Begin(datas);
+
                 return GetAssemblyPDFImageData(camera);
             }
             finally
@@ -2515,6 +2807,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                     floorBoundary.gameObject.SetActive(floorWasActive);
                 ToggleMeasurableActiveStates(false);
                 IsInElevationPhotoMode = false;
+                ElevationExportContext.End();
                 ElevationCutsheetPass.EndCaptureCleanup();
                 ElevationCutsheetPass.SuppressAllOverlays();
                 ActiveCameraRenderTextureElevation = null;
@@ -2628,7 +2921,6 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 target = profileDir;
         }
 
-        int yawed = 0;
         foreach (var a in arms)
         {
             float aligned = Mathf.Abs(Vector3.Dot(a.reach, target));
@@ -2646,14 +2938,6 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 _originalRotations[a.sel] = a.sel.transform.localRotation;
 
             a.sel.transform.Rotate(Vector3.up, ang, Space.World);
-            yawed++;
-        }
-
-        if (yawed > 0)
-        {
-            Debug.Log(
-                $"[ElevDim] Profile yaw applied count={yawed} target=({target.x:F2},{target.z:F2}) " +
-                $"view=({viewFlat.x:F2},{viewFlat.z:F2}) arms={arms.Count}");
         }
     }
 
@@ -2737,6 +3021,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     {
         camera.enabled = true;
         camera.orthographic = true;
+        if (EnsureElevationTargetTexture(camera) == null)
+            throw new Exception($"Elevation render texture missing on {name}");
 
         Vector3 cameraOriginalPos = camera.transform.position;
         Vector3 outwardDirection = GetElevationViewOutwardDirection(
@@ -2828,6 +3114,33 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         camera.transform.position = cameraOriginalPos;
 
         return filenameImage;
+    }
+
+    private static RenderTexture _runtimeElevationRt;
+
+    /// <summary>
+    /// Ceiling-mount cameras can lose their assigned RT (broken prefab guid). Allocate
+    /// a shared 4096 capture buffer so proposal elevation export cannot NRE on rt.width.
+    /// </summary>
+    private static RenderTexture EnsureElevationTargetTexture(Camera camera)
+    {
+        if (camera == null)
+            return null;
+        if (camera.targetTexture != null)
+            return camera.targetTexture;
+
+        if (_runtimeElevationRt == null)
+        {
+            _runtimeElevationRt = new RenderTexture(4096, 4096, 24, RenderTextureFormat.ARGB32)
+            {
+                antiAliasing = 2,
+                name = "ElevationCaptureRT_Runtime"
+            };
+            _runtimeElevationRt.Create();
+        }
+
+        camera.targetTexture = _runtimeElevationRt;
+        return _runtimeElevationRt;
     }
 
     /// <summary>
@@ -3033,6 +3346,34 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     }
 
     /// <summary>
+    /// True elevation: vertical scale is the room (floor→ceiling). Horizontal scale uses
+    /// the same ortho meters-per-pixel (width may letterbox in the RT; crop is tight).
+    /// </summary>
+    static void FitOrthoCameraToElevationPicturePlane(
+        Camera camera, Bounds bounds, float floorY, float ceilY, float margin = 1.02f)
+    {
+        if (camera == null)
+            return;
+        float halfH = 0.5f * Mathf.Max(0.01f, ceilY - floorY);
+        float maxRight = 0.01f;
+        Vector3 c = bounds.center;
+        Vector3 e = bounds.extents;
+        for (int ix = -1; ix <= 1; ix += 2)
+        for (int iy = -1; iy <= 1; iy += 2)
+        for (int iz = -1; iz <= 1; iz += 2)
+        {
+            Vector3 world = c + new Vector3(e.x * ix, e.y * iy, e.z * iz);
+            Vector3 local = camera.transform.InverseTransformPoint(world);
+            maxRight = Mathf.Max(maxRight, Mathf.Abs(local.x));
+        }
+        float m = Mathf.Max(1f, margin);
+        float aspect = 1f;
+        camera.aspect = aspect;
+        float size = Mathf.Max(halfH, maxRight / aspect) * m;
+        camera.orthographicSize = Mathf.Max(0.01f, size);
+    }
+
+    /// <summary>
     /// Screen-space AABB of a world bounds — must use all 8 corners, not min/max only.
     /// </summary>
     static bool TryGetBoundsScreenRect(
@@ -3064,6 +3405,57 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     }
 
     /// <summary>
+    /// Crop in the picture plane: Y is exactly the floor and ceiling planes (so a ruler
+    /// locked to table ceiling height matches every horizontal length). X is the assembly
+    /// plus dim overlays. Do not use a world AABB's 8 corners for Y — depth in that box
+    /// inflates the crop and is what made ceiling height measure ~67 mm tall.
+    /// </summary>
+    static bool TryGetElevationPicturePlaneCrop(
+        Camera camera,
+        Bounds bounds,
+        float floorY,
+        float ceilY,
+        out Vector2 screenMin,
+        out Vector2 screenMax)
+    {
+        screenMin = new Vector2(float.MaxValue, float.MaxValue);
+        screenMax = new Vector2(float.MinValue, float.MinValue);
+        if (camera == null)
+            return false;
+
+        Vector3 fwd = camera.transform.forward;
+        float depth = Vector3.Dot(bounds.center - camera.transform.position, fwd);
+        Vector3 onPlane = camera.transform.position + fwd * depth;
+        Vector3 floorPt = new Vector3(onPlane.x, floorY, onPlane.z);
+        Vector3 ceilPt = new Vector3(onPlane.x, ceilY, onPlane.z);
+        Vector3 sf = camera.WorldToScreenPoint(floorPt);
+        Vector3 sc = camera.WorldToScreenPoint(ceilPt);
+        if (sf.z < 0f || sc.z < 0f)
+            return false;
+
+        screenMin.y = Mathf.Min(sf.y, sc.y);
+        screenMax.y = Mathf.Max(sf.y, sc.y);
+
+        Vector3 c = bounds.center;
+        Vector3 e = bounds.extents;
+        bool anyX = false;
+        for (int ix = -1; ix <= 1; ix += 2)
+        for (int iy = -1; iy <= 1; iy += 2)
+        for (int iz = -1; iz <= 1; iz += 2)
+        {
+            Vector3 world = c + new Vector3(e.x * ix, e.y * iy, e.z * iz);
+            Vector3 sp = camera.WorldToScreenPoint(world);
+            if (sp.z < 0f)
+                continue;
+            anyX = true;
+            screenMin.x = Mathf.Min(screenMin.x, sp.x);
+            screenMax.x = Mathf.Max(screenMax.x, sp.x);
+        }
+
+        return anyX && screenMax.x > screenMin.x && screenMax.y > screenMin.y;
+    }
+
+    /// <summary>
     /// Elevation PDFs stamp a ground graphic under the photos and list ceiling height —
     /// those are the vertical scale. Lock photo Y to room floor top → ceiling underside
     /// so boom-only and boom+light share the same floor-to-ceiling framing. Keep X/Z
@@ -3071,28 +3463,15 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     /// </summary>
     private static Bounds LockElevationVerticalToRoom(Bounds bounds)
     {
-        float floorY = 0f;
-        var floor = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor);
-        if (floor != null)
-            floorY = floor.transform.position.y + (floor.transform.localScale.y * 0.5f);
-
-        float ceilingY = floorY + 3f;
-        var ceiling = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling);
-        if (ceiling != null)
-        {
-            float underside = ceiling.transform.position.y - (ceiling.transform.localScale.y * 0.5f);
-            if (underside > floorY + 0.1f)
-                ceilingY = underside;
-            else if (ceiling.Height > 0.1f)
-                ceilingY = floorY + ceiling.Height;
-        }
+        float floorY = ElevationDimPlacement.FloorTopY();
+        float ceilingY = ElevationDimPlacement.CeilingUndersideY();
+        if (ceilingY < floorY + 0.01f)
+            ceilingY = floorY + 0.01f;
 
         Vector3 min = bounds.min;
         Vector3 max = bounds.max;
         min.y = floorY;
         max.y = ceilingY;
-        if (max.y < min.y + 0.01f)
-            max.y = min.y + 0.01f;
         bounds.SetMinMax(min, max);
         return bounds;
     }
@@ -3104,10 +3483,13 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         out int imageWidth,
         out int imageHeight,
         int fileIndex,
-        bool invertDirection = false)
+        bool invertDirection = false,
+        float sharedOrthoSize = -1f)
     {
         camera.enabled = true;
         camera.orthographic = true;
+        if (EnsureElevationTargetTexture(camera) == null)
+            throw new Exception($"Elevation render texture missing on {name}");
 
         Vector3 cameraOriginalPos = camera.transform.position;
         // Aim from the posed assembly footprint (not union alone) so dual-arm / long-Z
@@ -3115,56 +3497,89 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         Bounds poseBounds = GetAssemblyBounds();
         Vector3 outwardDirection = GetElevationViewOutwardDirection(
             poseBounds, cameraOriginalPos - transform.position, invertDirection);
+        outwardDirection.y = 0f;
+        if (outwardDirection.sqrMagnitude < 1e-8f)
+            outwardDirection = Vector3.forward;
+        outwardDirection.Normalize();
+
+        // Fit both front/back to this union (same ortho ⇒ same mm/pixel). Per-view
+        // overlay expand only widens the crop, it must not zoom one view differently.
+        Bounds fitBounds = fixedBounds;
+
+        var room = ElevationRoomFrame.Current;
+        float floorY = room.FloorY;
+        float ceilY = room.CeilingY;
+
+        void AimHorizontal(Bounds frame)
+        {
+            Vector3 lookAt = new Vector3(
+                frame.center.x, 0.5f * (floorY + ceilY), frame.center.z);
+            float dist = Mathf.Max(2f, frame.extents.magnitude);
+            camera.transform.position = lookAt + outwardDirection * dist;
+            camera.transform.LookAt(lookAt, Vector3.up);
+        }
 
         // Cutsheet overlays only — never activate Walls/Ceiling / interactive imperial dims.
-        // Aim first so layout uses a sensible camera, then widen XZ for labels (Y stays room-locked).
-        camera.transform.position = fixedBounds.center + (outwardDirection.normalized * fixedBounds.extents.magnitude);
-        camera.transform.LookAt(fixedBounds.center, Vector3.up);
-        camera.orthographicSize = Mathf.Max(0.01f, fixedBounds.extents.y);
+        AimHorizontal(fitBounds);
+        camera.orthographicSize = Mathf.Max(0.01f, 0.5f * (ceilY - floorY));
 
         SuppressHighlightsForCapture(_assemblySelectables);
         ElevationCutsheetPass.Apply(_assemblySelectables, camera);
-        fixedBounds = ExpandElevationBoundsForCutsheetOverlays(fixedBounds);
+        // Crop X to this view's overlays only — union width was empty side padding
+        // that forced a tiny drawing on the sheet.
+        Bounds cropBounds = ExpandElevationBoundsForCutsheetOverlays(GetAssemblyBounds());
         {
-            Vector3 bMin = fixedBounds.min;
-            Vector3 bMax = fixedBounds.max;
-            const float sidePad = 0.35f;
+            Vector3 bMin = cropBounds.min;
+            Vector3 bMax = cropBounds.max;
+            const float sidePad = 0.08f;
             bMin.x -= sidePad;
             bMin.z -= sidePad;
             bMax.x += sidePad;
             bMax.z += sidePad;
-            fixedBounds.SetMinMax(bMin, bMax);
+            bMin.y = floorY;
+            bMax.y = ceilY;
+            cropBounds.SetMinMax(bMin, bMax);
         }
-        fixedBounds = LockElevationVerticalToRoom(fixedBounds);
+        cropBounds = room.LockVertical(cropBounds);
+        fixedBounds = room.LockVertical(fixedBounds);
+        fitBounds = room.LockVertical(fitBounds);
 
-        camera.transform.position = fixedBounds.center + (outwardDirection.normalized * fixedBounds.extents.magnitude);
-        camera.transform.LookAt(fixedBounds.center, Vector3.up);
-
-        // Fit using ALL 8 AABB corners in camera space — WorldToScreen(min)/max alone
-        // misses labels sticking out sideways (cropping callouts off the PDF).
-        FitOrthoCameraToBounds(camera, fixedBounds, margin: 1.06f);
-        if (!TryGetBoundsScreenRect(camera, fixedBounds, out Vector2 screenMin, out Vector2 screenMax))
-            throw new Exception("Could not project elev bounds to screen (fixed)");
+        AimHorizontal(cropBounds);
+        if (sharedOrthoSize > 0.01f)
+            camera.orthographicSize = sharedOrthoSize;
+        else
+            FitOrthoCameraToElevationPicturePlane(camera, fitBounds, floorY, ceilY, margin: 1.02f);
+        fixedBounds = cropBounds;
+        if (!TryGetElevationPicturePlaneCrop(
+                camera, fixedBounds, floorY, ceilY, out Vector2 screenMin, out Vector2 screenMax))
+            throw new Exception("Could not project elev floor/ceiling to screen");
 
         RenderTexture rt = camera.targetTexture;
-        // Keep crop inside the RT; grow ortho again if any corner still clips.
-        int safetyCounter = 64;
-        while (--safetyCounter > 0
-               && (screenMin.x < 1f || screenMin.y < 1f
-                   || screenMax.x > rt.width - 2f || screenMax.y > rt.height - 2f))
-        {
-            camera.orthographicSize *= 1.08f;
-            if (!TryGetBoundsScreenRect(camera, fixedBounds, out screenMin, out screenMax))
-                break;
-        }
+        screenMin.x = Mathf.Max(0f, screenMin.x);
+        screenMin.y = Mathf.Max(0f, screenMin.y);
+        screenMax.x = Mathf.Min(rt.width, screenMax.x);
+        screenMax.y = Mathf.Min(rt.height, screenMax.y);
 
         imageWidth = Mathf.Max(1, Mathf.CeilToInt(screenMax.x - screenMin.x));
         imageHeight = Mathf.Max(1, Mathf.CeilToInt(screenMax.y - screenMin.y));
-        Debug.Log(
-            $"[ElevDim] FRAME ortho={camera.orthographicSize:F3} " +
-            $"crop={imageWidth}x{imageHeight} screen=({screenMin.x:F0},{screenMin.y:F0})-" +
-            $"({screenMax.x:F0},{screenMax.y:F0}) rt={rt.width}x{rt.height} " +
-            $"boundsXZ=({fixedBounds.size.x:F2},{fixedBounds.size.z:F2})");
+        float roomH = Mathf.Max(0.01f, ceilY - floorY);
+        float mPerPxY = roomH / imageHeight;
+        // Horizontal world span of crop at picture plane (camera right).
+        Vector3 camRight = camera.transform.right;
+        camRight.y = 0f;
+        if (camRight.sqrMagnitude < 1e-8f)
+            camRight = Vector3.right;
+        camRight.Normalize();
+        float worldW = Mathf.Abs(Vector3.Dot(fixedBounds.size, camRight));
+        if (worldW < 0.01f)
+            worldW = Mathf.Max(fixedBounds.size.x, fixedBounds.size.z);
+        float mPerPxX = worldW / imageWidth;
+        float aniso = mPerPxY > 1e-8f ? mPerPxX / mPerPxY : 0f;
+        ElevationChecklistDiagnostics.RecordFrame(
+            mPerPxX, mPerPxY, roomH, worldW, aniso,
+            imageWidth, imageHeight, rt.width, rt.height, floorY, ceilY,
+            camera.orthographicSize, camera.aspect);
+        ElevationChecklistDiagnostics.ScoreStashed(camera);
 
         ElevationCutsheetPass.SuppressNonCutsheetTexts();
         Canvas.ForceUpdateCanvases();
@@ -3244,11 +3659,6 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                     foreach (var m in s.Measurables)
                         m?.EnsureInitializedForElevation();
                 });
-                Debug.Log(
-                    $"[ElevDim] Assembly roster root={name} count={_assemblySelectables.Count} " +
-                    $"withMeas={_assemblySelectables.Count(s => s != null && s.Measurables != null && s.Measurables.Count > 0)} " +
-                    $"names={string.Join(",", _assemblySelectables.Where(s => s != null).Select(s => s.name))}",
-                    this);
                 //_assemblySelectables.Add(this);
                 _originalRotations.Clear();
                 Array.ForEach(_assemblySelectables.OrderBy(x => x.GetParentCount()).ToArray(), item =>
@@ -3313,7 +3723,10 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         foreach (var m in GetComponents<Measurable>())
             TryAddCutsheetMeasurable(m);
 
-        bool isLengthOwner = ScaleLevels != null && ScaleLevels.Count > 0;
+        // ScaleLevels Size, fixed PdfData length (PoweredXL), or Cardanic mesh joint.
+        bool isLengthOwner = (ScaleLevels != null && ScaleLevels.Count > 0)
+            || ElevationLengthFormat.ResolvePdfDataLengthMeters(this) > 0f
+            || ElevationLengthGeometry.IsGeometricLengthJoint(this);
         if (!isLengthOwner)
             return;
 
@@ -3389,11 +3802,6 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 installed = gameObject.AddComponent<Measurable>();
             installed.EnsureConfiguredAsCatalogLength();
             TryAddCutsheetMeasurable(installed);
-            Debug.Log(
-                $"[ElevDim] installed missing ToOrigin on Size owner={name} " +
-                $"mm={Mathf.RoundToInt(ElevationLengthFormat.ResolveOwnSizeMeters(this) * 1000f)} " +
-                $"(prefab/bundle had none)",
-                this);
         }
 
         if (Selectable.IsInElevationPhotoMode
@@ -3456,7 +3864,9 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             return false;
         if (IsDualSelectTwin(nearest))
             return false;
-        return nearest.ScaleLevels != null && nearest.ScaleLevels.Count > 0;
+        return nearest.ScaleLevels != null && nearest.ScaleLevels.Count > 0
+            || ElevationLengthFormat.ResolvePdfDataLengthMeters(nearest) > 0f
+            || ElevationLengthGeometry.IsGeometricLengthJoint(nearest);
     }
 
     void TryAddCutsheetMeasurable(Measurable m)
@@ -3580,11 +3990,6 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         SetScaleLevel(level, setSelected: false, fireEvent: false);
         EnsureAttachChainScaleCompensation(reapplyMeshIsolation: false);
-        Debug.Log(
-            $"[ElevDim] vertical length-owner shell repaired name={name} " +
-            $"shellWasWrong={shellWasWrong} meshWrong={meshWrong} " +
-            $"shellWas={ps} sizeMm={Mathf.RoundToInt(sizeM * 1000f)} scaleZ={level.ScaleZ:F4}",
-            this);
         return shellWasWrong || meshWrong;
     }
 
@@ -4257,9 +4662,10 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             for (int i = 0; i < fill.Length; i++) fill[i] = bg;
             dst.SetPixels32(fill);
 
-            // Blit centered
+            // Floor is the bottom of every elevation crop. Pad width only (centered);
+            // extra height goes above the ceiling so the ground graphic still meets the photo.
             int xOffset = Mathf.Max(0, (targetWidth - src.width) / 2);
-            int yOffset = Mathf.Max(0, (targetHeight - src.height) / 2);
+            int yOffset = 0;
             var pixels = src.GetPixels(0, 0, src.width, src.height);
             dst.SetPixels(xOffset, yOffset, src.width, src.height, pixels);
             dst.Apply();

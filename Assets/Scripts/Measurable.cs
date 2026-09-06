@@ -100,6 +100,12 @@ public class Measurable : MonoBehaviour
     /// </summary>
     public float CutsheetLayoutSideMeters { get; set; }
 
+    /// <summary>
+    /// When set, horizontal catalog dims use this label side (stacked arms).
+    /// null = auto from ceiling/floor clearance.
+    /// </summary>
+    public bool? CutsheetPreferLabelBelow { get; set; }
+
     /// <summary>True when this pass's length callout is drawn vertically (tube/flange).</summary>
     public bool CutsheetLengthIsVertical { get; set; }
 
@@ -355,9 +361,9 @@ public class Measurable : MonoBehaviour
     }
 
     /// <summary>
-    /// SINGLE classifier for layout + draw. Length axis (local Z) first — never force
-    /// Vertical from a tiny horiz span when the axis is clearly horizontal (dual-select
-    /// .001 pivots sit at the mount and used to make 800 mm arms draw as 100 mm stubs).
+    /// SINGLE classifier for layout + draw. Mesh extent vs catalog Size first —
+    /// elevation AlignForElevationPhoto often leaves powered-arm local forward = world up,
+    /// so axis-first wrongly drew BoomSegment_2PoweredXL 1000mm as a vertical drop.
     /// </summary>
     public static bool ClassifyCutsheetLengthVertical(
         Selectable owner, float catalogLenMeters, float horizontalSpanMeters)
@@ -365,32 +371,94 @@ public class Measurable : MonoBehaviour
         if (catalogLenMeters <= 0f || owner == null)
             return false;
 
+        string n = owner.name ?? "";
+        if (IsDropTubeName(n) || IsVerticalHangLengthName(n))
+            return true;
+
+        // PdfData / Powered boom arms are catalog HORIZONTAL lengths. A pitched pose
+        // makes the AABB tall so meshY-vs-xz wrongly classifies them as vertical
+        // (hangTop 1000mm down the drop — the unusual vertical dim on PoweredXL).
+        if (IsForcedHorizontalCatalogArm(owner))
+            return false;
+
         Vector3 lengthAxis = owner.transform.TransformDirection(Vector3.forward);
         float upDot = 0f;
         if (lengthAxis.sqrMagnitude > 1e-8f)
             upDot = Mathf.Abs(Vector3.Dot(lengthAxis.normalized, Vector3.up));
 
-        // Drop / ceiling tubes are always vertical catalog callouts — attach parents
-        // often leave local forward horizontal so axis-first would mis-classify them.
-        string ownerName = owner.name ?? "";
-        if (IsDropTubeName(ownerName))
-            return true;
+        float meshY = 0f, meshXz = 0f;
+        string meshSrc = "none";
+        bool haveMesh = ElevationLengthGeometry.TryGetLengthMeshBounds(
+            owner, catalogLenMeters, out Bounds rb, out meshSrc);
+        if (haveMesh)
+        {
+            meshY = rb.size.y;
+            meshXz = Mathf.Max(rb.size.x, rb.size.z);
+            float yErr = Mathf.Abs(meshY - catalogLenMeters);
+            float xzErr = Mathf.Abs(meshXz - catalogLenMeters);
+            // Looser floor (0.35): PoweredXL strict was 0.44 vs catalog 1.0 and skipped 0.45 gate.
+            if (meshXz >= catalogLenMeters * 0.35f && xzErr + 0.02f <= yErr)
+            {
+                return false;
+            }
+            if (meshY >= catalogLenMeters * 0.35f && yErr + 0.02f < xzErr)
+            {
+                return true;
+            }
+        }
 
-        // Axis-first.
-        if (upDot >= 0.75f)
+        // Mount→tip reach explains catalog → horizontal arm (ignore broken forward=up).
+        if (horizontalSpanMeters >= catalogLenMeters * 0.35f)
+        {
+            return false;
+        }
+
+        if (ElevationLengthGeometry.IsVerticalTube(owner, catalogLenMeters))
+        {
             return true;
+        }
+
+        // Do NOT trust upDot alone — PoweredXL elevation align leaves forward=world up
+        // while catalog length is horizontal. Default boom/arm segments to H.
+        bool looksLikeArmSegment =
+            n.IndexOf("BoomSegment", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("ArmSegment", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || n.IndexOf("Powered", System.StringComparison.OrdinalIgnoreCase) >= 0;
+        if (looksLikeArmSegment)
+        {
+            return false;
+        }
+
         if (upDot <= 0.35f)
             return false;
-
-        // Ambiguous tilt: reach then tall own-mesh.
         if (horizontalSpanMeters >= 0.08f)
             return false;
 
-        if (!TryGetOwnRendererBounds(owner, out Bounds rb))
+        if (!haveMesh)
             return false;
-        float height = rb.size.y;
-        float xz = Mathf.Max(rb.size.x, rb.size.z);
-        return height > xz * 1.25f;
+        bool tall = meshY > meshXz * 1.25f;
+        return tall;
+    }
+
+    /// <summary>
+    /// Catalog arm lengths that must stay horizontal dims even when the pose is pitched
+    /// (PoweredXL AABB gets tall and used to draw a bogus vertical 1000 mm).
+    /// </summary>
+    public static bool IsForcedHorizontalCatalogArm(Selectable owner)
+    {
+        if (owner == null)
+            return false;
+        if (ElevationLengthFormat.ResolvePdfDataLengthMeters(owner) > 0.05f)
+            return true;
+        string n = owner.name ?? "";
+        if (n.IndexOf("Powered", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            return true;
+        if (n.IndexOf("BoomSegment_2", System.StringComparison.OrdinalIgnoreCase) >= 0
+            && n.IndexOf("BoomSegment_3", System.StringComparison.OrdinalIgnoreCase) < 0)
+            return true;
+        if (n.IndexOf("ArmSegment", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            return true;
+        return false;
     }
 
     /// <summary>
@@ -445,7 +513,36 @@ public class Measurable : MonoBehaviour
             return false;
         return name.IndexOf("DropTube", System.StringComparison.OrdinalIgnoreCase) >= 0
             || name.IndexOf("BoomDrop", System.StringComparison.OrdinalIgnoreCase) >= 0
-            || name.IndexOf("ArmDrop", System.StringComparison.OrdinalIgnoreCase) >= 0;
+            || name.IndexOf("ArmDrop", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("CeilingTube", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("Ceiling Tube", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("ColumnTube", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("Column Tube", System.StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    /// <summary>
+    /// Geometric joints (Cardanic). Interactive/link helpers may still see them;
+    /// cutsheet catalog dims do not — see <see cref="ElevationDimPolicy"/>.
+    /// </summary>
+    public static bool IsUnsizedLengthJoint(Selectable sel) =>
+        ElevationLengthGeometry.IsGeometricLengthJoint(sel);
+
+    /// <summary>Mesh span along the part's length axis (meters).</summary>
+    public static float ResolveGeometricLengthMeters(Selectable sel)
+    {
+        if (sel == null)
+            return 0f;
+        if (!TryGetStrictOwnRendererBounds(sel, out Bounds b) || b.size.sqrMagnitude < 1e-6f)
+        {
+            if (!TryGetOwnRendererBounds(sel, out b) || b.size.sqrMagnitude < 1e-6f)
+                return 0f;
+        }
+        Vector3 axis = sel.transform.TransformDirection(Vector3.forward);
+        if (axis.sqrMagnitude < 1e-8f)
+            axis = Vector3.up;
+        axis.Normalize();
+        float along = ProjectBoundsMax(b, axis) - ProjectBoundsMin(b, axis);
+        return Mathf.Max(0f, along);
     }
 
     /// <summary>
@@ -482,6 +579,10 @@ public class Measurable : MonoBehaviour
             MeasurementTypes.Add(MeasurementType.ToArmAssemblyOrigin);
         ShowInElevationPhoto = true;
         Disabled = false;
+        // Match Floor ensure: type mutations after Initialize() need Measurements sync.
+        SyncMissingMeasurementsFromTypes();
+        foreach (var m in Measurements)
+            m?.EnsureMeasurerExists();
     }
 
     /// <summary>
@@ -727,7 +828,8 @@ public class Measurable : MonoBehaviour
         proximalName = distalName = "";
         if (owner == null || catalogLen < 0.02f)
             return false;
-        if (!TryGetStrictOwnRendererBounds(owner, out Bounds rb) || rb.size.y < 0.02f)
+        if (!TryGetDropTubeColumnBounds(owner, out Bounds rb) &&
+            (!TryGetStrictOwnRendererBounds(owner, out rb) || rb.size.y < 0.02f))
             return false;
 
         float cx = rb.center.x;
@@ -784,11 +886,6 @@ public class Measurable : MonoBehaviour
         }
         else
         {
-            Debug.Log(
-                $"[ElevDim] VERT TUBE owner={owner.name} catalogMm={Mathf.RoundToInt(catalogMm)} " +
-                $"meshMm={Mathf.RoundToInt(meshMm)} topY={featureA.y:F3} tipY={featureB.y:F3} " +
-                $"anchors={proximalName}→{distalName}",
-                owner);
         }
         return true;
     }
@@ -812,139 +909,27 @@ public class Measurable : MonoBehaviour
         if (owner == null)
             return false;
 
-        Vector3 featureA;
-        Vector3 featureB;
-        Vector3 axis;
-        string proximalName;
-        string distalName;
-
-        // Vertical tubes/necks: ticks = Size-owner mesh ends (length isolation ⇒ mesh == Size).
-        // Must run BEFORE distal-AP aim — that used to lock onto RailPlate.
-        if (vertical
-            && TryBuildVerticalCatalogYTicks(
-                owner, catalogLen, out featureA, out featureB, out proximalName, out distalName))
+        if (!ElevationDimSolver.TrySolve(
+                owner, catalogLen, camera, layoutVertical: vertical,
+                out var sol))
         {
-            axis = Vector3.down;
-        }
-        else
-        {
-            AttachmentPoint proximalAp = ResolveProximalForLengthOwner(owner)
-                ?? GetSegmentProximalAttachmentPoint()
-                ?? HighestAssemblyAttachmentPoint;
-            AttachmentPoint distalAp = FindDistalAttachmentPoint(owner, proximalAp);
-
-            Vector3 proximalFeat = proximalAp != null
-                ? proximalAp.transform.position
-                : owner.transform.position;
-
-            axis = owner.transform.TransformDirection(Vector3.forward);
-            if (axis.sqrMagnitude < 1e-8f)
-                axis = vertical ? Vector3.down : Vector3.right;
-            axis.Normalize();
-
-            Vector3 aimPoint = distalAp != null
-                ? distalAp.transform.position
-                : transform.position;
-            Vector3 toward = aimPoint - proximalFeat;
-            if (toward.sqrMagnitude > 1e-6f && Vector3.Dot(axis, toward) < 0f)
-                axis = -axis;
-
-            if (vertical)
-            {
-                if (Mathf.Abs(Vector3.Dot(axis, Vector3.up)) < 0.5f)
-                    axis = Vector3.down;
-                else if (Vector3.Dot(axis, Vector3.down) < 0f)
-                    axis = -axis;
-            }
-            else
-            {
-                axis.y = 0f;
-                if (axis.sqrMagnitude < 1e-6f)
-                {
-                    toward.y = 0f;
-                    axis = toward.sqrMagnitude > 1e-6f ? toward.normalized : Vector3.right;
-                }
-                else
-                    axis.Normalize();
-            }
-
-            featureA = proximalFeat;
-            featureB = featureA + axis * catalogLen;
-            proximalName = proximalAp != null ? proximalAp.name : "pivot";
-            distalName = distalAp != null ? distalAp.name : "aim";
-
-            bool haveMesh = vertical
-                ? TryGetStrictOwnRendererBounds(owner, out Bounds meshRb)
-                : TryGetOwnRendererBounds(owner, out meshRb);
-            if (haveMesh && meshRb.size.sqrMagnitude > 1e-4f)
-            {
-                Vector3 center = meshRb.center;
-                float cAlong = Vector3.Dot(center, axis);
-                float meshMin = ProjectBoundsMin(meshRb, axis);
-                float meshMax = ProjectBoundsMax(meshRb, axis);
-                featureA = center + axis * (meshMin - cAlong);
-                featureB = center + axis * (meshMax - cAlong);
-                if (Vector3.Dot(featureB - featureA, axis) < 0f)
-                {
-                    Vector3 swap = featureA;
-                    featureA = featureB;
-                    featureB = swap;
-                }
-
-                if (vertical)
-                {
-                    if (featureA.y < featureB.y)
-                    {
-                        Vector3 swap = featureA;
-                        featureA = featureB;
-                        featureB = swap;
-                    }
-                    proximalName = "meshTop";
-                    distalName = "meshTip";
-                }
-                else
-                {
-                    float armY = meshRb.center.y;
-                    featureA.y = armY;
-                    featureB.y = armY;
-                    proximalName = "meshNear";
-                    distalName = "meshFar";
-                }
-            }
+            Debug.LogWarning(
+                $"[ElevDim] DIM FAIL owner={owner.name} mm={Mathf.RoundToInt(catalogLen * 1000f)} reason=noMesh",
+                this);
+            return false;
         }
 
-        // Head-on skip is for boom arms only — drop tubes / vertical hang lengths look
-        // the same from every elev angle, so never hide them for "page span".
-        if (camera != null
-            && !vertical
-            && !IsDropTubeName(owner.name)
-            && !IsVerticalHangLengthName(owner.name))
-        {
-            Vector3 pageDelta = Vector3.ProjectOnPlane(
-                featureB - featureA, camera.transform.forward);
-            float pageSpan = pageDelta.magnitude;
-            float minPage = Mathf.Max(0.12f, catalogLen * 0.4f);
-            if (pageSpan < minPage)
-            {
-                Debug.Log(
-                    $"[ElevDim] skip head-on length owner={owner.name} " +
-                    $"catalogMm={Mathf.RoundToInt(catalogLen * 1000f)} " +
-                    $"pageSpan={pageSpan:F3} min={minPage:F3}",
-                    this);
-                return false;
-            }
-        }
+        vertical = sol.Vertical;
+        Vector3 featureA = sol.A;
+        Vector3 featureB = sol.B;
+        string proximalName = sol.Vertical ? "top" : "near";
+        string distalName = sol.Vertical ? "tip" : "far";
 
         // --- Layout: offset MUST be perpendicular to the length axis ---
-        // Lateral offset along the arm collapses leaders into the body (single line
-        // through the tube with no end ticks). Horizontal → up/down; vertical → cam-right.
         Vector3 offset;
         float lane;
         bool labelBelow = false;
         float labelSideSign = 0f;
-        Bounds asmBounds = CutsheetAssemblyBoundsValid
-            ? CutsheetAssemblyBounds
-            : (TryGetOwnRendererBounds(owner, out Bounds ownB) ? ownB : new Bounds(featureA, Vector3.one * 0.2f));
 
         if (vertical)
         {
@@ -954,8 +939,6 @@ public class Measurable : MonoBehaviour
                 right = Vector3.right;
             right.Normalize();
 
-            // Short tubes normally keep compact leaders; crowded cutsheet lanes win so
-            // stacked 50–100 mm callouts at a joint still clear the assembly.
             bool shortTube = catalogLen <= 0.35f || IsDropTubeName(owner.name);
             float layoutSide = CutsheetLayoutSideMeters > 0.05f
                 ? CutsheetLayoutSideMeters
@@ -965,14 +948,13 @@ public class Measurable : MonoBehaviour
             float pad = (shortTube && layoutSide < 0.35f)
                 ? 0.02f
                 : ElevationDimPlacement.AssemblyClearPadMeters;
-            Bounds tubeBounds = asmBounds;
-            if (TryGetStrictOwnRendererBounds(owner, out Bounds colB) && colB.size.y > 0.02f)
-                tubeBounds = colB;
-            else if (TryGetOwnRendererBounds(owner, out Bounds ownTube) && ownTube.size.sqrMagnitude > 1e-4f)
-                tubeBounds = ownTube;
+            Bounds tubeBounds;
+            bool haveTube = TryGetStrictOwnRendererBounds(owner, out tubeBounds) && tubeBounds.size.y > 0.02f;
+            if (!haveTube)
+                haveTube = TryGetOwnRendererBounds(owner, out tubeBounds) && tubeBounds.size.y > 0.02f;
 
-            float tubeMinR = ProjectBoundsMin(tubeBounds, right);
-            float tubeMaxR = ProjectBoundsMax(tubeBounds, right);
+            float tubeMinR = haveTube ? ProjectBoundsMin(tubeBounds, right) : Vector3.Dot(featureA, right);
+            float tubeMaxR = haveTube ? ProjectBoundsMax(tubeBounds, right) : tubeMinR;
             float featR = Vector3.Dot(featureA, right);
             Vector3 reach = transform.position - featureA;
             reach.y = 0f;
@@ -983,30 +965,25 @@ public class Measurable : MonoBehaviour
                 ? tubeMinR - pad - lane
                 : tubeMaxR + pad + lane;
             offset = right * (targetR - featR);
-            // Do not clamp short tubes onto the column — near lane + layout resolve
-            // own clearance. Old 0.08m cap left 100mm labels sitting on the mesh.
             float maxLeader = 0.45f;
             float leader = Mathf.Abs(targetR - featR);
             if (leader > maxLeader)
                 offset = right * ((preferNeg ? -1f : 1f) * maxLeader);
             labelSideSign = preferNeg ? -1f : 1f;
 
-            // Extension-line feet on the tube's outboard face (drafting: leaders meet the part).
-            Bounds faceRb = tubeBounds;
-            if (faceRb.size.y > 0.02f)
+            if (haveTube && tubeBounds.size.y > 0.02f)
             {
                 float faceExtent =
-                    Mathf.Abs(right.x) * faceRb.extents.x + Mathf.Abs(right.z) * faceRb.extents.z;
+                    Mathf.Abs(right.x) * tubeBounds.extents.x + Mathf.Abs(right.z) * tubeBounds.extents.z;
                 Vector3 toFace = right * (preferNeg ? -faceExtent : faceExtent);
-                featureA = new Vector3(faceRb.center.x, featureA.y, faceRb.center.z) + toFace;
-                featureB = new Vector3(faceRb.center.x, featureB.y, faceRb.center.z) + toFace;
+                featureA = new Vector3(tubeBounds.center.x, featureA.y, tubeBounds.center.z) + toFace;
+                featureB = new Vector3(tubeBounds.center.x, featureB.y, tubeBounds.center.z) + toFace;
             }
 
             measurer.ElevationTextLane = Mathf.Max(1, Mathf.RoundToInt(lane * 10f));
         }
         else
         {
-            // Always offset along world up (⊥ arm axis in elevation) so leaders form end ticks.
             lane = CutsheetLayoutLiftMeters > 0.05f
                 ? CutsheetLayoutLiftMeters
                 : ElevationDimPlacement.CutsheetLaneBaseMeters;
@@ -1023,11 +1000,47 @@ public class Measurable : MonoBehaviour
                 armBotY = armRb.min.y;
             }
             float labelBand = ElevationDimPlacement.LabelGapMeters + 0.08f;
-            // Clear THIS arm (not full assembly top — flange always blocks "above").
             float aboveY = armTopY + pad + lane;
             float belowY = armBotY - pad - lane;
+            float ceilingHardwareY = ElevationDimPlacement.CeilingHardwareClearanceY();
+            float maxAboveY = Mathf.Min(
+                ceilingY - margin - 0.02f,
+                ceilingHardwareY - pad - 0.02f);
 
-            if (aboveY + labelBand <= ceilingY - margin)
+            if (CutsheetPreferLabelBelow == false)
+            {
+                float neededAbove = armTopY + pad + Mathf.Max(lane * 0.5f, labelBand);
+                bool plateIsCeilingBand = ceilingHardwareY >= ceilingY - 0.35f;
+                if (plateIsCeilingBand && neededAbove > maxAboveY + 0.01f)
+                {
+                    float y = Mathf.Max(belowY, floorY + margin + 0.02f);
+                    y = Mathf.Min(y, armBotY - 0.05f);
+                    if (y > armBotY - 0.04f)
+                        y = armBotY - Mathf.Max(0.05f, Mathf.Min(lane, 0.2f));
+                    offset = Vector3.up * (y - featureY);
+                    labelBelow = true;
+                }
+                else
+                {
+                    float y = Mathf.Min(aboveY, maxAboveY);
+                    y = Mathf.Max(y, armTopY + 0.05f);
+                    if (!plateIsCeilingBand)
+                        y = aboveY;
+                    y = Mathf.Min(y, ceilingY - margin - 0.02f);
+                    offset = Vector3.up * (y - featureY);
+                    labelBelow = false;
+                }
+            }
+            else if (CutsheetPreferLabelBelow == true)
+            {
+                float y = Mathf.Max(belowY, floorY + margin + 0.02f);
+                y = Mathf.Min(y, armBotY - 0.05f);
+                if (y > armBotY - 0.04f)
+                    y = armBotY - Mathf.Max(0.05f, Mathf.Min(lane, 0.2f));
+                offset = Vector3.up * (y - featureY);
+                labelBelow = true;
+            }
+            else if (aboveY + labelBand <= maxAboveY)
             {
                 offset = Vector3.up * (aboveY - featureY);
                 labelBelow = false;
@@ -1044,7 +1057,6 @@ public class Measurable : MonoBehaviour
                 labelBelow = true;
             }
 
-            // Guaranteed ⊥ to horizontal length axis — never collapse the U.
             if (Mathf.Abs(offset.y) < 0.05f)
             {
                 offset = Vector3.down * (pad + lane);
@@ -1061,8 +1073,6 @@ public class Measurable : MonoBehaviour
         else
             measurer.ElevationOutboardDir = labelBelow ? Vector3.down : Vector3.up;
 
-        // Body outside the silhouette; extension lines stub to mesh ends.
-        // Label always prints catalog mm (Measurer), even when drawn span follows mesh.
         item.Origin = featureA + offset;
         item.HitPoint = featureB + offset;
 
@@ -1081,28 +1091,78 @@ public class Measurable : MonoBehaviour
         }
 
         heightMod += vertical ? 0.16f : 0.32f;
-
-        float span = Vector3.Distance(item.Origin, item.HitPoint);
-        bool meshExtent = distalName != null
-            && (distalName.StartsWith("mesh", System.StringComparison.Ordinal)
-                || distalName.IndexOf("Far", System.StringComparison.Ordinal) >= 0);
-        bool spanOk = meshExtent || Mathf.Abs(span - catalogLen) < 0.002f;
-        if (!spanOk)
-        {
-            Debug.LogWarning(
-                $"[ElevDim] CATALOG PLACE span mismatch owner={owner.name} " +
-                $"catalog={catalogLen:F3} span={span:F3}",
-                this);
-        }
-        Debug.Log(
-            $"[ElevDim] CATALOG PLACE owner={owner.name} vertical={vertical} " +
-            $"catalogMm={Mathf.RoundToInt(catalogLen * 1000f)} span={span:F3} spanOk={spanOk} " +
-            $"proximal={proximalName} distal={distalName} lane={lane:F2} labelBelow={labelBelow} " +
-            $"leaderLen0={Vector3.Distance(item.Origin, featureA):F3} " +
-            $"leaderLen1={Vector3.Distance(item.HitPoint, featureB):F3} " +
-            $"asm={(CutsheetAssemblyBoundsValid ? CutsheetAssemblyBounds.size.ToString("F2") : "none")}",
-            this);
         return true;
+    }
+
+    static void LogTickOwnerVerify(
+        Selectable owner, float catalogLen, bool vertical,
+        Vector3 featureA, Vector3 featureB, bool labelBelow)
+    {
+    }
+
+    static float DistancePointToSelectableMesh(Vector3 p, Selectable sel)
+    {
+        if (sel == null)
+            return float.MaxValue;
+        // Same mesh source as classify/endpoints (related twin), not empty PoweredXL root.
+        float catalog = ElevationLengthFormat.ResolveCatalogLengthMeters(sel);
+        if (catalog < 0.03f)
+            catalog = -1f;
+        if (!ElevationLengthGeometry.TryGetLengthMeshBounds(sel, catalog, out Bounds b, out _)
+            || b.size.sqrMagnitude < 1e-6f)
+        {
+            if (!TryGetStrictOwnRendererBounds(sel, out b) || b.size.sqrMagnitude < 1e-6f)
+            {
+                if (!TryGetOwnRendererBounds(sel, out b) || b.size.sqrMagnitude < 1e-6f)
+                    return Vector3.Distance(p, sel.transform.position);
+            }
+        }
+        if (b.Contains(p))
+            return 0f;
+        return Vector3.Distance(p, b.ClosestPoint(p));
+    }
+
+    /// <summary>Legacy wrapper — catalog fit is ElevationDimSolver.</summary>
+    public static void SnapFeatureSpanToCatalogLength(
+        ref Vector3 featureA, ref Vector3 featureB, Vector3 axis, float catalogLen, bool vertical)
+    {
+        if (catalogLen <= 0f)
+            return;
+        if (vertical)
+        {
+            float topY = Mathf.Max(featureA.y, featureB.y);
+            float cx = 0.5f * (featureA.x + featureB.x);
+            float cz = 0.5f * (featureA.z + featureB.z);
+            featureA = new Vector3(cx, topY, cz);
+            featureB = new Vector3(cx, topY - catalogLen, cz);
+            return;
+        }
+        ElevationDimSolver.FitHorizontalCatalog(ref featureA, ref featureB, axis, catalogLen, out _);
+    }
+
+    static bool TryGetColumnLikeOwnBounds(Selectable owner, out Bounds bounds)
+    {
+        bounds = default;
+        if (owner == null)
+            return false;
+        bool any = false;
+        foreach (var r in owner.GetComponentsInChildren<Renderer>(true))
+        {
+            if (r == null || !r.enabled || !r.gameObject.activeInHierarchy)
+                continue;
+            if (r.GetComponentInParent<Selectable>(true) != owner)
+                continue;
+            float h = r.bounds.size.y;
+            float xz = Mathf.Max(r.bounds.size.x, r.bounds.size.z);
+            if (h < 0.02f || h < xz * 0.8f)
+                continue;
+            if (!any || h > bounds.size.y)
+            {
+                bounds = r.bounds;
+                any = true;
+            }
+        }
+        return any;
     }
 
     /// <summary>
@@ -1111,10 +1171,9 @@ public class Measurable : MonoBehaviour
     /// </summary>
     static bool TryGetDropTubeColumnBounds(Selectable owner, out Bounds bounds)
     {
-        // Prefer strict Size-owner mesh — twin encapsulate is for arms, not tube ticks.
-        if (TryGetStrictOwnRendererBounds(owner, out bounds) && bounds.size.y > 0.02f)
-            return true;
-        if (TryGetOwnRendererBounds(owner, out bounds) && bounds.size.y > 0.02f)
+        // Column-like own mesh only — a ceiling-tube Selectable can also own the
+        // carrier disk, which parked the 150 mm dim on the head instead of the tube.
+        if (TryGetColumnLikeOwnBounds(owner, out bounds) && bounds.size.y > 0.02f)
             return true;
 
         bounds = default;
@@ -1256,7 +1315,16 @@ public class Measurable : MonoBehaviour
         bool drawFloor = true)
     {
         if (!Selectable.IsInElevationPhotoMode || Disabled)
+        {
+            if (Selectable.IsInElevationPhotoMode && drawFloor && Disabled)
+            {
+                Debug.LogWarning(
+                    $"[ElevDim] FLOOR APPLY aborted — measurable Disabled name={name} " +
+                    $"owner={(lengthOwner != null ? lengthOwner.name : "null")}",
+                    this);
+            }
             return;
+        }
 
         CutsheetLengthOwner = lengthOwner;
         lengthOwner?.EnsureCurrentScaleLevelFromCatalog();
@@ -1278,10 +1346,26 @@ public class Measurable : MonoBehaviour
         // Soft flag only — do not SetActive(true) (that enables Walls + fires canvas events).
         IsActive = true;
 
+        if (Measurements == null || Measurements.Count == 0)
+        {
+            EnsureInitializedForElevation();
+        }
+
         foreach (var item in Measurements)
         {
             if (item?.Measurer == null)
-                continue;
+            {
+                if (drawFloor && item != null && item.MeasurementType == MeasurementType.Floor)
+                {
+                    item.EnsureMeasurerExists();
+                    Debug.LogWarning(
+                        $"[ElevDim] FLOOR APPLY measurer was null — EnsureMeasurerExists " +
+                        $"measurable={name} now={(item.Measurer != null)}",
+                        this);
+                }
+                if (item?.Measurer == null)
+                    continue;
+            }
 
             bool cutsheetFloor = drawFloor
                 && item.MeasurementType == MeasurementType.Floor
@@ -1294,6 +1378,17 @@ public class Measurable : MonoBehaviour
                 && item.MeasurementType == MeasurementType.ToArmAssemblyOrigin
                 && catalogLen > 0f
                 && (ShowInElevationPhoto || CutsheetCatalogLengthMeters > 0f);
+
+            if (drawFloor && item.MeasurementType == MeasurementType.Floor && !cutsheetFloor)
+            {
+                Debug.LogWarning(
+                    $"[ElevDim] FLOOR GATE closed measurable={name} " +
+                    $"showElev={ShowInElevationPhoto} allow={CutsheetAllowFloorDraw} " +
+                    $"skip={ShouldSkipElevationFloorDim()} " +
+                    $"pinned={(CutsheetLengthOwner != null ? CutsheetLengthOwner.name : "null")} " +
+                    $"pinnedHost={(CutsheetLengthOwner != null && IsFloorClearanceProductHead(CutsheetLengthOwner))}",
+                    this);
+            }
 
             if (!cutsheetFloor && !cutsheetLength)
             {
@@ -1380,12 +1475,6 @@ public class Measurable : MonoBehaviour
                      && m.Measurer != null
                      && m.Measurer.gameObject.activeSelf))
         {
-            Debug.Log(
-                $"[ElevDim] DRAW catalog length measurable={name} " +
-                $"lengthOwner={(lengthOwner != null ? lengthOwner.name : "null")} " +
-                $"catalogMm={Mathf.RoundToInt(catalogLen * 1000f)} pinnedM={CutsheetCatalogLengthMeters:F3} " +
-                $"owner={(GetOwningSelectable() != null ? GetOwningSelectable().name : "null")}",
-                this);
         }
     }
 
@@ -1429,6 +1518,7 @@ public class Measurable : MonoBehaviour
         CutsheetLayoutLiftMeters = 0f;
         CutsheetLayoutSideMeters = 0f;
         CutsheetLengthIsVertical = false;
+        CutsheetPreferLabelBelow = null;
         CutsheetAllowLengthDraw = true;
         CutsheetAllowFloorDraw = true;
         ArmAssemblyActiveInElevationPhotoMode = false;
@@ -1596,28 +1686,16 @@ public class Measurable : MonoBehaviour
         {
             root = lightRoot;
             productOwner = lightRoot.GetComponent<Selectable>() ?? owner;
-            Debug.Log(
-                $"[ElevDim] FLOOR ROOT lightProduct owner={owner?.name} " +
-                $"head={lightRoot.name} measurable={name}",
-                this);
         }
         else if (IsMonitorBoomProductHead(owner))
         {
             root = owner.transform;
             productOwner = owner;
-            Debug.Log(
-                $"[ElevDim] FLOOR ROOT monitorBoom owner={owner.name} " +
-                $"measurable={name}",
-                this);
         }
         else if (TryGetServiceHeadFloorRoot(owner, out Transform headRoot))
         {
             root = headRoot;
             productOwner = headRoot.GetComponent<Selectable>() ?? owner;
-            Debug.Log(
-                $"[ElevDim] FLOOR ROOT serviceHead owner={owner.name} " +
-                $"head={headRoot.name} measurable={name}",
-                this);
         }
         else if (owner != null)
         {
@@ -1739,43 +1817,13 @@ public class Measurable : MonoBehaviour
     }
 
     /// <summary>
-    /// Product heads that own a floor→underside clearance (SH cabinet, monitor, light).
-    /// Mount GUID roots / boom arms / spring arms / tubes are not product heads.
-    /// Log bug: name-matching SpringBottom/1000SH curated a spring-arm floor at
-    /// undersideY≈2.41 next to the monitor (looked like arm→floor 2410).
-    /// SpringBottom prefab is only XXLLargeSpringArticulatingLowerArm — no cabinet.
+    /// Product heads that own a floor→underside clearance. See <see cref="ElevationDimPolicy"/>.
     /// </summary>
-    public static bool IsFloorClearanceProductHead(Selectable sel)
-    {
-        if (sel == null)
-            return false;
+    public static bool IsFloorClearanceProductHead(Selectable sel) =>
+        ElevationDimPolicy.IsFloorClearanceHost(sel);
 
-        string n = sel.name;
-        // Assembly roots are renamed to a GUID — never treat those as product floors
-        // (must run before light checks — GUID mounts can host LightFactory children).
-        if (LooksLikeGuidName(n))
-            return false;
-
-        // True SH cabinet (row-tier head), not spring/boom arm names.
-        if (sel.GetComponent<BoomHeadScaleHandler>() != null)
-            return true;
-        if (IsMonitorBoomProductHead(sel))
-            return true;
-        if (IsLightProductFloorOwner(sel))
-            return true;
-
-        // Spring / boom arms must never qualify via broad "1000SH" / "SpringBottom" names.
-        if (IsSkippedMidArmFloorName(sel))
-            return false;
-        if (n.IndexOf("SpringBottom", StringComparison.OrdinalIgnoreCase) >= 0
-            || n.IndexOf("SpringLoaded", StringComparison.OrdinalIgnoreCase) >= 0
-            || n.IndexOf("BoomArm", StringComparison.OrdinalIgnoreCase) >= 0)
-            return false;
-
-        return n.IndexOf("NewBoomHead", StringComparison.OrdinalIgnoreCase) >= 0
-            || n.IndexOf("ServiceHead", StringComparison.OrdinalIgnoreCase) >= 0
-            || n.IndexOf("BoomHead", StringComparison.OrdinalIgnoreCase) >= 0;
-    }
+    public static bool LooksLikeGuidSelectable(Selectable sel) =>
+        sel != null && LooksLikeGuidName(sel.name);
 
     static bool LooksLikeGuidName(string n)
     {
@@ -1796,11 +1844,21 @@ public class Measurable : MonoBehaviour
         return hyphens >= 4;
     }
 
-    /// <summary>Monitor boom head — own floor clearance (parallel to service-head underside).</summary>
+    /// <summary>
+    /// Monitor / LCD carrier with an authored Floor measurable (not a light or SH cabinet).
+    /// </summary>
     public static bool IsMonitorBoomProductHead(Selectable owner)
     {
         if (owner == null)
             return false;
+        if (owner.GetComponent<BoomHeadScaleHandler>() != null)
+            return false;
+        if (IsLightProductFloorOwner(owner))
+            return false;
+        // Authored Measurable_ToFloor on the carrier — scalable, no marketing-name list.
+        if (ElevationDimPolicy.HasFloorMeasurable(owner))
+            return true;
+        // Legacy named monitor boom heads.
         string n = owner.name;
         return n.IndexOf("MonitorBoomHead", StringComparison.OrdinalIgnoreCase) >= 0
             || n.IndexOf("LargeMonitorBoomHead", StringComparison.OrdinalIgnoreCase) >= 0;
@@ -2122,11 +2180,12 @@ public class Measurable : MonoBehaviour
                             hp = item.HitPoint;
                             hp.x = ax;
                             hp.z = az;
+                            hp.y = ElevationDimPlacement.FloorTopY();
                             item.HitPoint = hp;
-                            Debug.Log(
-                                $"[ElevDim] FLOOR XZ snap head={floorHead.name} " +
-                                $"tipXZ=({tipXZ.x:F2},{tipXZ.z:F2}) → headXZ=({ax:F2},{az:F2})",
-                                this);
+                            Vector3 under = ElevationDimPlacement.UndersideOrigin(
+                                floorHead, o, floorHead.GetComponent<Selectable>(), includeAccessories: true);
+                            o.y = under.y;
+                            item.Origin = o;
                         }
 
                         int headId = floorHead != null
@@ -2198,13 +2257,6 @@ public class Measurable : MonoBehaviour
 
                         item.Measurer.SyncLeaderFrostedBackings(camera);
 
-                        Debug.Log(
-                            $"[ElevDim] FLOOR PLACE measurable={name} " +
-                            $"owner={(GetOwningSelectable() != null ? GetOwningSelectable().name : "null")} " +
-                            $"undersideY={item.Origin.y:F3} floorY={item.HitPoint.y:F3} " +
-                            $"spanMm={mm} xz=({item.Origin.x:F2},{item.Origin.z:F2}) " +
-                            $"head={(floorHead != null ? floorHead.name : "null")}",
-                            this);
                     }
                     break;
                 case MeasurementType.ToArmAssemblyOrigin:
@@ -2254,6 +2306,11 @@ public class Measurable : MonoBehaviour
                         if (!TryBuildCatalogLengthCallout(
                                 item, measurer, camera, catalogLen, vertical, ref heightMod))
                         {
+                            Debug.LogWarning(
+                                $"[ElevDim] PLACE FAIL owner={(GetOwningSelectable() != null ? GetOwningSelectable().name : "?")} " +
+                                $"catalogMm={Mathf.RoundToInt(catalogLen * 1000f)} vertical={vertical} " +
+                                $"measurable={name} — TryBuildCatalogLengthCallout returned false",
+                                this);
                             measurer.DisableElevationVisuals();
                             measurer.gameObject.SetActive(false);
                         }

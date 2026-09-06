@@ -10,8 +10,7 @@ public static class ElevationOutletCaptureDiagnostics
 {
     public static void LogBeforeRender(IList<Selectable> assemblySelectables, Camera camera)
     {
-        if (assemblySelectables == null || camera == null)
-            return;
+        return;
 
         var sb = new StringBuilder(2048);
         sb.AppendLine("[ElevOutletDiag] ---- before camera.Render ----");

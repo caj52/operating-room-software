@@ -260,7 +260,7 @@ public class MeasurementText : MonoBehaviour
             _elevTextBacking = go.GetComponent<Image>();
             _elevTextBacking.raycastTarget = false;
             // Milky frosted plate: white-on-white vanishes; over gear you still see a wash of it.
-            _elevTextBacking.color = new Color(1f, 1f, 1f, 0.78f);
+            _elevTextBacking.color = new Color(1f, 1f, 1f, 0.55f);
             if (_elevWhiteSprite == null)
                 _elevWhiteSprite = CreateElevFrostedSprite();
             _elevTextBacking.sprite = _elevWhiteSprite;
@@ -281,7 +281,7 @@ public class MeasurementText : MonoBehaviour
         EnsureElevTextCanvasOverride();
 
         _elevTextBacking.gameObject.SetActive(true);
-        _elevTextBacking.color = new Color(1f, 1f, 1f, 0.78f);
+        _elevTextBacking.color = new Color(1f, 1f, 1f, 0.55f);
         if (_elevWhiteSprite == null)
             _elevWhiteSprite = CreateElevFrostedSprite();
         if (_elevTextBacking.sprite != _elevWhiteSprite)

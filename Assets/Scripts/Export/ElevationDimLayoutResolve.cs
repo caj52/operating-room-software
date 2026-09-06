@@ -53,11 +53,17 @@ public static class ElevationDimLayoutResolve
             if (m.Measurement == null)
                 continue;
 
-            // Floor dims stay on the product — fixed obstacles for length layout.
+            // Floor clearance lines span floor→underside (page-tall). Settling the full
+            // body as an obstacle shoved ceiling-tube / column dims off the assembly.
+            // Only the floor label competes for page space with length callouts.
             if (m.Measurement.MeasurementType == MeasurementType.Floor)
             {
-                if (TryBuildPageGeom(m, pageRight, pageUp, out PageGeom floorGeom))
+                if (TryBuildPageGeom(m, pageRight, pageUp, out PageGeom floorGeom)
+                    && floorGeom.HasLabel)
+                {
+                    floorGeom.Body = floorGeom.Label;
                     settled.Add(floorGeom);
+                }
                 continue;
             }
 
@@ -79,14 +85,15 @@ public static class ElevationDimLayoutResolve
             return lb.CompareTo(la);
         });
 
-        int flips = 0;
-        int blockedSides = 0;
-        float maxOutboard = 0f;
-        float sumSep = 0f;
-
         foreach (var measurer in candidates)
         {
-            Vector3 body = measurer.ElevationLeaderFeatureB - measurer.ElevationLeaderFeatureA;
+            // Solver ticks are immutable during search — ApplyPlacement used to reseat
+            // ElevationLeaderFeature* every trial, so later offsets/sides started from
+            // corrupted feet (DropTube/column dims walked into empty space).
+            Vector3 solverA = measurer.ElevationLeaderFeatureA;
+            Vector3 solverB = measurer.ElevationLeaderFeatureB;
+
+            Vector3 body = solverB - solverA;
             Vector3 bodyPage = Vector3.ProjectOnPlane(body, pageFwd);
             if (bodyPage.sqrMagnitude < 1e-8f)
                 bodyPage = Vector3.ProjectOnPlane(
@@ -118,21 +125,20 @@ public static class ElevationDimLayoutResolve
 
             // Pass 1: only outside placements (path clear of foreign gear + clear of owner).
             int blocked = 0;
-            EvaluateSide(measurer, dirA, camera, pageRight, pageUp, settled,
+            EvaluateSide(measurer, solverA, solverB, dirA, camera, pageRight, pageUp, settled,
                 owner, haveOwnerRect, ownerRect, requireOutside: true,
                 ref bestScore, ref bestDir, ref bestOffset, ref bestGeom, ref haveBest, ref blocked);
-            EvaluateSide(measurer, dirB, camera, pageRight, pageUp, settled,
+            EvaluateSide(measurer, solverA, solverB, dirB, camera, pageRight, pageUp, settled,
                 owner, haveOwnerRect, ownerRect, requireOutside: true,
                 ref bestScore, ref bestDir, ref bestOffset, ref bestGeom, ref haveBest, ref blocked);
-            blockedSides += blocked;
 
             // Pass 2: only if no outside slot exists (should be rare).
             if (!haveBest)
             {
-                EvaluateSide(measurer, dirA, camera, pageRight, pageUp, settled,
+                EvaluateSide(measurer, solverA, solverB, dirA, camera, pageRight, pageUp, settled,
                     owner, haveOwnerRect, ownerRect, requireOutside: false,
                     ref bestScore, ref bestDir, ref bestOffset, ref bestGeom, ref haveBest, ref blocked);
-                EvaluateSide(measurer, dirB, camera, pageRight, pageUp, settled,
+                EvaluateSide(measurer, solverA, solverB, dirB, camera, pageRight, pageUp, settled,
                     owner, haveOwnerRect, ownerRect, requireOutside: false,
                     ref bestScore, ref bestDir, ref bestOffset, ref bestGeom, ref haveBest, ref blocked);
             }
@@ -141,33 +147,19 @@ public static class ElevationDimLayoutResolve
             {
                 bestDir = dirA;
                 bestOffset = MinOffsetMeters;
-                ApplyPlacement(measurer, bestDir, bestOffset, camera, pageRight, pageUp);
-                TryBuildPageGeom(measurer, pageRight, pageUp, out bestGeom);
-            }
-            else
-            {
-                ApplyPlacement(measurer, bestDir, bestOffset, camera, pageRight, pageUp);
-                if (!TryBuildPageGeom(measurer, pageRight, pageUp, out bestGeom))
-                    bestGeom = default;
             }
 
-            if (Vector3.Dot(bestDir, dirA) < 0.5f)
-                flips++;
+            ApplyPlacement(
+                measurer, solverA, solverB, bestDir, bestOffset, camera, pageRight, pageUp);
+            if (!TryBuildPageGeom(measurer, pageRight, pageUp, out bestGeom))
+                bestGeom = default;
 
             settled.Add(bestGeom);
-            maxOutboard = Mathf.Max(maxOutboard, bestOffset);
-            sumSep += SeparationFromSettled(bestGeom, settled, excludeLast: true);
         }
-
-        float avgSep = candidates.Count > 0 ? sumSep / candidates.Count : 0f;
-        Debug.Log(
-            $"[ElevDim] LAYOUT RESOLVE dims={candidates.Count} sideFlips={flips} " +
-            $"blockedInside={blockedSides} maxOutboard={maxOutboard:F3} " +
-            $"avgSep={avgSep:F3} settled={settled.Count}");
     }
 
     static void EvaluateSide(
-        Measurer m, Vector3 dir, Camera camera,
+        Measurer m, Vector3 solverA, Vector3 solverB, Vector3 dir, Camera camera,
         Vector3 pageRight, Vector3 pageUp, List<PageGeom> settled,
         Selectable owner, bool haveOwnerRect, Rect ownerRect, bool requireOutside,
         ref float bestScore, ref Vector3 bestDir, ref float bestOffset,
@@ -180,7 +172,7 @@ public static class ElevationDimLayoutResolve
             bool throughPart = false;
             if (haveOwnerRect)
             {
-                TryPreviewLeaderFeet(m, dir, owner, out Vector3 predFeatA, out Vector3 predFeatB);
+                PredictFeet(solverA, solverB, dir, owner, out Vector3 predFeatA, out Vector3 predFeatB);
                 Vector3 predA = predFeatA + dir * offset;
                 Vector3 predB = predFeatB + dir * offset;
                 if (TrySegmentRect(predA, predB, pageRight, pageUp, BodyHalfWidthMeters, out Rect predBody))
@@ -198,8 +190,10 @@ public static class ElevationDimLayoutResolve
                     continue;
             }
 
-            ApplyPlacement(m, dir, offset, camera, pageRight, pageUp);
+            ApplyPlacement(m, solverA, solverB, dir, offset, camera, pageRight, pageUp);
             if (!TryBuildPageGeom(m, pageRight, pageUp, out PageGeom geom))
+                continue;
+            if (!FitsLockedElevationFrame(m, pageRight, pageUp))
                 continue;
 
             if (haveOwnerRect && geom.Body.Overlaps(ownerRect))
@@ -267,35 +261,110 @@ public static class ElevationDimLayoutResolve
         return true;
     }
 
-    static bool TryPreviewLeaderFeet(
-        Measurer m, Vector3 dir, Selectable owner, out Vector3 featA, out Vector3 featB)
+    /// <summary>
+    /// Map solver ticks → feet on the outboard face. Always starts from solverA/B
+    /// (never from previously mutated ElevationLeaderFeature*).
+    /// Horizontal: keep solver ticks. Vertical: slide xz onto the part's own mesh face
+    /// toward dir, capped to tube radius — claim AABB faces shoved dims into empty space.
+    /// </summary>
+    static void PredictFeet(
+        Vector3 solverA, Vector3 solverB, Vector3 dir, Selectable owner,
+        out Vector3 featA, out Vector3 featB)
     {
-        featA = m.ElevationLeaderFeatureA;
-        featB = m.ElevationLeaderFeatureB;
+        featA = solverA;
+        featB = solverB;
         if (owner == null)
-            return false;
-        if (!Measurable.TryGetStrictOwnRendererBounds(owner, out Bounds b)
-            && !Measurable.TryGetOwnRendererBounds(owner, out b))
-            return false;
+            return;
+
+        float alongLen = Vector3.Distance(
+            new Vector3(solverA.x, 0f, solverA.z), new Vector3(solverB.x, 0f, solverB.z));
+        bool horizontalLength = alongLen >= 0.05f
+            && Mathf.Abs(solverA.y - solverB.y) <= alongLen * 0.25f;
+        if (horizontalLength)
+            return;
 
         Vector3 horiz = dir;
         horiz.y = 0f;
-        if (horiz.sqrMagnitude >= 1e-6f)
+        if (horiz.sqrMagnitude < 1e-6f)
+            return;
+        horiz.Normalize();
+
+        if (!Measurable.TryGetStrictOwnRendererBounds(owner, out Bounds face)
+            && !Measurable.TryGetOwnRendererBounds(owner, out face))
+            return;
+
+        // Tube / column radius only — never the inflated claim union.
+        // Keep solver xz (AP / column axis); only nudge toward the outboard face.
+        const float MaxFaceSlideM = 0.06f;
+        float faceExtent =
+            Mathf.Abs(horiz.x) * face.extents.x + Mathf.Abs(horiz.z) * face.extents.z;
+        faceExtent = Mathf.Min(faceExtent, MaxFaceSlideM);
+        Vector3 toFace = horiz * faceExtent;
+        featA = solverA + toFace;
+        featB = solverB + toFace;
+    }
+
+    static void ApplyPlacement(
+        Measurer m, Vector3 solverA, Vector3 solverB,
+        Vector3 dir, float meters, Camera camera,
+        Vector3 pageRight, Vector3 pageUp)
+    {
+        dir.Normalize();
+        m.ElevationOutboardDir = dir;
+
+        PredictFeet(solverA, solverB, dir, GetLengthOwner(m), out Vector3 featA, out Vector3 featB);
+        m.ElevationLeaderFeatureA = featA;
+        m.ElevationLeaderFeatureB = featB;
+
+        m.Measurement.Origin = featA + dir * meters;
+        m.Measurement.HitPoint = featB + dir * meters;
+
+        var lengthOwner = GetLengthOwner(m);
+        if (lengthOwner != null)
+            ElevationLengthGeometry.RememberClaimEndpoints(lengthOwner, featA, featB);
+
+        // Keep mm on the outside of the dim line (fixed LabelGapMeters via PlaceLabel).
+        bool mostlyHorizontal =
+            Mathf.Abs(Vector3.Dot(dir, pageUp)) >= Mathf.Abs(Vector3.Dot(dir, pageRight));
+        if (mostlyHorizontal)
         {
-            horiz.Normalize();
-            float faceExtent =
-                Mathf.Abs(horiz.x) * b.extents.x + Mathf.Abs(horiz.z) * b.extents.z;
-            Vector3 toFace = horiz * faceExtent;
-            Vector3 c = b.center;
-            featA = new Vector3(c.x, featA.y, c.z) + toFace;
-            featB = new Vector3(c.x, featB.y, c.z) + toFace;
-            return true;
+            m.ElevationPreferLabelBelow = Vector3.Dot(dir, pageUp) < 0f;
+            m.ElevationLabelSideSign = 0f;
+        }
+        else
+        {
+            m.ElevationPreferLabelBelow = false;
+            m.ElevationLabelSideSign = Vector3.Dot(dir, pageRight) >= 0f ? 1f : -1f;
         }
 
-        float faceY = dir.y >= 0f ? b.max.y : b.min.y;
-        featA = new Vector3(featA.x, faceY, featA.z);
-        featB = new Vector3(featB.x, faceY, featB.z);
-        return true;
+        m.UpdateTransform(camera);
+        m.RefreshCutsheetLeaders(camera, 0.0025f);
+        if (m.MeasurementText != null && m.MeasurementText.gameObject.activeSelf)
+            m.MeasurementText.UpdateVisibilityAndPosition(camera, force: true);
+    }
+
+    static bool TryPreviewLeaderFeet(
+        Measurer m, Vector3 dir, Selectable owner, out Vector3 featA, out Vector3 featB)
+    {
+        // Kept for call sites that still pass the measurer; prefer PredictFeet(solver…).
+        PredictFeet(
+            m.ElevationLeaderFeatureA, m.ElevationLeaderFeatureB, dir, owner,
+            out featA, out featB);
+        return owner != null;
+    }
+
+    /// <summary>
+    /// Park both extension-line feet on the part face toward the dim (dir).
+    /// </summary>
+    static void ReseatLeaderFeetOnDimSide(Measurer m, Vector3 dir, Selectable owner)
+    {
+        if (m == null)
+            return;
+        PredictFeet(
+            m.ElevationLeaderFeatureA, m.ElevationLeaderFeatureB, dir, owner,
+            out Vector3 featA, out Vector3 featB);
+        m.ElevationLeaderFeatureA = featA;
+        m.ElevationLeaderFeatureB = featB;
     }
 
     static bool TryBoundsRect(
@@ -392,54 +461,6 @@ public static class ElevationDimLayoutResolve
         if (dx > 0f && dy > 0f)
             return Mathf.Sqrt(dx * dx + dy * dy);
         return Mathf.Max(dx, dy);
-    }
-
-    static void ApplyPlacement(
-        Measurer m, Vector3 dir, float meters, Camera camera,
-        Vector3 pageRight, Vector3 pageUp)
-    {
-        dir.Normalize();
-        m.ElevationOutboardDir = dir;
-
-        // Flip moves the WHOLE dim: leader feet must sit on the same face as the
-        // callout. Leaving feet on the opposite wall draws leaders through the part.
-        ReseatLeaderFeetOnDimSide(m, dir, GetLengthOwner(m));
-
-        m.Measurement.Origin = m.ElevationLeaderFeatureA + dir * meters;
-        m.Measurement.HitPoint = m.ElevationLeaderFeatureB + dir * meters;
-
-        // Keep mm on the outside of the dim line (fixed LabelGapMeters via PlaceLabel).
-        bool mostlyHorizontal =
-            Mathf.Abs(Vector3.Dot(dir, pageUp)) >= Mathf.Abs(Vector3.Dot(dir, pageRight));
-        if (mostlyHorizontal)
-        {
-            m.ElevationPreferLabelBelow = Vector3.Dot(dir, pageUp) < 0f;
-            m.ElevationLabelSideSign = 0f;
-        }
-        else
-        {
-            m.ElevationPreferLabelBelow = false;
-            m.ElevationLabelSideSign = Vector3.Dot(dir, pageRight) >= 0f ? 1f : -1f;
-        }
-
-        m.UpdateTransform(camera);
-        m.RefreshCutsheetLeaders(camera, 0.0025f);
-        if (m.MeasurementText != null && m.MeasurementText.gameObject.activeSelf)
-            m.MeasurementText.UpdateVisibilityAndPosition(camera, force: true);
-    }
-
-    /// <summary>
-    /// Park both extension-line feet on the part face toward the dim (dir).
-    /// </summary>
-    static void ReseatLeaderFeetOnDimSide(Measurer m, Vector3 dir, Selectable owner)
-    {
-        if (m == null)
-            return;
-        if (TryPreviewLeaderFeet(m, dir, owner, out Vector3 featA, out Vector3 featB))
-        {
-            m.ElevationLeaderFeatureA = featA;
-            m.ElevationLeaderFeatureB = featB;
-        }
     }
 
     struct PageGeom
@@ -550,5 +571,56 @@ public static class ElevationDimLayoutResolve
             return false;
         rect = Rect.MinMaxRect(minR, minU, maxR, maxU);
         return true;
+    }
+
+    /// <summary>
+    /// The photo is locked floor→ceiling. Horizontal arm dims that walk above the
+    /// underside lose their mm on the crop — reject those slots so the other face wins.
+    /// Vertical flange/tube ticks may sit on the ceiling plane itself.
+    /// </summary>
+    static bool FitsLockedElevationFrame(Measurer m, Vector3 pageRight, Vector3 pageUp)
+    {
+        if (m?.Measurement == null)
+            return true;
+
+        float floor = ElevationDimPlacement.FloorTopY();
+        float ceil = ElevationDimPlacement.CeilingUndersideY();
+        float pad = ElevationDimPlacement.TickHalfLengthMeters;
+
+        var text = m.MeasurementText;
+        if (text != null && text.gameObject.activeSelf && text.Text != null)
+        {
+            text.Text.ForceMeshUpdate();
+            Bounds gb = text.Text.textBounds;
+            var rt = text.Text.rectTransform;
+            Vector3 c = gb.center;
+            Vector3 e = gb.extents;
+            Vector3[] corners =
+            {
+                c + new Vector3(-e.x, -e.y, 0f),
+                c + new Vector3(-e.x,  e.y, 0f),
+                c + new Vector3( e.x, -e.y, 0f),
+                c + new Vector3( e.x,  e.y, 0f),
+            };
+            for (int i = 0; i < 4; i++)
+            {
+                float y = rt.TransformPoint(corners[i]).y;
+                if (y > ceil - 0.01f || y < floor + 0.01f)
+                    return false;
+            }
+        }
+
+        Vector3 body = m.Measurement.HitPoint - m.Measurement.Origin;
+        bool horizontal = Mathf.Abs(Vector3.Dot(body, pageRight))
+            >= Mathf.Abs(Vector3.Dot(body, pageUp));
+        if (!horizontal)
+            return true;
+
+        float margin = ElevationDimPlacement.CutsheetInFrameMarginMeters;
+        float lo = floor + margin;
+        float hi = ceil - margin;
+        float ya = m.Measurement.Origin.y;
+        float yb = m.Measurement.HitPoint.y;
+        return ya >= lo - pad && yb >= lo - pad && ya <= hi + pad && yb <= hi + pad;
     }
 }

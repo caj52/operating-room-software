@@ -25,19 +25,29 @@ public class UI_ScalableLength : MonoBehaviour
 
     private void SelectableChanged()
     {
-        _isActive = Selectable.SelectedSelectables.Count > 0 &&
-            Selectable.SelectedSelectables.Sum(x => x.ScaleLevels.Count) > 0;
-
+        _isActive = Selectable.SelectedSelectables.Any(x =>
+            x != null && x.ScaleLevels != null && x.ScaleLevels.Count > 0);
         gameObject.SetActive(_isActive);
     }
 
     private void Update()
     {
-        if (_isActive)
+        if (!_isActive)
+            return;
+
+        var selectable = Selectable.SelectedSelectables.FirstOrDefault(x =>
+            x != null && x.ScaleLevels != null && x.ScaleLevels.Count > 0);
+        if (selectable == null)
         {
-            var selectable = Selectable.SelectedSelectables.First(x => x.ScaleLevels.Count > 0);
-            var scale = selectable.CurrentPreviewScaleLevel.Size;
-            TextLength.text = $"{scale * 1000f} mm";
+            _isActive = false;
+            gameObject.SetActive(false);
+            return;
         }
+
+        float scale = selectable.CurrentPreviewScaleLevel?.Size
+                      ?? selectable.CurrentScaleLevel?.Size
+                      ?? 0f;
+        if (TextLength != null)
+            TextLength.text = $"{scale * 1000f} mm";
     }
 }

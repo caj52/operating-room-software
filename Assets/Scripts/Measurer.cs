@@ -244,7 +244,7 @@ public class Measurer : MonoBehaviour
         if (Renderer != null)
             Renderer.enabled = !Selectable.IsInElevationPhotoMode;
 
-        if (Selectable.IsInElevationPhotoMode)
+        if (Selectable.IsInElevationPhotoMode && !ElevationLeadersValid)
             EnsureElevationBodyLine(Measurement.Origin, hitPoint, camera);
 
         // Elevation: show label only when this is a cutsheet dim. Live scene: only if
@@ -519,6 +519,7 @@ public class Measurer : MonoBehaviour
         }
 
         _elevationBodyLine.enabled = true;
+        _elevationBodyLine.positionCount = 2;
         _elevationBodyLine.SetPosition(0, origin);
         _elevationBodyLine.SetPosition(1, hitPoint);
         _elevationBodyLine.startWidth = w;
@@ -530,9 +531,19 @@ public class Measurer : MonoBehaviour
             new[] { new GradientColorKey(Color.black, 0f), new GradientColorKey(Color.black, 1f) },
             new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(1f, 1f) });
         _elevationBodyLine.colorGradient = grad;
+        _elevationBodyLine.numCapVertices = 0;
+        _elevationBodyLine.numCornerVertices = 0;
         ElevOverlayDrawOrder.ApplyToLineRenderer(_elevationBodyLine);
         ElevOverlayDrawOrder.NudgeLineRendererTowardCamera(_elevationBodyLine, camera);
-        EnsureFrostedLineBacking(ref _elevationBodyBacking, "ElevFrostBacking_Body", origin, hitPoint, w, camera);
+        if (Measurement != null && Measurement.MeasurementType == MeasurementType.Floor)
+        {
+            if (_elevationBodyBacking != null)
+                _elevationBodyBacking.enabled = false;
+        }
+        else
+        {
+            EnsureFrostedLineBacking(ref _elevationBodyBacking, "ElevFrostBacking_Body", origin, hitPoint, w, camera);
+        }
     }
 
     LineRenderer EnsureFrostedLineBacking(
@@ -554,6 +565,31 @@ public class Measurer : MonoBehaviour
         backing.positionCount = 2;
         backing.SetPosition(0, a);
         backing.SetPosition(1, b);
+        ElevOverlayDrawOrder.ApplyFrostedBackingToLineRenderer(backing, blackWidth);
+        ElevOverlayDrawOrder.NudgeLineBackingTowardCamera(backing, camera);
+        return backing;
+    }
+
+    LineRenderer EnsureFrostedPolylineBacking(
+        ref LineRenderer backing, string goName, Vector3[] points, float blackWidth, Camera camera)
+    {
+        if (points == null || points.Length < 2)
+            return backing;
+        if (backing == null)
+        {
+            var go = new GameObject(goName);
+            go.transform.SetParent(transform, false);
+            go.layer = gameObject.layer;
+            backing = go.AddComponent<LineRenderer>();
+            backing.useWorldSpace = true;
+            backing.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            backing.receiveShadows = false;
+        }
+
+        backing.enabled = true;
+        backing.positionCount = points.Length;
+        for (int i = 0; i < points.Length; i++)
+            backing.SetPosition(i, points[i]);
         ElevOverlayDrawOrder.ApplyFrostedBackingToLineRenderer(backing, blackWidth);
         ElevOverlayDrawOrder.NudgeLineBackingTowardCamera(backing, camera);
         return backing;
@@ -607,14 +643,13 @@ public class Measurer : MonoBehaviour
     }
 
     /// <summary>
-    /// Re-assert extension lines after UpdateTransform (LookAt/scale must not leave a
-    /// body-only chord without end ticks — ASME-style dimension legs).
+    /// Re-assert extension lines after UpdateTransform.
+    /// Length dims: one U polyline (extension, body, extension) with one halo so corners
+    /// do not double-up. Floor dims keep separate end ticks (no frost on the ticks).
     /// </summary>
     public void RefreshCutsheetLeaders(Camera camera, float widthScalar)
     {
         if (!ElevationLeadersValid || Measurement == null)
-            return;
-        if (!TryGetLeaderPair(out var lead0, out var lead1))
             return;
 
         Vector3 origin = Measurement.Origin;
@@ -622,77 +657,114 @@ public class Measurer : MonoBehaviour
         Vector3 featA = ElevationLeaderFeatureA;
         Vector3 featB = ElevationLeaderFeatureB;
 
-        lead0.useWorldSpace = true;
-        lead0.enabled = true;
-        lead0.positionCount = 2;
-        lead0.SetPosition(0, origin);
-        lead0.SetPosition(1, featA);
+        if (Measurement.MeasurementType == MeasurementType.ToArmAssemblyOrigin)
+        {
+            if (TryGetLeaderPair(out var lead0, out var lead1))
+            {
+                lead0.enabled = false;
+                lead1.enabled = false;
+            }
+            if (_elevationLeaderBacking0 != null)
+                _elevationLeaderBacking0.enabled = false;
+            if (_elevationLeaderBacking1 != null)
+                _elevationLeaderBacking1.enabled = false;
+            ApplyElevationUPolyline(camera, featA, origin, hit, featB);
+            return;
+        }
+
+        if (!TryGetLeaderPair(out var tick0, out var tick1))
+            return;
+
+        tick0.useWorldSpace = true;
+        tick0.enabled = true;
+        tick0.positionCount = 2;
+        tick0.SetPosition(0, origin);
+        tick0.SetPosition(1, featA);
         float w0 = widthScalar * Mathf.Max(0.001f,
             camera != null
                 ? Mathf.Abs(Vector3.Dot(origin - camera.transform.position, camera.transform.forward))
                 : 1f);
-        lead0.startWidth = w0;
-        lead0.endWidth = w0;
-        lead0.startColor = Color.black;
-        lead0.endColor = Color.black;
-        ElevOverlayDrawOrder.ApplyToLineRenderer(lead0);
-        ElevOverlayDrawOrder.NudgeLineRendererTowardCamera(lead0, camera);
+        tick0.startWidth = w0;
+        tick0.endWidth = w0;
+        tick0.startColor = Color.black;
+        tick0.endColor = Color.black;
+        ElevOverlayDrawOrder.ApplyToLineRenderer(tick0);
+        ElevOverlayDrawOrder.NudgeLineRendererTowardCamera(tick0, camera);
 
-        lead1.useWorldSpace = true;
-        lead1.enabled = true;
-        lead1.positionCount = 2;
-        lead1.SetPosition(0, hit);
-        lead1.SetPosition(1, featB);
+        tick1.useWorldSpace = true;
+        tick1.enabled = true;
+        tick1.positionCount = 2;
+        tick1.SetPosition(0, hit);
+        tick1.SetPosition(1, featB);
         float w1 = widthScalar * Mathf.Max(0.001f,
             camera != null
                 ? Mathf.Abs(Vector3.Dot(hit - camera.transform.position, camera.transform.forward))
                 : 1f);
-        lead1.startWidth = w1;
-        lead1.endWidth = w1;
-        lead1.startColor = Color.black;
-        lead1.endColor = Color.black;
-        ElevOverlayDrawOrder.ApplyToLineRenderer(lead1);
-        ElevOverlayDrawOrder.NudgeLineRendererTowardCamera(lead1, camera);
-        SyncLeaderFrostedBackings(camera);
+        tick1.startWidth = w1;
+        tick1.endWidth = w1;
+        tick1.startColor = Color.black;
+        tick1.endColor = Color.black;
+        ElevOverlayDrawOrder.ApplyToLineRenderer(tick1);
+        ElevOverlayDrawOrder.NudgeLineRendererTowardCamera(tick1, camera);
+        if (_elevationLeaderBacking0 != null)
+            _elevationLeaderBacking0.enabled = false;
+        if (_elevationLeaderBacking1 != null)
+            _elevationLeaderBacking1.enabled = false;
     }
 
-    /// <summary>Frosted strokes behind elev end ticks / leaders (page-readable over gear).</summary>
+    void ApplyElevationUPolyline(Camera camera, Vector3 featA, Vector3 origin, Vector3 hit, Vector3 featB)
+    {
+        if (_elevationBodyLine == null)
+        {
+            var go = new GameObject("ElevationBodyLine");
+            go.transform.SetParent(transform, false);
+            go.layer = gameObject.layer;
+            _elevationBodyLine = go.AddComponent<LineRenderer>();
+            _elevationBodyLine.useWorldSpace = true;
+            _elevationBodyLine.material = new Material(Shader.Find("Sprites/Default"));
+            _elevationBodyLine.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            _elevationBodyLine.receiveShadows = false;
+        }
+
+        float w = 0.008f;
+        if (camera != null)
+        {
+            float d0 = Mathf.Abs(Vector3.Dot(origin - camera.transform.position, camera.transform.forward));
+            float d1 = Mathf.Abs(Vector3.Dot(hit - camera.transform.position, camera.transform.forward));
+            w = Mathf.Max(0.004f, 0.0025f * Mathf.Max(d0, d1));
+        }
+
+        _elevationBodyLine.enabled = true;
+        _elevationBodyLine.positionCount = 4;
+        _elevationBodyLine.SetPosition(0, featA);
+        _elevationBodyLine.SetPosition(1, origin);
+        _elevationBodyLine.SetPosition(2, hit);
+        _elevationBodyLine.SetPosition(3, featB);
+        _elevationBodyLine.startWidth = w;
+        _elevationBodyLine.endWidth = w;
+        _elevationBodyLine.startColor = Color.black;
+        _elevationBodyLine.endColor = Color.black;
+        var grad = new Gradient();
+        grad.SetKeys(
+            new[] { new GradientColorKey(Color.black, 0f), new GradientColorKey(Color.black, 1f) },
+            new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(1f, 1f) });
+        _elevationBodyLine.colorGradient = grad;
+        _elevationBodyLine.numCapVertices = 0;
+        _elevationBodyLine.numCornerVertices = 0;
+        ElevOverlayDrawOrder.ApplyToLineRenderer(_elevationBodyLine);
+        ElevOverlayDrawOrder.NudgeLineRendererTowardCamera(_elevationBodyLine, camera);
+        EnsureFrostedPolylineBacking(ref _elevationBodyBacking, "ElevFrostBacking_Body",
+            new[] { featA, origin, hit, featB }, w, camera);
+    }
+
+    /// <summary>Frosted stroke behind elev ticks — disabled; ticks stay black-only so
+    /// T-junctions with the body halo do not blob.</summary>
     public void SyncLeaderFrostedBackings(Camera camera)
     {
-        if (!TryGetLeaderPair(out var lead0, out var lead1))
-            return;
-
-        // Black leaders are already toward-camera nudged; reverse so backing gets its own depth.
-        if (lead0 != null && lead0.enabled && lead0.positionCount >= 2)
-        {
-            Vector3 a0 = ReverseNudge(lead0.GetPosition(0), camera, ElevOverlayDrawOrder.LineTowardCameraMeters);
-            Vector3 a1 = ReverseNudge(lead0.GetPosition(1), camera, ElevOverlayDrawOrder.LineTowardCameraMeters);
-            EnsureFrostedLineBacking(
-                ref _elevationLeaderBacking0, "ElevFrostBacking_Lead0", a0, a1, lead0.startWidth, camera);
-        }
-        else if (_elevationLeaderBacking0 != null)
-        {
+        if (_elevationLeaderBacking0 != null)
             _elevationLeaderBacking0.enabled = false;
-        }
-
-        if (lead1 != null && lead1.enabled && lead1.positionCount >= 2)
-        {
-            Vector3 b0 = ReverseNudge(lead1.GetPosition(0), camera, ElevOverlayDrawOrder.LineTowardCameraMeters);
-            Vector3 b1 = ReverseNudge(lead1.GetPosition(1), camera, ElevOverlayDrawOrder.LineTowardCameraMeters);
-            EnsureFrostedLineBacking(
-                ref _elevationLeaderBacking1, "ElevFrostBacking_Lead1", b0, b1, lead1.startWidth, camera);
-        }
-        else if (_elevationLeaderBacking1 != null)
-        {
+        if (_elevationLeaderBacking1 != null)
             _elevationLeaderBacking1.enabled = false;
-        }
-    }
-
-    static Vector3 ReverseNudge(Vector3 nudged, Camera camera, float meters)
-    {
-        if (camera == null)
-            return nudged;
-        return nudged + camera.transform.forward * meters;
     }
 
     private void OnDestroy()

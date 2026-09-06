@@ -96,10 +96,12 @@ public class PdfBatchExporter : MonoBehaviour
                 string configTitle = $"{title} — Configuration {i + 1}";
                 string configSubtitle = ExportPaths.GetSelectableExportName(root, subtitle);
 
+                var assemblyDatas = UI_PdfExportOptions.GenerateAssemblyDataWithTitles(root);
+
                 List<PdfExporterLocal.PdfImageData> images = null;
                 bool waiting = true;
 
-                yield return root.CapturePdfDataForExport(configTitle, configSubtitle, null, (img, sel) =>
+                yield return root.CapturePdfDataForExport(configTitle, configSubtitle, assemblyDatas, (img, sel) =>
                 {
                     images = img;
                     waiting = false;
@@ -109,7 +111,6 @@ public class PdfBatchExporter : MonoBehaviour
                 if (shouldCancel != null && shouldCancel())
                     yield break;
 
-                var assemblyDatas = UI_PdfExportOptions.GenerateAssemblyDataWithTitles(root);
                 var additional = UI_PdfExportOptions.GetAdditionalData();
                 var meta = UI_PdfExportOptions.GetProjectMetaData();
                 var allAssemblyJson = PdfExporterLocal.ConvertToAssemblyJsonFull(assemblyDatas, additional);
@@ -213,10 +214,12 @@ public class PdfBatchExporter : MonoBehaviour
         string folder = outputDirectory ?? ExportPaths.ElevationsDir;
         if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
 
+        var assemblyDatas = UI_PdfExportOptions.GenerateAssemblyDataWithTitles(rootSelectable);
+
         List<PdfExporterLocal.PdfImageData> images = null;
         bool waiting = true;
 
-        yield return rootSelectable.CapturePdfDataForExport(title, subtitle, null, (img, sel) =>
+        yield return rootSelectable.CapturePdfDataForExport(title, subtitle, assemblyDatas, (img, sel) =>
         {
             images = img;
             waiting = false;
@@ -233,7 +236,6 @@ public class PdfBatchExporter : MonoBehaviour
             yield break;
         }
 
-        var assemblyDatas = UI_PdfExportOptions.GenerateAssemblyDataWithTitles(rootSelectable);
         var additional = UI_PdfExportOptions.GetAdditionalData();
         var meta = UI_PdfExportOptions.GetProjectMetaData();
         var allAssemblyJson = PdfExporterLocal.ConvertToAssemblyJsonFull(assemblyDatas, additional);

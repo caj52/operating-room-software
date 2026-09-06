@@ -29,35 +29,63 @@ public static class ElevationDimPlacement
     public const float CutsheetLaneStepMeters = 0.22f;
 
     /// <summary>Decorative PDF floor top (matches ground graphic).</summary>
-    public static float FloorTopY()
-    {
-        var floor = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Floor);
-        if (floor == null)
-            return 0f;
-        return floor.transform.position.y + floor.transform.localScale.y * 0.5f;
-    }
+    public static float FloorTopY() => ElevationRoomFrame.ComputeFloorTopY();
 
     /// <summary>Room ceiling underside — top of the locked elevation photo frame.</summary>
-    public static float CeilingUndersideY()
-    {
-        float floorY = FloorTopY();
-        var ceiling = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling);
-        if (ceiling == null)
-            return floorY + 3f;
-
-        float underside = ceiling.transform.position.y - ceiling.transform.localScale.y * 0.5f;
-        if (underside > floorY + 0.1f)
-            return underside;
-        if (ceiling.Height > 0.1f)
-            return floorY + ceiling.Height;
-        return floorY + 3f;
-    }
+    public static float CeilingUndersideY() => ElevationRoomFrame.Current.CeilingY;
 
     /// <summary>
     /// Clearance reserved under the ceiling / above the floor for dim labels inside the
     /// locked floor→ceiling photo (leaders must not run off the top of the RT crop).
     /// </summary>
     public const float CutsheetInFrameMarginMeters = 0.12f;
+
+    static float? _ceilingHardwareYCache;
+
+    /// <summary>Clear per-export caches (call once at cutsheet Apply start).</summary>
+    public static void BeginCutsheetPass()
+    {
+        _ceilingHardwareYCache = null;
+    }
+
+    /// <summary>
+    /// Lowest Y of ceiling plates / covers / flanges / mounts so horizontal arm labels
+    /// do not sit on the tandem plate band. Drop tubes excluded (tips hang into arm zone).
+    /// </summary>
+    public static float CeilingHardwareClearanceY()
+    {
+        if (_ceilingHardwareYCache.HasValue)
+            return _ceilingHardwareYCache.Value;
+
+        float ceiling = CeilingUndersideY();
+        float lowest = ceiling;
+        bool any = false;
+
+        foreach (var sel in Object.FindObjectsByType<Selectable>(
+                     FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+        {
+            if (sel == null || !sel.gameObject.activeInHierarchy)
+                continue;
+            if (Measurable.IsDropTubeName(sel.name))
+                continue;
+            if (!ElevationLengthGeometry.LooksLikeCeilingPlatePublic(sel, ceiling))
+                continue;
+
+            if (!Measurable.TryGetOwnRendererBounds(sel, out Bounds b) || b.size.y < 0.005f)
+                continue;
+            if (b.max.y < ceiling - 0.5f)
+                continue;
+            if (!any || b.min.y < lowest)
+            {
+                lowest = b.min.y;
+                any = true;
+            }
+        }
+
+        float result = any ? lowest : ceiling;
+        _ceilingHardwareYCache = result;
+        return result;
+    }
 
     /// <summary>
     /// Lowest equipment underside under a product root.

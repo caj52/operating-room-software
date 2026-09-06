@@ -115,8 +115,32 @@ public class KeepRelativePosition : MonoBehaviour
             return;
 
         VirtualParent = rootObj.transform;
+        SeatOnCeilingUnderside();
         RecalculateRelativePosition();
         SubscribeVisibility();
+    }
+
+    /// <summary>
+    /// Ceiling-bound roots sit on the live underside (same Y the seed-light path uses).
+    /// Saves store an absolute Y, so a 9'-6" authored cover in a 10' room would otherwise
+    /// bake a 152 mm gap into <see cref="_relativePosition"/> and follow the ceiling forever.
+    /// </summary>
+    void SeatOnCeilingUnderside()
+    {
+        var rb = VirtualParent != null
+            ? VirtualParent.GetComponent<RoomBoundary>()
+            : null;
+        if (rb == null || rb.RoomBoundaryType != RoomBoundaryType.Ceiling)
+            return;
+
+        float underside = ElevationRoomFrame.ComputeCeilingUndersideY(
+            ElevationRoomFrame.ComputeFloorTopY());
+        Vector3 p = transform.position;
+        if (Mathf.Abs(p.y - underside) < 0.001f)
+            return;
+
+        p.y = underside;
+        transform.position = p;
     }
 
     private void RecalculateRelativePosition()

@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using UnityEngine;
 
 /// <summary>
@@ -77,6 +76,8 @@ public static class ElevationCutsheetPass
     {
         Measurable.BeginElevationMeasurementPass();
         Measurable.ClearCutsheetAssemblyBounds();
+        ElevationDimPlacement.BeginCutsheetPass();
+        ElevationLengthGeometry.ClearClaimEndpointCache();
         SuppressAllOverlays();
 
         float heightMod = 0.1f;
@@ -102,101 +103,21 @@ public static class ElevationCutsheetPass
         if (TryComputeAssemblyGeometryBounds(assemblySelectables, out Bounds asmBounds))
         {
             Measurable.SetCutsheetAssemblyBounds(asmBounds);
-            Debug.Log(
-                $"[ElevDim] Assembly geometry bounds center={asmBounds.center} size={asmBounds.size}");
         }
 
-        // --- Curate: one length dim per length owner, one floor dim per source ---
-        var lengthByOwner = new Dictionary<Selectable, (Measurable measurable, float sizeM)>();
+        // --- Curate: catalog table rows + floors ---
+        var lengthByOwner = ElevationDimCurator.BuildLengthOwners(assemblySelectables);
         var floorBySource = new Dictionary<Selectable, Measurable>();
 
         foreach (var sel in assemblySelectables)
         {
-            float sizeM = ElevationLengthFormat.ResolveOwnSizeMeters(sel);
-
-            // Size owners with empty Measurables lists are recovered in the borrow pass.
-            if (sel?.Measurables == null || sel.Measurables.Count == 0)
+            if (sel == null || !ElevationDimPolicy.IsFloorClearanceHost(sel))
+                continue;
+            if (floorBySource.ContainsKey(sel))
                 continue;
 
-            foreach (var measurable in sel.Measurables)
-            {
-                // Length curation: ShowInElevationPhoto preferred, but Size + ToOrigin is
-                // enough — borrow/draw gates handle hosts that cleared the flag.
-                if (measurable == null || measurable.Disabled)
-                    continue;
-
-                bool hasToOrigin = measurable.Measurements != null
-                    && measurable.Measurements.Any(m =>
-                        m != null && m.MeasurementType == MeasurementType.ToArmAssemblyOrigin);
-                bool hasFloor = measurable.Measurements != null
-                    && measurable.Measurements.Any(m =>
-                        m != null && m.MeasurementType == MeasurementType.Floor);
-
-                // Also accept MeasurementTypes when Measurements not yet initialized.
-                if (!hasToOrigin && measurable.MeasurementTypes != null
-                    && measurable.MeasurementTypes.Contains(MeasurementType.ToArmAssemblyOrigin))
-                    hasToOrigin = true;
-                if (!hasFloor && measurable.MeasurementTypes != null
-                    && measurable.MeasurementTypes.Contains(MeasurementType.Floor))
-                    hasFloor = true;
-
-                // Length curation: ShowInElevationPhoto preferred, but Size + ToOrigin is
-                // enough — borrow/draw gates handle hosts that cleared the flag.
-                // Floor: allow even when ShowInElevationPhoto is off (NewBoomHead child
-                // Measurable_ToFloor is often unflagged — log: floors=1 only BoomSegment_2).
-                if (!measurable.ShowInElevationPhoto
-                    && !(sizeM > 0f && hasToOrigin)
-                    && !hasFloor)
-                    continue;
-
-                if (hasToOrigin && sizeM > 0f
-                    && !Measurable.IsServiceHeadAccessoryDimOwner(sel))
-                {
-                    // One catalog length per length owner — never stack dual-select copies.
-                    // Also skip if this Measurable is already claimed (dual-select shares one).
-                    // Rear_Rail Size is not an arm/tube length (was drawing 600 mm mid-head).
-                    bool measurableClaimed = false;
-                    foreach (var existing in lengthByOwner.Values)
-                    {
-                        if (existing.measurable == measurable)
-                        {
-                            measurableClaimed = true;
-                            break;
-                        }
-                    }
-                    if (!measurableClaimed
-                        && (!lengthByOwner.TryGetValue(sel, out var existingOwner)
-                            || sizeM > existingOwner.sizeM))
-                        lengthByOwner[sel] = (measurable, sizeM);
-                }
-
-                if (hasFloor
-                    && Measurable.IsFloorClearanceProductHead(sel)
-                    && !Measurable.IsServiceHeadAccessoryDimOwner(sel)
-                    && !Measurable.IsSkippedMidArmFloorName(sel)
-                    && !Measurable.IsDropTubeName(sel.name))
-                {
-                    // Only product heads (SH / monitor / light) — never mount GUID roots.
-                    // Log: FLR {guid}→floor stole SH head id then orphan-killed → no SH floor.
-                    if (!floorBySource.ContainsKey(sel))
-                        floorBySource[sel] = measurable;
-                }
-            }
-        }
-
-        // Service / monitor / light heads: guarantee a floor clearance even when the Floor
-        // Measurable wasn't listed on sel.Measurables (child Measurable_ToFloor not linked).
-        // Log evidence: NewBoomHead boom curated only FLR BoomSegment_2Powered (arm underside).
-        foreach (var sel in assemblySelectables)
-        {
-            if (sel == null || floorBySource.ContainsKey(sel))
-                continue;
-            if (!Measurable.IsFloorClearanceProductHead(sel))
-                continue;
-            if (Measurable.IsServiceHeadAccessoryDimOwner(sel))
-                continue;
-
-            Measurable floorM = EnsureFloorMeasurableForProductHead(sel);
+            Measurable floorM = FindFloorMeasurableUnder(sel)
+                ?? EnsureFloorMeasurableForProductHead(sel);
             if (floorM == null)
             {
                 Debug.LogWarning(
@@ -206,124 +127,11 @@ public static class ElevationCutsheetPass
             }
 
             floorBySource[sel] = floorM;
-            Debug.Log(
-                $"[ElevDim] curated floor product head={sel.name} measurable={floorM.name}",
-                sel);
         }
 
-        // Dual-select Size owner with empty Measurables: find ToOrigin without relying on
-        // RelatedSelectables (often broken when a light hangs under a boom mount).
-        foreach (var sel in assemblySelectables)
-        {
-            if (sel == null || lengthByOwner.ContainsKey(sel))
-                continue;
-            float sizeM = ElevationLengthFormat.ResolveOwnSizeMeters(sel);
-            if (sizeM <= 0f)
-                continue;
-            // Row-tier Size on service heads is not a tube/arm length dim.
-            if (sel.GetComponent<BoomHeadScaleHandler>() != null)
-                continue;
-            if (Measurable.IsServiceHeadAccessoryDimOwner(sel))
-                continue;
-
-            Measurable borrowed = FindToOriginForSizeOwner(sel, lengthByOwner, assemblySelectables);
-            if (borrowed == null)
-            {
-                // Re-link then install if still missing (e.g. neck under a service head used
-                // to skip ToOrigin when BoomHeadScaleHandler was searched in children).
-                sel.EnsureMeasurablesLinked();
-                borrowed = FindToOriginForSizeOwner(sel, lengthByOwner, assemblySelectables);
-            }
-            if (borrowed == null)
-            {
-                var installed = sel.GetComponent<Measurable>();
-                if (installed == null)
-                    installed = sel.gameObject.AddComponent<Measurable>();
-                installed.EnsureConfiguredAsCatalogLength();
-                sel.EnsureMeasurablesLinked();
-                if (sel.Measurables != null && !sel.Measurables.Contains(installed))
-                    sel.Measurables.Add(installed);
-                borrowed = installed;
-                Debug.Log(
-                    $"[ElevDim] installed ToOrigin during cutsheet for Size owner={sel.name} " +
-                    $"mm={Mathf.RoundToInt(sizeM * 1000f)}",
-                    sel);
-            }
-
-            if (sel.Measurables != null && !sel.Measurables.Contains(borrowed))
-                sel.Measurables.Add(borrowed);
-
-            lengthByOwner[sel] = (borrowed, sizeM);
-            Debug.Log(
-                $"[ElevDim] borrowed ToOrigin for Size owner={sel.name} mm={Mathf.RoundToInt(sizeM * 1000f)} " +
-                $"from measurable={borrowed.name} host={borrowed.transform.name}",
-                sel);
-        }
-
-        // Nested Size owners (drop tubes, BoomSegment_3 neck) under assembly roots.
-        foreach (var root in assemblySelectables)
-        {
-            if (root == null) continue;
-            foreach (var sel in root.GetComponentsInChildren<Selectable>(true))
-            {
-                if (sel == null || lengthByOwner.ContainsKey(sel))
-                    continue;
-                sel.EnsureCurrentScaleLevelFromCatalog();
-                float sizeM = ElevationLengthFormat.ResolveOwnSizeMeters(sel);
-                if (sizeM <= 0f)
-                    continue;
-                // Skip service-head row tiers (Size is not tube/arm length).
-                if (sel.GetComponent<BoomHeadScaleHandler>() != null)
-                    continue;
-                // Rails/shelves under the head — Size is accessory height, not a catalog tube.
-                if (Measurable.IsServiceHeadAccessoryDimOwner(sel))
-                    continue;
-
-                sel.EnsureMeasurablesLinked();
-                Measurable borrowed = FindToOriginForSizeOwner(sel, lengthByOwner, assemblySelectables);
-                if (borrowed == null)
-                {
-                    var installed = sel.GetComponent<Measurable>();
-                    if (installed == null)
-                        installed = sel.gameObject.AddComponent<Measurable>();
-                    installed.EnsureConfiguredAsCatalogLength();
-                    sel.EnsureMeasurablesLinked();
-                    if (sel.Measurables != null && !sel.Measurables.Contains(installed))
-                        sel.Measurables.Add(installed);
-                    borrowed = installed;
-                }
-                if (sel.Measurables != null && !sel.Measurables.Contains(borrowed))
-                    sel.Measurables.Add(borrowed);
-                lengthByOwner[sel] = (borrowed, sizeM);
-                Debug.Log(
-                    $"[ElevDim] nested Size curated name={sel.name} mm={Mathf.RoundToInt(sizeM * 1000f)} " +
-                    $"via {borrowed.name}",
-                    sel);
-            }
-        }
-
-        // Dual-select twins (Clone / .001) can both carry Size + ToOrigin → two dims for
-        // one physical part, or one twin claiming the Measurable and starving the other.
-        // Industry: one dimension per part. Keep the best Size owner per stem.
         DedupeLengthOwnersByStem(lengthByOwner);
         DedupeLengthOwnersBySharedMeasurable(lengthByOwner);
         DedupeFloorOwnersByHead(floorBySource);
-
-        var sb = new StringBuilder(256);
-        sb.Append("[ElevDim] Cutsheet curated lengths=").Append(lengthByOwner.Count)
-          .Append(" floors=").Append(floorBySource.Count);
-        foreach (var kv in lengthByOwner.OrderByDescending(k => k.Value.sizeM))
-        {
-            sb.Append(" | LEN ").Append(kv.Key.name)
-              .Append("→").Append(kv.Value.measurable.name)
-              .Append(" mm=").Append(Mathf.RoundToInt(kv.Value.sizeM * 1000f));
-        }
-        foreach (var kv in floorBySource)
-        {
-            sb.Append(" | FLR ").Append(kv.Key.name)
-              .Append("→").Append(kv.Value.name);
-        }
-        Debug.Log(sb.ToString());
 
         int drewLength = 0;
         int drewFloor = 0;
@@ -331,22 +139,7 @@ public static class ElevationCutsheetPass
         // Per-owner layout (not on Measurable alone — dual-select / linked measurables
         // can share one component and overwrite V→H, shoving tube dims into the elbow).
         var layoutByOwner = AssignCutsheetLanes(lengthByOwner);
-        int horizLane = layoutByOwner.Count(kv => !kv.Value.vertical);
-        int vertLane = layoutByOwner.Count(kv => kv.Value.vertical);
-
-        Debug.Log(
-            $"[ElevDim] Cutsheet layout horizLanes={horizLane} vertLanes={vertLane} " +
-            string.Join(" ", layoutByOwner.Select(kv =>
-            {
-                float upDot = 0f;
-                var axis = kv.Key.transform.TransformDirection(Vector3.forward);
-                if (axis.sqrMagnitude > 1e-8f)
-                    upDot = Mathf.Abs(Vector3.Dot(axis.normalized, Vector3.up));
-                return $"{kv.Key.name}:{(kv.Value.vertical ? "V" : "H")}" +
-                       $" upDot={upDot:F2}" +
-                       $" side={kv.Value.side:F2}" +
-                       $" lift={kv.Value.lift:F2}";
-            })));
+        AssignHorizontalLabelStack(lengthByOwner, layoutByOwner);
 
         foreach (var kv in lengthByOwner.OrderByDescending(k => k.Value.sizeM))
         {
@@ -372,23 +165,38 @@ public static class ElevationCutsheetPass
         foreach (var kv in floorBySource.OrderByDescending(k => FloorOwnerPriority(k.Key)))
         {
             var measurable = kv.Value;
+            if (measurable == null)
+            {
+                Debug.LogWarning(
+                    $"[ElevDim] FLOOR APPLY null measurable owner={kv.Key?.name}",
+                    kv.Key);
+                continue;
+            }
+
             measurable.CutsheetLengthOwner = kv.Key;
+            measurable.EnsureConfiguredAsElevationFloor();
             measurable.EnsureInitializedForElevation();
+
             bool hasFloorMeas = measurable.Measurements != null
                 && measurable.Measurements.Any(m =>
+                    m != null && m.MeasurementType == MeasurementType.Floor);
+            bool hasFloorMeasurer = hasFloorMeas
+                && measurable.Measurements.Any(m =>
                     m != null && m.MeasurementType == MeasurementType.Floor && m.Measurer != null);
+
             if (!hasFloorMeas)
             {
                 Debug.LogWarning(
                     $"[ElevDim] FLOOR APPLY missing Floor Measurement owner={kv.Key.name} " +
-                    $"measurable={measurable.name} types=[{string.Join(",", measurable.MeasurementTypes ?? new List<MeasurementType>())}] " +
-                    $"measCount={measurable.Measurements?.Count ?? 0}",
+                    $"measurable={measurable.name}",
                     measurable);
             }
+
             measurable.ApplyCutsheetElevation(ref heightMod, camera, kv.Key,
                 drawLength: false, drawFloor: true);
 
-            if (CountActive(measurable, MeasurementType.Floor) > 0)
+            int active = CountActive(measurable, MeasurementType.Floor);
+            if (active > 0)
                 drewFloor++;
         }
 
@@ -396,12 +204,10 @@ public static class ElevationCutsheetPass
         ElevationDimLayoutResolve.Apply(camera);
 
         // Upstream contract: a dim line without an mm label must not exist.
-        int orphansKilled = EnforceLabeledDimsOnly();
+        EnforceLabeledDimsOnly();
         SuppressNonMetricTexts();
 
-        Debug.Log(
-            $"[ElevDim] Cutsheet pass done drewLength={drewLength} drewFloor={drewFloor} " +
-            $"orphansKilled={orphansKilled} (unlabeled lines stripped)");
+        ElevationChecklistDiagnostics.StashForScore(lengthByOwner, floorBySource);
 
         if (drewLength == 0)
         {
@@ -446,6 +252,58 @@ public static class ElevationCutsheetPass
         }
 
         return layoutByOwner;
+    }
+
+    /// <summary>
+    /// Stacked horizontal arms: highest labels above, lowest below.
+    /// Prevents both numbers floating into the gap (reads as 600/1000 swapped on the PDF).
+    /// </summary>
+    static void AssignHorizontalLabelStack(
+        Dictionary<Selectable, (Measurable measurable, float sizeM)> lengthByOwner,
+        Dictionary<Selectable, (bool vertical, float side, float lift)> layoutByOwner)
+    {
+        if (lengthByOwner == null || layoutByOwner == null)
+            return;
+
+        var horiz = new List<(Selectable sel, Measurable m, float y, float sizeM)>();
+        foreach (var kv in lengthByOwner)
+        {
+            if (kv.Key == null || kv.Value.measurable == null)
+                continue;
+            if (!layoutByOwner.TryGetValue(kv.Key, out var layout) || layout.vertical)
+                continue;
+
+            float y = kv.Key.transform.position.y;
+            if (ElevationLengthGeometry.TryGetLengthMeshBounds(
+                    kv.Key, kv.Value.sizeM, out Bounds b, out _))
+                y = b.center.y;
+            horiz.Add((kv.Key, kv.Value.measurable, y, kv.Value.sizeM));
+        }
+
+        horiz.Sort((a, b) => b.y.CompareTo(a.y));
+
+        float ceil = ElevationDimPlacement.CeilingUndersideY();
+        float hardware = ElevationDimPlacement.CeilingHardwareClearanceY();
+        float topClear = Mathf.Min(ceil, hardware)
+            - ElevationDimPlacement.CutsheetLaneBaseMeters
+            - ElevationDimPlacement.CutsheetInFrameMarginMeters;
+        bool topHasRoomAbove = horiz.Count > 0 && horiz[0].y < topClear;
+
+        for (int i = 0; i < horiz.Count; i++)
+        {
+            bool? preferBelow = null;
+            if (horiz.Count >= 2)
+            {
+                if (i == 0)
+                    preferBelow = !topHasRoomAbove;
+                else if (i == horiz.Count - 1)
+                    preferBelow = true;
+                else
+                    preferBelow = i >= horiz.Count / 2;
+            }
+
+            horiz[i].m.CutsheetPreferLabelBelow = preferBelow;
+        }
     }
 
     public static void SuppressNonCutsheetTexts()
@@ -573,33 +431,13 @@ public static class ElevationCutsheetPass
     /// must each keep their own dim — do not merge by stem alone.
     /// </summary>
     /// <summary>
-    /// Prefer real light/monitor/SH heads over catalog shells when applying floors.
-    /// Player.log: Arm/GUID/Simeon order let Arm claim Sim.LED.LightHead first.
+    /// Prefer component-backed product heads when several selectables share one floor key.
     /// </summary>
-    static int FloorOwnerPriority(Selectable sel)
-    {
-        if (sel == null)
-            return 0;
-        string n = sel.name;
-        if (n.IndexOf("LightHead", System.StringComparison.OrdinalIgnoreCase) >= 0)
-            return 100;
-        if (sel.GetComponent<BoomHeadScaleHandler>() != null
-            || n.IndexOf("NewBoomHead", System.StringComparison.OrdinalIgnoreCase) >= 0)
-            return 90;
-        if (Measurable.IsMonitorBoomProductHead(sel))
-            return 85;
-        if (n.IndexOf("Simeon", System.StringComparison.OrdinalIgnoreCase) >= 0)
-            return 70;
-        if (n.IndexOf("Sim.LED", System.StringComparison.OrdinalIgnoreCase) >= 0)
-            return 60;
-        if (Measurable.IsLightProductFloorOwner(sel))
-            return 40;
-        return 10;
-    }
+    static int FloorOwnerPriority(Selectable sel) =>
+        ElevationDimPolicy.FloorHostRank(sel);
 
     /// <summary>
-    /// One floor dim per hanging product head — keep highest-priority owner when Simeon /
-    /// Sim.LED shell / LightHead all curate the same LightHead id.
+    /// One floor dim per hanging product head.
     /// </summary>
     static void DedupeFloorOwnersByHead(Dictionary<Selectable, Measurable> floorBySource)
     {
@@ -611,16 +449,7 @@ public static class ElevationCutsheetPass
         {
             if (sel == null)
                 continue;
-            int headId = sel.GetInstanceID();
-            if (Measurable.TryGetLightProductFloorRoot(sel, out Transform lightHead)
-                && lightHead != null)
-                headId = lightHead.GetInstanceID();
-            else if (Measurable.IsMonitorBoomProductHead(sel))
-                headId = sel.GetInstanceID();
-            else if (Measurable.TryGetServiceHeadFloorRoot(sel, out Transform sh)
-                     && sh != null)
-                headId = sh.GetInstanceID();
-
+            int headId = ElevationDimPolicy.FloorHeadKey(sel);
             if (!byHead.TryGetValue(headId, out var list))
             {
                 list = new List<Selectable>();
@@ -641,8 +470,6 @@ public static class ElevationCutsheetPass
             {
                 if (s == keep)
                     continue;
-                Debug.Log(
-                    $"[ElevDim] Deduped floor head: keep={keep.name} drop={s.name}");
                 floorBySource.Remove(s);
             }
         }
@@ -684,9 +511,6 @@ public static class ElevationCutsheetPass
             foreach (var s in group)
             {
                 if (s == keep) continue;
-                Debug.Log(
-                    $"[ElevDim] Deduped dual-select twin: keep={keep.name} " +
-                    $"drop={s.name} mm={Mathf.RoundToInt(lengthByOwner[s].sizeM * 1000f)}");
                 lengthByOwner.Remove(s);
                 removed.Add(s);
             }
@@ -729,9 +553,6 @@ public static class ElevationCutsheetPass
             {
                 if (s == keep)
                     continue;
-                Debug.Log(
-                    $"[ElevDim] Deduped shared measurable: keep={keep.name} drop={s.name} " +
-                    $"measurable={lengthByOwner[s].measurable.name}");
                 lengthByOwner.Remove(s);
             }
         }
@@ -810,10 +631,74 @@ public static class ElevationCutsheetPass
     }
 
     /// <summary>
+    /// Selectable that owns a catalog length (own Size or PdfData). Not geometric joints.
+    /// </summary>
+    static bool IsCutsheetLengthHost(Selectable sel) =>
+        ElevationDimPolicy.IsCatalogLengthOwner(sel);
+
+    /// <summary>
+    /// Link / find / force-install a ToOrigin for a catalog length owner (Size or PdfData).
+    /// Prefer <see cref="Selectable.Measurables"/> — EnsureMeasurablesLinked may claim a
+    /// child ToOrigin that FindToOrigin's stem/Size guard then rejects.
+    /// </summary>
+    public static Measurable EnsureToOriginForLengthOwner(
+        Selectable sel,
+        Dictionary<Selectable, (Measurable measurable, float sizeM)> lengthByOwner,
+        IList<Selectable> assemblySelectables)
+    {
+        if (sel == null)
+            return null;
+
+        sel.EnsureMeasurablesLinked();
+
+        if (sel.Measurables != null)
+        {
+            foreach (var m in sel.Measurables)
+            {
+                if (m == null || m.Disabled || !HasToOriginType(m))
+                    continue;
+                bool claimed = false;
+                if (lengthByOwner != null)
+                {
+                    foreach (var existing in lengthByOwner.Values)
+                    {
+                        if (existing.measurable == m)
+                        {
+                            claimed = true;
+                            break;
+                        }
+                    }
+                }
+                if (!claimed)
+                {
+                    m.EnsureConfiguredAsCatalogLength();
+                    return m;
+                }
+            }
+        }
+
+        Measurable found = FindToOriginForSizeOwner(sel, lengthByOwner, assemblySelectables);
+        if (found != null)
+        {
+            found.EnsureConfiguredAsCatalogLength();
+            return found;
+        }
+
+        // Last resort: install on the length owner (PoweredXL PdfData / Cardanic).
+        // Measurables has a private setter — link via EnsureMeasurablesLinked.
+        var installed = sel.GetComponent<Measurable>();
+        if (installed == null)
+            installed = sel.gameObject.AddComponent<Measurable>();
+        installed.EnsureConfiguredAsCatalogLength();
+        sel.EnsureMeasurablesLinked();
+        return installed;
+    }
+
+    /// <summary>
     /// Find a ToOrigin Measurable for a Size owner whose Measurables list is empty.
     /// Searches parents (Clone hosts Measurable), same-stem assembly twins, then Related.
     /// </summary>
-    static Measurable FindToOriginForSizeOwner(
+    public static Measurable FindToOriginForSizeOwner(
         Selectable sel,
         Dictionary<Selectable, (Measurable measurable, float sizeM)> lengthByOwner,
         IList<Selectable> assemblySelectables)
@@ -835,15 +720,26 @@ public static class ElevationCutsheetPass
                 if (existing.measurable == m)
                     return false;
             }
-            // Never steal a descendant Size-owner's ToOrigin (BoomDropTube used to claim
-            // an arm Measurable via GetComponentsInChildren → misaligned 100mm ticks).
+            // Never steal another length owner's ToOrigin via GetComponentsInChildren
+            // (Segment_1 was claiming PoweredXL's force-installed measurable → dedupe
+            // dropped 600mm; DropTube claimed Cardanic's → lost 136mm joint).
             var nearest = m.GetComponentInParent<Selectable>(true);
             if (nearest != null && nearest != sel
                 && DualSelectStem(nearest.name) != stem
-                && ElevationLengthFormat.ResolveOwnSizeMeters(nearest) > 0f)
+                && IsCutsheetLengthHost(nearest))
                 return false;
             taken = m;
             return true;
+        }
+
+        // Linked list first (EnsureMeasurablesLinked may already have claimed ToOrigin).
+        if (sel.Measurables != null)
+        {
+            foreach (var m in sel.Measurables)
+            {
+                if (TryTake(m, out var taken))
+                    return taken;
+            }
         }
 
         // Prefer own / same-stem measurables before walking all descendants.
@@ -1070,9 +966,6 @@ public static class ElevationCutsheetPass
             var go = new GameObject("Measurable_ToFloor");
             go.transform.SetParent(sel.transform, false);
             floorM = go.AddComponent<Measurable>();
-            Debug.Log(
-                $"[ElevDim] installed Floor measurable on product head={sel.name}",
-                sel);
         }
 
         floorM.EnsureConfiguredAsElevationFloor();

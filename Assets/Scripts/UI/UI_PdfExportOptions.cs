@@ -213,7 +213,7 @@ public class UI_PdfExportOptions : MonoBehaviour
         {
             Instance._assemblyDatas.Clear();
 
-            var selectables = rootObj.GetComponentsInChildren<Selectable>().ToList();
+            var selectables = rootObj.GetComponentsInChildren<Selectable>(true).ToList();
             var orderedSelectables = selectables
                 .OrderBy(x => x.transform.GetParentCount())
                 .ToList();
@@ -324,7 +324,7 @@ public class UI_PdfExportOptions : MonoBehaviour
 
         if (selectable.TryGetArmAssemblyRoot(out GameObject rootObj))
         {
-            var selectables = rootObj.GetComponentsInChildren<Selectable>().ToList();
+            var selectables = rootObj.GetComponentsInChildren<Selectable>(true).ToList();
             var orderedSelectables = selectables.OrderBy(x => x.transform.GetParentCount()).ToList();
 
             var allAttachmentPoints = orderedSelectables[0]

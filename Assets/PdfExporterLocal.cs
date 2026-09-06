@@ -301,10 +301,10 @@ public class PdfExporterLocal
             catch { }
 
             PdfPCell imageCell = CreateImageCell(images, document, writer, GetCeilingHeight());
-            imageCell.PaddingRight = 50;
+            imageCell.PaddingRight = 8;
             PdfPCell assembliesCell = container; assembliesCell.PaddingRight = 0;
             PdfPTable pageTable = new PdfPTable(2) { HorizontalAlignment = Element.ALIGN_LEFT, WidthPercentage = 100 };
-            pageTable.SetWidths(new float[] { 40, 60 });
+            pageTable.SetWidths(new float[] { 32, 68 });
             pageTable.AddCell(assembliesCell);
             pageTable.AddCell(imageCell);
             try { document.Add(pageTable); } catch (Exception ex) { caught = ex; }
@@ -313,15 +313,9 @@ public class PdfExporterLocal
             if (caught != null) goto CLEANUP;
         }
 
-        // Logo
-        try { AddCompanyLogo(document); } catch (Exception ex) { caught = ex; }
-        Step("Logo added");
-        yield return null;
-        if (caught != null) goto CLEANUP;
-
-        // Acceptance
-        try { AddCustomerAcceptanceSection(document, metaData); } catch (Exception ex) { caught = ex; }
-        Step("Acceptance section");
+        // Footer
+        try { AddSheetFooter(document, metaData); } catch (Exception ex) { caught = ex; }
+        Step("Footer");
         yield return null;
         if (caught != null) goto CLEANUP;
 
@@ -421,11 +415,8 @@ public class PdfExporterLocal
                 UpdateProgress(0.55f, "Content", options);
                 MonitorMemory("Main content added", options);
 
-                AddCompanyLogo(document);
-                UpdateProgress(0.7f, "Logo", options);
-
-                AddCustomerAcceptanceSection(document, metaData);
-                UpdateProgress(0.85f, "Acceptance", options);
+                AddSheetFooter(document, metaData);
+                UpdateProgress(0.85f, "Footer", options);
 
                 document.Close();
                 UpdateProgress(0.95f, "Closing", options);
@@ -471,13 +462,13 @@ public class PdfExporterLocal
             HorizontalAlignment = Element.ALIGN_LEFT,
             WidthPercentage = 100
         };
-        mainTable.SetWidths(new float[] { 40, 60 });
+        mainTable.SetWidths(new float[] { 32, 68 });
 
         PdfPCell assembliesCell = CreateAssembliesCell(assemblies);
         assembliesCell.PaddingRight = 0;
 
         PdfPCell imageCell = CreateImageCell(imageData, doc, writer, GetCeilingHeight());
-        imageCell.PaddingRight = 50;
+        imageCell.PaddingRight = 8;
 
         mainTable.AddCell(assembliesCell);
         mainTable.AddCell(imageCell);
@@ -510,7 +501,7 @@ public class PdfExporterLocal
 
         PdfPTable wrapper = new PdfPTable(1) { WidthPercentage = 100f };
         wrapper.AddCell(titleCell);
-        wrapper.SpacingAfter = 20f;
+        wrapper.SpacingAfter = 8f;
         doc.Add(wrapper);
     }
 
@@ -698,27 +689,90 @@ public class PdfExporterLocal
 
     public static string Distance { get; private set; } = string.Empty;
 
+    private static float EstimateDrawingHeight(Document doc)
+    {
+        float page = doc.PageSize.Height;
+        float margins = doc.TopMargin + doc.BottomMargin;
+        const float titleBand = 92f;
+        const float footerBand = 88f;
+        const float beam = 40f;
+        const float gaps = 12f;
+        return Mathf.Max(360f, page - margins - titleBand - footerBand - beam - gaps);
+    }
+
     private static PdfPCell CreateImageCell(List<PdfImageData> imageData, Document doc, PdfWriter writer, float roomHeight = 300f)
     {
         float pageWidth = doc.PageSize.Width;
         float usablePageWidth = pageWidth - (doc.LeftMargin + doc.RightMargin);
-        float imageColumnWidth = usablePageWidth * 0.6f;
-        float paddingBetweenImages = 10f;
-        float availableImageWidth = (imageColumnWidth - paddingBetweenImages) / 2f;
-        float maxTargetHeight = 300f;
+        float imageColumnWidth = usablePageWidth * 0.68f;
+        float paddingBetweenImages = 12f;
+        float maxTargetHeight = EstimateDrawingHeight(doc);
 
         PdfPCell imageCell = new PdfPCell
         {
             Border = Rectangle.NO_BORDER,
             VerticalAlignment = Element.ALIGN_BOTTOM,
             HorizontalAlignment = Element.ALIGN_CENTER,
-            PaddingLeft = 20f
+            PaddingLeft = 8f
         };
 
         if (imageData == null)
             imageData = new List<PdfImageData>();
 
+        // Same pt/px for both views. Scale from photo height (room) first, then
+        // shrink the pair together if they do not fit the drawing column.
+        float sharedScale = float.MaxValue;
+        var loaded = new Image[2];
+        float[] nativeW = new float[2];
+        float[] nativeH = new float[2];
+        int loadedCount = 0;
+        for (int i = 0; i < 2; i++)
+        {
+            if (imageData.Count <= i || string.IsNullOrEmpty(imageData[i].Path) || !File.Exists(imageData[i].Path))
+                continue;
+            try
+            {
+                Image img = Image.GetInstance(imageData[i].Path);
+                loaded[i] = img;
+                nativeW[i] = img.Width;
+                nativeH[i] = img.Height;
+                loadedCount++;
+                if (img.Height > 1f)
+                    sharedScale = Math.Min(sharedScale, maxTargetHeight / img.Height);
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError($"Failed to load image {imageData[i].Path}: {ex.Message}");
+            }
+        }
+        if (sharedScale <= 0f || float.IsInfinity(sharedScale))
+            sharedScale = 1f;
+
+        float pairWidth = 0f;
+        int present = 0;
+        for (int i = 0; i < 2; i++)
+        {
+            if (loaded[i] == null)
+                continue;
+            pairWidth += nativeW[i] * sharedScale;
+            present++;
+        }
+        if (present == 2)
+            pairWidth += paddingBetweenImages;
+        if (pairWidth > imageColumnWidth && pairWidth > 1f)
+            sharedScale *= imageColumnWidth / pairWidth;
+
+        float photoHeightPt = 0f;
+        for (int i = 0; i < 2; i++)
+        {
+            if (loaded[i] != null)
+                photoHeightPt = Math.Max(photoHeightPt, nativeH[i] * sharedScale);
+        }
+
         PdfPTable imgs = new PdfPTable(2) { WidthPercentage = 100f };
+        if (loaded[0] != null && loaded[1] != null && nativeW[0] > 1f && nativeW[1] > 1f)
+            imgs.SetWidths(new float[] { nativeW[0], nativeW[1] });
+
         for (int i = 0; i < 2; i++)
         {
             PdfPCell cell = new PdfPCell
@@ -729,35 +783,48 @@ public class PdfExporterLocal
                 Padding = 0f
             };
 
-            if (imageData.Count > i && !string.IsNullOrEmpty(imageData[i].Path) && File.Exists(imageData[i].Path))
+            if (loaded[i] != null)
             {
-                try
-                {
-                    Image img = Image.GetInstance(imageData[i].Path);
-                    img.Alignment = Element.ALIGN_BOTTOM;
-                    // Scale relative to exported ceiling height (same source as table/footer).
-                    float ceilingMeters = roomHeight > 0.01f ? roomHeight : GetCeilingHeight();
-                    float heightCap = maxTargetHeight;
-                    if (ceilingMeters > 0.5f && ceilingMeters < 8f)
-                        heightCap = Mathf.Clamp(maxTargetHeight * (ceilingMeters / 3f), 200f, maxTargetHeight);
-                    float scale = Math.Min(availableImageWidth / img.Width, heightCap / img.Height);
-                    img.ScaleAbsolute(img.Width * scale, img.Height * scale);
-                    cell.AddElement(img);
-                }
-                catch (Exception ex)
-                {
-                    UnityEngine.Debug.LogError($"Failed to load image {imageData[i].Path}: {ex.Message}");
-                }
+                Image img = loaded[i];
+                img.Alignment = Element.ALIGN_BOTTOM;
+                img.ScaleAbsolute(img.Width * sharedScale, img.Height * sharedScale);
+                cell.AddElement(img);
             }
             imgs.AddCell(cell);
         }
 
+        var cb = writer.DirectContent;
         var outer = new PdfPTable(1) { WidthPercentage = 100f };
         outer.DefaultCell.Border = Rectangle.NO_BORDER;
         outer.DefaultCell.Padding = 0f;
-        outer.AddCell(new PdfPCell(imgs) { Border = Rectangle.NO_BORDER, Padding = 0f });
 
-        var cb = writer.DirectContent;
+        // Room-height dim: ticks at photo ceiling and photo floor. Label is the
+        // same mm as the spec table, so a ruler on this line is the sheet scale.
+        if (photoHeightPt > 20f)
+        {
+            Image heightDim = BuildRoomHeightDim(cb, (float)photoHeightPt, FormatCeilingHeightMm());
+            var drawRow = new PdfPTable(2) { WidthPercentage = 100f };
+            drawRow.SetWidths(new float[] { 32f, 968f });
+            drawRow.AddCell(new PdfPCell(heightDim)
+            {
+                Border = Rectangle.NO_BORDER,
+                Padding = 0f,
+                VerticalAlignment = Element.ALIGN_BOTTOM,
+                HorizontalAlignment = Element.ALIGN_CENTER
+            });
+            drawRow.AddCell(new PdfPCell(imgs)
+            {
+                Border = Rectangle.NO_BORDER,
+                Padding = 0f,
+                VerticalAlignment = Element.ALIGN_BOTTOM
+            });
+            outer.AddCell(new PdfPCell(drawRow) { Border = Rectangle.NO_BORDER, Padding = 0f });
+        }
+        else
+        {
+            outer.AddCell(new PdfPCell(imgs) { Border = Rectangle.NO_BORDER, Padding = 0f });
+        }
+
         // Ground graphic sits flush under the elevation photos. Its TOP edge is the
         // floor reference — dim lines in the captures must end at the photo bottom
         // so they meet this line (do not overlap upward or lines appear to pierce it).
@@ -775,28 +842,49 @@ public class PdfExporterLocal
         return imageCell;
     }
 
-    private static Image BuildHeightImage(PdfContentByte cb, float visualHeight, float maxTargetHeight)
+    /// <summary>
+    /// Vertical floor→ceiling dimension beside the photos. Height in points equals
+    /// the photo (locked to room height), so the printed mm is the drawing scale.
+    /// </summary>
+    private static Image BuildRoomHeightDim(PdfContentByte cb, float heightPt, string label)
     {
-        string cacheKey = $"height_{visualHeight}_{maxTargetHeight}";
+        const float widthPt = 34f;
+        // v2: Helvetica WINANSI (Teko IDENTITY_H rendered as "R R")
+        string cacheKey = $"roomH_v2_{heightPt:F1}_{label}";
         if (TemplateCache.ContainsKey(cacheKey))
             return Image.GetInstance(TemplateCache[cacheKey]);
 
-        PdfTemplate tpl = cb.CreateTemplate(50, visualHeight);
-        tpl.SetLineWidth(1.5f);
-        tpl.MoveTo(10, 0); tpl.LineTo(10, visualHeight); tpl.Stroke();
-        tpl.MoveTo(5, 0); tpl.LineTo(15, 0); tpl.Stroke();
-        tpl.MoveTo(5, visualHeight); tpl.LineTo(15, visualHeight); tpl.Stroke();
+        PdfTemplate tpl = cb.CreateTemplate(widthPt, heightPt);
+        float x = 22f;
+        tpl.SetLineWidth(1.1f);
+        tpl.SetColorStroke(BaseColor.BLACK);
+        tpl.MoveTo(x, 0.5f);
+        tpl.LineTo(x, heightPt - 0.5f);
+        tpl.Stroke();
+        const float tick = 5.5f;
+        tpl.MoveTo(x - tick, 0.5f);
+        tpl.LineTo(x + tick, 0.5f);
+        tpl.Stroke();
+        tpl.MoveTo(x - tick, heightPt - 0.5f);
+        tpl.LineTo(x + tick, heightPt - 0.5f);
+        tpl.Stroke();
 
-        Distance = FormatCeilingHeightMm();
-
-        var fontPath = Path.Combine(Application.streamingAssetsPath, "Data/Fonts/Teko/Teko-Regular.ttf");
-        BaseFont teko = GetCachedBaseFont(fontPath);
+        Distance = label;
+        // WINANSI + Helvetica: Teko IDENTITY_H + ShowTextAligned was rendering as "R R".
+        BaseFont font = BaseFont.CreateFont(
+            BaseFont.HELVETICA, BaseFont.WINANSI, BaseFont.NOT_EMBEDDED);
         tpl.BeginText();
-        tpl.SetFontAndSize(teko, 36);
-        tpl.ShowTextAligned(Element.ALIGN_LEFT, Distance, 40, maxTargetHeight / 2, 90);
+        tpl.SetFontAndSize(font, 11f);
+        tpl.ShowTextAligned(Element.ALIGN_CENTER, label ?? "", 9f, heightPt * 0.5f, 90);
         tpl.EndText();
+        UnityEngine.Debug.Log(
+            $"[ElevDim] PDF room-height bar label='{label}' heightPt={heightPt:F1} " +
+            $"roomMm={Mathf.RoundToInt(GetCeilingHeight() * 1000f)}");
+
         TemplateCache[cacheKey] = tpl;
-        return Image.GetInstance(tpl);
+        Image img = Image.GetInstance(tpl);
+        img.ScaleAbsolute(widthPt, heightPt);
+        return img;
     }
 
     private static PdfPTable BuildContentTable(Image heightImg, List<PdfImageData> imageData, float availableImageWidth, float maxTargetHeight)
@@ -815,11 +903,7 @@ public class PdfExporterLocal
                 try
                 {
                     Image img = Image.GetInstance(imageData[i].Path);
-                    float ceilingMeters = GetCeilingHeight();
-                    float heightCap = maxTargetHeight;
-                    if (ceilingMeters > 0.5f && ceilingMeters < 8f)
-                        heightCap = Mathf.Clamp(maxTargetHeight * (ceilingMeters / 3f), 200f, maxTargetHeight);
-                    float scale = Math.Min(availableImageWidth / img.Width, heightCap / img.Height);
+                    float scale = Math.Min(availableImageWidth / img.Width, maxTargetHeight / img.Height);
                     img.ScaleAbsolute(img.Width * scale, img.Height * scale);
                     cell.AddElement(img);
                 }
@@ -866,25 +950,8 @@ public class PdfExporterLocal
     #region Helper / Utilities
     private static float GetCeilingHeight()
     {
-        var ceiling = RoomBoundary.GetRoomBoundary(RoomBoundaryType.Ceiling);
-        if (ceiling != null)
-        {
-            // Live underside Y (floor top ≈ 0) so table/footer match photo ceiling reference.
-            float underside = ceiling.transform.position.y - (ceiling.transform.localScale.y * 0.5f);
-            if (underside > 0.1f)
-                return underside;
-            if (ceiling.Height > 0.1f)
-                return ceiling.Height;
-        }
-
-        if (RoomSize.Instance != null)
-        {
-            float fromRoom = RoomSize.Instance.CurrentDimensions.Height.ToMeters();
-            if (fromRoom > 0.1f)
-                return fromRoom;
-        }
-
-        return 0f;
+        float h = ElevationRoomFrame.Current.RoomHeightM;
+        return h > 0.1f ? h : 0f;
     }
 
     private static string FormatCeilingHeightMm()
@@ -893,70 +960,66 @@ public class PdfExporterLocal
         return $"{mm} mm";
     }
 
-    private static void AddCompanyLogo(Document doc)
-    {
-        try
-        {
-            string logoPath = Application.streamingAssetsPath + "/Data/quotes/UImagineUnlimited-logo.png";
-            if (!File.Exists(logoPath)) { UnityEngine.Debug.LogWarning($"Logo file not found: {logoPath}"); return; }
-            PdfPTable logoTable = new PdfPTable(1) { TotalWidth = 300, HorizontalAlignment = Element.ALIGN_RIGHT, LockedWidth = true };
-            PdfPCell logoCell = new PdfPCell { Border = Rectangle.NO_BORDER, HorizontalAlignment = Element.ALIGN_LEFT, PaddingBottom = 10f };
-            Image logo = Image.GetInstance(logoPath);
-            logo.ScaleToFit(300, 300);
-            logoCell.AddElement(logo);
-            logoTable.AddCell(logoCell);
-            doc.Add(logoTable);
-        }
-        catch (Exception ex) { UnityEngine.Debug.LogError($"Failed to add company logo: {ex.Message}"); }
-    }
-
-    private static void AddCustomerAcceptanceSection(Document doc, ProjectMetaData metaData)
+    private static void AddSheetFooter(Document doc, ProjectMetaData metaData)
     {
         metaData ??= new ProjectMetaData();
         Font normalFont = GetCachedFont("normal", FontFactory.HELVETICA, 10, Font.NORMAL, BaseColor.BLACK);
         Font notesFont = GetCachedFont("notes", FontFactory.HELVETICA_OBLIQUE, 10, Font.NORMAL, BaseColor.BLACK);
 
-        PdfPTable acceptanceTable = new PdfPTable(2)
+        PdfPTable footer = new PdfPTable(2)
         {
-            TotalWidth = 800,
-            HorizontalAlignment = Element.ALIGN_RIGHT,
-            LockedWidth = true
+            WidthPercentage = 100f,
+            SpacingBefore = 6f
         };
-        acceptanceTable.SetWidths(new float[] { 60, 40 });
+        footer.SetWidths(new float[] { 58f, 42f });
 
         PdfPCell leftCell = new PdfPCell { Border = Rectangle.BOX, Padding = 5f };
         leftCell.AddElement(new Paragraph("Customer Acceptance and Configuration Acknowledgement", notesFont));
-        leftCell.AddElement(Chunk.NEWLINE);
-        leftCell.AddElement(Chunk.NEWLINE);
-        leftCell.AddElement(Chunk.NEWLINE);
-
-        PdfPTable signatureTable = new PdfPTable(2) { WidthPercentage = 90 };
+        PdfPTable signatureTable = new PdfPTable(2) { WidthPercentage = 90f, SpacingBefore = 18f };
         signatureTable.SetWidths(new float[] { 2f, 1f });
-        PdfPCell signatureCell = new PdfPCell(new Phrase("Signature", normalFont)) { FixedHeight = 30f, VerticalAlignment = Element.ALIGN_BOTTOM, Border = Rectangle.TOP_BORDER };
-        PdfPCell dateCell = new PdfPCell(new Phrase("Date", normalFont)) { FixedHeight = 30f, VerticalAlignment = Element.ALIGN_BOTTOM, Border = Rectangle.TOP_BORDER };
-        signatureTable.AddCell(signatureCell);
-        signatureTable.AddCell(dateCell);
+        signatureTable.AddCell(new PdfPCell(new Phrase("Signature", normalFont))
+        {
+            FixedHeight = 22f,
+            VerticalAlignment = Element.ALIGN_BOTTOM,
+            Border = Rectangle.TOP_BORDER
+        });
+        signatureTable.AddCell(new PdfPCell(new Phrase("Date", normalFont))
+        {
+            FixedHeight = 22f,
+            VerticalAlignment = Element.ALIGN_BOTTOM,
+            Border = Rectangle.TOP_BORDER
+        });
         leftCell.AddElement(signatureTable);
-        acceptanceTable.AddCell(leftCell);
+        footer.AddCell(leftCell);
 
-        PdfPTable detailTable = new PdfPTable(1) { WidthPercentage = 100 };
+        PdfPCell rightCell = new PdfPCell { Border = Rectangle.BOX, Padding = 4f };
+        try
+        {
+            string logoPath = Application.streamingAssetsPath + "/Data/quotes/UImagineUnlimited-logo.png";
+            if (File.Exists(logoPath))
+            {
+                Image logo = Image.GetInstance(logoPath);
+                logo.ScaleToFit(140, 48);
+                rightCell.AddElement(logo);
+            }
+        }
+        catch (Exception ex)
+        {
+            UnityEngine.Debug.LogWarning($"Footer logo skipped: {ex.Message}");
+        }
+
         string[] details =
         {
             "Account Name: " + (metaData.AccountName ?? string.Empty),
-            "Account Address: " + (metaData.AccountAddressLine1 ?? string.Empty),
-            " " + (metaData.AccountAddressLine2 ?? string.Empty),
             "Project Name: " + (metaData.ProjectName ?? string.Empty),
             "Project #: " + (metaData.ProjectNumber ?? string.Empty),
             "Order Reference #: " + (metaData.OrderReferenceNumber ?? string.Empty)
         };
         foreach (var d in details)
-        {
-            PdfPCell labelCell = new PdfPCell(new Phrase(d, normalFont)) { Padding = 4f };
-            detailTable.AddCell(labelCell);
-        }
-        PdfPCell rightCell = new PdfPCell(detailTable) { Border = Rectangle.BOX, Padding = 0f };
-        acceptanceTable.AddCell(rightCell);
-        doc.Add(acceptanceTable);
+            rightCell.AddElement(new Paragraph(d, normalFont));
+
+        footer.AddCell(rightCell);
+        doc.Add(footer);
     }
 
     private static void CleanupPdfWriter(PdfWriter writer)
@@ -1210,14 +1273,13 @@ public class PdfExporterLocal
 
         AddTitle(doc, title, subtitle);
         PdfPTable mainTable = new PdfPTable(2) { WidthPercentage = 100 };
-        mainTable.SetWidths(new float[] { 40f, 60f });
+        mainTable.SetWidths(new float[] { 32f, 68f });
         PdfPCell assembliesCell = CreateAssembliesCell(assemblies);
         PdfPCell imageCell = CreateImageCell(images, doc, writer);
         mainTable.AddCell(assembliesCell);
         mainTable.AddCell(imageCell);
         doc.Add(mainTable);
-        AddCompanyLogo(doc);
-        AddCustomerAcceptanceSection(doc, metadata);
+        AddSheetFooter(doc, metadata);
         GC.Collect();
         GC.WaitForPendingFinalizers();
     }

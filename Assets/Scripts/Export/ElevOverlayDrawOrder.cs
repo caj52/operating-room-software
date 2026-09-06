@@ -82,6 +82,8 @@ public static class ElevOverlayDrawOrder
         lr.sortingOrder = LineSortingOrder;
         lr.shadowCastingMode = ShadowCastingMode.Off;
         lr.receiveShadows = false;
+        lr.numCapVertices = 0;
+        lr.numCornerVertices = 0;
     }
 
     public static void ApplyFrostedBackingToLineRenderer(LineRenderer lr, float blackWidth)
@@ -92,16 +94,20 @@ public static class ElevOverlayDrawOrder
         lr.sortingOrder = LineBackingSortingOrder;
         lr.shadowCastingMode = ShadowCastingMode.Off;
         lr.receiveShadows = false;
-        float w = Mathf.Max(blackWidth * 3.2f, blackWidth + 0.012f);
+        lr.numCapVertices = 0;
+        lr.numCornerVertices = 0;
+        // One uniform wash behind a single polyline — wide round caps on three
+        // separate strokes were the overlapping corner blobs on the review.
+        float w = Mathf.Max(blackWidth * 1.85f, blackWidth + 0.006f);
         lr.startWidth = w;
         lr.endWidth = w;
-        var milk = new Color(1f, 1f, 1f, 0.78f);
+        var milk = new Color(1f, 1f, 1f, 0.55f);
         lr.startColor = milk;
         lr.endColor = milk;
         var grad = new Gradient();
         grad.SetKeys(
             new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
-            new[] { new GradientAlphaKey(0.78f, 0f), new GradientAlphaKey(0.78f, 1f) });
+            new[] { new GradientAlphaKey(0.55f, 0f), new GradientAlphaKey(0.55f, 1f) });
         lr.colorGradient = grad;
     }
 
