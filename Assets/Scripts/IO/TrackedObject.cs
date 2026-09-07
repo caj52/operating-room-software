@@ -285,8 +285,21 @@ public class TrackedObject : MonoBehaviour
             + data.localRotation.z * data.localRotation.z
             + data.localRotation.w * data.localRotation.w > 1e-8f;
 
-        if (isRoot || !hasLocalRotation)
+        bool moveUpAP = IsMoveUpAttachmentPoint();
+        bool usedWorldPose = isRoot || !hasLocalRotation || moveUpAP;
+        if (usedWorldPose)
         {
+            // A MoveUp AP's data.localPosition/localRotation were captured relative to
+            // whatever parent held it at save time (its promoted "parked" parent). That
+            // parent is not a stable reference frame: re-promotion later in the load can
+            // land it at a world pose that differs by float noise from the exact save-time
+            // instant, and every downstream joint in a chain would then compound that same
+            // small local-vs-parent error. World pose is unambiguous regardless of which
+            // parent currently holds it, and the later MoveUp promote
+            // (AttachmentPoint.ApplyProperParentImmediate) reparents while preserving world
+            // pose, so this lines up exactly with the interactive rotate/translate contract
+            // (Selectable.BeginRigidPoseChange/EndRigidPoseChange). Always use world pose
+            // for MoveUp APs — promoted or not — never their local pose.
             transform.position = data.worldPosition;
             transform.rotation = data.worldRotation;
         }
@@ -313,7 +326,10 @@ public class TrackedObject : MonoBehaviour
                 $"appliedLocal={scale} savedLocal={data.localScale} " +
                 $"scaleLevelZ={(data.scaleLevel != null ? data.scaleLevel.ScaleZ.ToString("G6") : "null")} " +
                 $"parent={(transform.parent != null ? transform.parent.name : "null")} " +
-                $"lossyAfter={transform.lossyScale}");
+                $"lossyAfter={transform.lossyScale} " +
+                $"poseMode={(moveUpAP ? "worldMoveUpAP" : usedWorldPose ? "worldRootOrLegacy" : "local")} " +
+                $"localEulerAfter={transform.localEulerAngles} worldEulerAfter={transform.eulerAngles} " +
+                $"savedLocalEuler={data.localRotation.eulerAngles} savedWorldEuler={data.worldRotation.eulerAngles}");
         }
         if (data.isAttachmentPoint && gameObject.TryGetComponent<AttachmentPoint>(out var ap))
         {
@@ -335,6 +351,16 @@ public class TrackedObject : MonoBehaviour
         if (!HasStoredValues)
             return;
 
+        if (IsMoveUpAttachmentPoint())
+        {
+            transform.position = data.worldPosition;
+            transform.rotation = data.worldRotation;
+            ScaleAuditLog.Event("Tracked.RestoreLocalPoseKeepingScale",
+                $"name={name} poseMode=worldMoveUpAP worldEulerAfter={transform.eulerAngles} " +
+                $"savedWorldEuler={data.worldRotation.eulerAngles}");
+            return;
+        }
+
         bool hasLocalRotation = data.localRotation.x * data.localRotation.x
             + data.localRotation.y * data.localRotation.y
             + data.localRotation.z * data.localRotation.z
@@ -344,6 +370,25 @@ public class TrackedObject : MonoBehaviour
 
         transform.localPosition = data.localPosition;
         transform.localRotation = data.localRotation;
+    }
+
+    /// <summary>
+    /// True for any MoveUp AttachmentPoint, promoted or not. <c>data.localPosition</c>/
+    /// <c>data.localRotation</c> were captured relative to whatever parent held it at save
+    /// time — its "parked" promoted parent, which does not exist yet if load hasn't
+    /// promoted this AP, and which can land at a world pose that differs from the exact
+    /// save-time instant by a small float/order-of-operations margin even once it is
+    /// re-promoted. Either way, local coordinates are the wrong reference frame: world pose
+    /// is the only value that is unambiguous and stable regardless of parent/promotion
+    /// state, and the MoveUp promote (AttachmentPoint.ApplyProperParentImmediate) reparents
+    /// while preserving world pose, so this always lines up with the interactive
+    /// rotate/translate contract (Selectable.BeginRigidPoseChange/EndRigidPoseChange).
+    /// </summary>
+    private bool IsMoveUpAttachmentPoint()
+    {
+        return data.isAttachmentPoint
+            && TryGetComponent<AttachmentPoint>(out var ap)
+            && ap.MoveUpOnAttach;
     }
 
     private static bool IsNonUniformScale(Vector3 s) =>

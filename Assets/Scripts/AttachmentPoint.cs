@@ -84,6 +84,15 @@ public partial class AttachmentPoint : MonoBehaviour
     public Transform _originalParent { get; private set; }
 
     [field: SerializeField] private bool _hasNormalizedParent = false;
+
+    /// <summary>
+    /// True once <see cref="ApplyProperParentImmediate"/> has reparented this AP from its
+    /// canonical (authored) parent to its MoveUp target. False means it is still sitting
+    /// under its canonical parent — any saved local pose for this AP was captured relative
+    /// to the promoted parent and is not valid to apply here (see
+    /// <see cref="TrackedObject.RestoreTransform"/>).
+    /// </summary>
+    public bool HasNormalizedParent => _hasNormalizedParent;
     [field: SerializeField] private MeshRenderer Renderer { get; set; }
     private Collider _collider;
     private bool _isDestroyed;
@@ -610,9 +619,12 @@ public partial class AttachmentPoint : MonoBehaviour
         }
 
         ScaleAuditLog.Event("AP.ApplyProperParent",
-            $"begin path={name} parentAP={parentAP.name} targetParent={targetParent.name}");
+            $"begin path={name} parentAP={parentAP.name} targetParent={targetParent.name} " +
+            $"worldEulerBefore={transform.eulerAngles}");
         ReparentPreservingWorldPoseAndScale(targetParent);
         _hasNormalizedParent = true;
+        ScaleAuditLog.Event("AP.ApplyProperParent",
+            $"end path={name} worldEulerAfter={transform.eulerAngles} localEulerAfter={transform.localEulerAngles}");
     }
 
     /// <summary>

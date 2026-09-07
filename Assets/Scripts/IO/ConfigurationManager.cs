@@ -809,6 +809,7 @@ public class ConfigurationManager : MonoBehaviour
                 // Scale repair before accessory presentation — face/cover must see final poses.
                 FixLoadedNonUniformDropTubeScales(applyAttachChain: false);
                 FinalizeLoadedBoomAccessoryAttach();
+                LogFinalPoseMismatches("LoadArmAssembly");
                 if (_newObjects != null)
                 {
                     foreach (var to in _newObjects)
@@ -1197,6 +1198,7 @@ public class ConfigurationManager : MonoBehaviour
                 FixLoadedNonUniformDropTubeScales(applyAttachChain: false);
                 FinalizeLoadedBoomAccessoryAttach();
                 LogLoadedArmScaleSnapshot("after SettleLoadedBoomAssembly");
+                LogFinalPoseMismatches("LoadRoom");
 
                 var pricingTimer = Stopwatch.StartNew();
                 int pricedCount = PricingManager.RebuildPricingFromTrackedObjects();
@@ -2165,6 +2167,77 @@ public class ConfigurationManager : MonoBehaviour
             }
         }
     }
+    /// <summary>
+    /// Definitive load-correctness check: compares every restored TrackedObject's final
+    /// live world pose against the pose that was actually saved, and separately flags any
+    /// group of distinct objects that ended up at (near) the same world position — the
+    /// signature of an attach-point/parenting mis-bind stacking two links on top of each
+    /// other. Runs after all post-load settle/fix passes so it reflects what the user sees.
+    /// </summary>
+    private void LogFinalPoseMismatches(string caller)
+    {
+        if (_newObjects == null)
+            return;
+
+        const float PosTolM = 0.01f;
+        const float RotToleranceDeg = 1.0f;
+        const float OverlapClusterM = 0.03f;
+
+        var seen = new HashSet<TrackedObject>();
+        var all = new List<TrackedObject>();
+        foreach (TrackedObject root in _newObjects)
+        {
+            if (root == null) continue;
+            foreach (TrackedObject to in root.GetComponentsInChildren<TrackedObject>(true))
+            {
+                if (to != null && to.HasStoredValues && seen.Add(to))
+                    all.Add(to);
+            }
+        }
+        // Ceiling/pre-existing sockets the load re-parented under (ProcessAttachmentPoint)
+        // live outside _newObjects — a wrong-socket bind shows up as a mismatch here first.
+        if (_newPoints != null)
+        {
+            foreach (AttachmentPoint ap in _newPoints)
+            {
+                if (ap == null) continue;
+                if (ap.TryGetComponent(out TrackedObject apTo) && apTo.HasStoredValues && seen.Add(apTo))
+                    all.Add(apTo);
+            }
+        }
+
+        foreach (TrackedObject to in all)
+        {
+            float posDelta = Vector3.Distance(to.transform.position, to.data.worldPosition);
+            float rotDelta = Quaternion.Angle(to.transform.rotation, to.data.worldRotation);
+            if (posDelta > PosTolM || rotDelta > RotToleranceDeg)
+            {
+                ScaleAuditLog.Event("LoadPoseCheck.MISMATCH",
+                    $"caller={caller} name={to.name} path={GetLoadComparablePath(to.gameObject)} " +
+                    $"isAP={to.data.isAttachmentPoint} parentGuid={to.data.parentGuid} parent={to.data.parent} " +
+                    $"posDelta={posDelta:G4} rotDelta={rotDelta:G4} " +
+                    $"finalWorldPos={to.transform.position} savedWorldPos={to.data.worldPosition} " +
+                    $"finalWorldRot={to.transform.eulerAngles} savedWorldRot={to.data.worldRotation.eulerAngles}");
+            }
+        }
+
+        for (int i = 0; i < all.Count; i++)
+        {
+            for (int j = i + 1; j < all.Count; j++)
+            {
+                TrackedObject a = all[i];
+                TrackedObject b = all[j];
+                if (Vector3.Distance(a.transform.position, b.transform.position) <= OverlapClusterM)
+                {
+                    ScaleAuditLog.Event("LoadPoseCheck.OVERLAP",
+                        $"caller={caller} a={a.name}({GetLoadComparablePath(a.gameObject)}) " +
+                        $"b={b.name}({GetLoadComparablePath(b.gameObject)}) " +
+                        $"posA={a.transform.position} posB={b.transform.position}");
+                }
+            }
+        }
+    }
+
     private GameObject InstantiateObjectForLoad(TrackedObject.Data trackedObject)
     {
         if (!SelectableAssetBundles.TryGetSelectableData(trackedObject.global_guid, out SelectableData data))
