@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -309,6 +309,11 @@ public class ArticualtionToolScript : MonoBehaviour
                             maxValue = settings.MaxValue;
                         }
 
+                        if (selectable.TryGetServiceHeadRailSlideLocalRange(axis, out float railMin, out float railMax))
+                        {
+                            minValue = railMin;
+                            maxValue = railMax;
+                        }
 
                         foundSetting = true;
                     }
@@ -522,9 +527,8 @@ public class ArticualtionToolScript : MonoBehaviour
             }
 
      
-            // Apply updated rotation as Quaternion
             obj.transform.localPosition = currentPos;
-          
+            selectable.ClampServiceHeadRailTravel();
         }
 
     }

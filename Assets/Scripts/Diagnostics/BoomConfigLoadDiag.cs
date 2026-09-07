@@ -12,7 +12,7 @@ public static class BoomConfigLoadDiag
     const string Prefix = "[BoomConfigLoad]";
 
     /// <summary>When false, all logging is a no-op (default).</summary>
-    public static bool Enabled;
+    public static bool Enabled = true;
 
     static string _sessionPath;
     static readonly StringBuilder _buffer = new StringBuilder(8 * 1024);

@@ -39,7 +39,15 @@ public static class ElevationLengthFormat
         float sizeM = ResolveSizeMeters(selectable);
         if (sizeM > 0f)
             return sizeM;
-        return ResolvePdfDataLengthMeters(selectable);
+        float pdf = ResolvePdfDataLengthMeters(selectable);
+        if (pdf > 0f)
+            return pdf;
+        // Powered / Powered XL articulating arm is a single catalog length (1000 mm)
+        // with empty ScaleLevels — same figure BoomConfigurationManager uses.
+        string n = selectable.name ?? "";
+        if (n.IndexOf("BoomSegment_2Powered", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            return 1f;
+        return 0f;
     }
 
     /// <summary>

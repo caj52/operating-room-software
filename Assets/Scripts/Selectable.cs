@@ -1272,33 +1272,14 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             $"begin path={name} targetZ={targetZ:G6} inv={inv:G6} " +
             $"tubeLocal={transform.localScale} tubeLossy={transform.lossyScale} childCount={transform.childCount}");
 
-        for (int i = 0; i < transform.childCount; i++)
+        IsolateOwnedAttachmentPoints();
+        var aps = GetComponentsInChildren<AttachmentPoint>(true);
+        for (int i = 0; i < aps.Length; i++)
         {
-            Transform child = transform.GetChild(i);
-            bool isAttach = child.GetComponent<AttachmentPoint>() != null
-                || child.name.Equals("AttachmentPoint", StringComparison.OrdinalIgnoreCase)
-                || child.name.Equals("AttachPoint", StringComparison.OrdinalIgnoreCase);
-            if (!isAttach)
+            var ap = aps[i];
+            if (ap == null || !AttachmentPointOwnedByThisLengthTube(ap.transform))
                 continue;
-
-            Vector3 cls = child.localScale;
-            Vector3 lossy = child.lossyScale;
-            bool worldOk = Mathf.Abs(Mathf.Abs(lossy.x) - 1f) < 0.05f
-                && Mathf.Abs(Mathf.Abs(lossy.y) - 1f) < 0.05f
-                && Mathf.Abs(Mathf.Abs(lossy.z) - 1f) < 0.05f;
-            if (worldOk)
-            {
-                ScaleAuditLog.Event("Sel.EnsureAttachChain.child",
-                    $"skip-ok child={child.name} local={cls} lossy={lossy}");
-                StripAbsorbedAttachInverseFromChildren(child, targetZ, inv);
-                continue;
-            }
-
-            AttachmentPoint.SetWorldScale(child, Vector3.one);
-            StripAbsorbedAttachInverseFromChildren(child, targetZ, inv);
-            ScaleAuditLog.Warn("Sel.EnsureAttachChain.child",
-                $"WRITE child={child.name} before={cls} after={child.localScale} " +
-                $"lossyAfter={child.lossyScale}");
+            StripAbsorbedAttachInverseFromChildren(ap.transform, targetZ, inv);
         }
 
         // Callers that process many selectables should run a second pass of
@@ -1898,36 +1879,34 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             OnScaleChange?.Invoke(CurrentPreviewScaleLevel);
         }
 
-        // Client intent (unchanged): lengthen THIS selectable only; keep direct children
-        // at the world size they had so nothing attached downstream inherits the stretch.
-        // Old path used InverseTransformVector (breaks on cardanic/45° joints). Same intent,
-        // rotation-safe: capture child world scale → write tube Z → SetWorldScale restore.
-        bool usedStoredChildScales = false;
-        bool usedCalculateInverse = false;
+        BakeScaleZFromAuthoredLength();
+        Vector3 newScale = new Vector3(transform.localScale.x, transform.localScale.y, scaleLevel.ScaleZ);
 
+        // Re-settling the SAME scale level (e.g. load's post-restore settle pass) is a
+        // confirmation, not a transition — replay the exact child locals captured right
+        // after load/last-apply instead of re-running the MoveUp unpark/reparent dance.
+        // That dance is only safe (and only needed) when the tube's Z is actually changing;
+        // replaying it on every settle pass across a long boom chain accumulates drift.
         bool canUseStored = scaleLevel == CurrentScaleLevel
             && _childScales != null
             && _childScales.Count == transform.childCount;
 
-        if (scaleLevel == CurrentScaleLevel && !canUseStored)
-        {
-            ScaleAuditLog.Warn("Sel.SetScaleLevel.storedMismatch",
-                $"name={name} childCount={transform.childCount} stored={(_childScales != null ? _childScales.Count : 0)} — using worldPreserve");
-        }
-
-        Vector3 newScale = new Vector3(transform.localScale.x, transform.localScale.y, scaleLevel.ScaleZ);
-
         if (canUseStored)
         {
-            usedStoredChildScales = true;
             transform.localScale = newScale;
             for (int i = 0; i < transform.childCount; i++)
                 transform.GetChild(i).localScale = _childScales[i];
         }
         else
         {
-            usedCalculateInverse = true;
+            var moveUpOwned = CollectMoveUpAPsAuthoredUnderThisTube();
+            for (int i = 0; i < moveUpOwned.Count; i++)
+                moveUpOwned[i].SetToOriginalParent();
+
             IsolateDirectChildrenPreservingWorldScale(newScale);
+
+            for (int i = 0; i < moveUpOwned.Count; i++)
+                moveUpOwned[i].ApplyProperParentImmediate();
         }
 
         if (setSelected)
@@ -1951,8 +1930,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             scaleLevel.ScaleZ,
             scaleLevel.Size,
             setSelected,
-            usedStoredChildScales,
-            usedCalculateInverse);
+            usedStoredChildScales: canUseStored,
+            usedCalculateInverse: !canUseStored);
 
         if (ScaleAuditLog.VerboseHierarchy)
         {
@@ -2119,11 +2098,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     }
 
     /// <summary>
-    /// After changing this tube's local Z, restore each isolatable direct child's world
-    /// scale so the next arm / light head does not inherit the stretch. Attach points and
-    /// untracked mesh wrappers are forced to world (1,1,1); length-capable Selectable
-    /// children keep the world size they had before the tube change.
-    /// LengthTube only — service heads use <see cref="ApplyRowConfigCabinetHeight"/>.
+    /// Lengthen this tube. Prefab children inherit. Owned slots, hung placeables,
+    /// and measurables keep world scale. LengthTube only.
     /// </summary>
     private void IsolateDirectChildrenPreservingWorldScale(Vector3 newParentLocalScale)
     {
@@ -2131,11 +2107,12 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         if (n == 0)
         {
             transform.localScale = newParentLocalScale;
+            IsolateOwnedAttachmentPoints();
             return;
         }
 
         var targetWorld = new Vector3[n];
-        var mode = new byte[n]; // 0=skip, 1=worldOne, 2=preserveWorld
+        var mode = new byte[n]; // 0=inherit, 1=worldOne
 
         for (int i = 0; i < n; i++)
         {
@@ -2153,29 +2130,18 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 continue;
             }
 
-            bool isAttach = child.GetComponent<AttachmentPoint>() != null
-                || child.name.Equals("AttachmentPoint", StringComparison.OrdinalIgnoreCase)
-                || child.name.Equals("AttachPoint", StringComparison.OrdinalIgnoreCase);
-
-            if (isAttach)
+            // Slot or something hung on a slot of this tube: keep world scale.
+            // Prefab knuckles / mesh wrappers inherit so tip offsets stay on the tube.
+            if (child.GetComponent<AttachmentPoint>() != null
+                || IsAttachedPlaceable(child)
+                || child.GetComponent<Measurable>() != null)
             {
-                mode[i] = 1; // world (1,1,1)
+                mode[i] = 1;
                 targetWorld[i] = Vector3.one;
                 continue;
             }
 
-            if (child.GetComponent<Selectable>() != null)
-            {
-                // Keep whatever world size this selectable already had (length or not).
-                mode[i] = 2;
-                targetWorld[i] = child.lossyScale;
-                continue;
-            }
-
-            // Untracked mesh wrapper (.002, boom mesh pieces): world (1,1,1) so tip APs
-            // and attached gear do not inherit tube stretch.
-            mode[i] = 1;
-            targetWorld[i] = Vector3.one;
+            mode[i] = 0;
         }
 
         transform.localScale = newParentLocalScale;
@@ -2187,6 +2153,82 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             if (child == null) continue;
             AttachmentPoint.SetWorldScale(child, targetWorld[i]);
         }
+
+        IsolateOwnedAttachmentPoints();
+    }
+
+    List<AttachmentPoint> CollectMoveUpAPsAuthoredUnderThisTube()
+    {
+        var list = new List<AttachmentPoint>();
+        Transform root = transform.root;
+        if (root == null)
+            return list;
+        var aps = root.GetComponentsInChildren<AttachmentPoint>(true);
+        for (int i = 0; i < aps.Length; i++)
+        {
+            var ap = aps[i];
+            if (ap != null && ap.AuthoredParentIsUnder(transform))
+                list.Add(ap);
+        }
+        return list;
+    }
+
+    bool IsAttachedPlaceable(Transform child)
+    {
+        if (child == null)
+            return false;
+        var sel = child.GetComponent<Selectable>();
+        if (sel == null)
+            return false;
+
+        var aps = GetComponentsInChildren<AttachmentPoint>(true);
+        for (int i = 0; i < aps.Length; i++)
+        {
+            var ap = aps[i];
+            if (ap == null || ap.AttachedSelectable == null)
+                continue;
+            if (!AttachmentPointOwnedByThisLengthTube(ap.transform))
+                continue;
+            if (ap.AttachedSelectable.Contains(sel))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// World-identity on attach points of this length tube (direct, or under an
+    /// authored knuckle). Never walks through another AP into attached equipment.
+    /// </summary>
+    void IsolateOwnedAttachmentPoints()
+    {
+        if (SkipTubeLengthScaleIsolation())
+            return;
+
+        var aps = GetComponentsInChildren<AttachmentPoint>(true);
+        for (int i = 0; i < aps.Length; i++)
+        {
+            var ap = aps[i];
+            if (ap == null)
+                continue;
+            if (!AttachmentPointOwnedByThisLengthTube(ap.transform))
+                continue;
+            AttachmentPoint.SetWorldScale(ap.transform, Vector3.one);
+        }
+    }
+
+    bool AttachmentPointOwnedByThisLengthTube(Transform ap)
+    {
+        if (ap == null)
+            return false;
+        Transform t = ap.parent;
+        while (t != null && t != transform)
+        {
+            // Slot → attached selectable → nested AP. That AP is not this tube's tip.
+            if (t.GetComponent<AttachmentPoint>() != null)
+                return false;
+            t = t.parent;
+        }
+        return t == transform;
     }
 
     public void UpdateZScaling(bool setSelected)

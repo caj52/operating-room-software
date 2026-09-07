@@ -113,7 +113,7 @@ MeshCollider:
   m_LayerOverridePriority: 0
   m_IsTrigger: 0
   m_ProvidesContacts: 0
-  m_Enabled: 1
+  m_Enabled: 0
   serializedVersion: 5
   m_Convex: 1
   m_CookingOptions: 30
@@ -416,6 +416,7 @@ MonoBehaviour:
   <AlignForElevationPhoto>k__BackingField: 0
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
+  <AcceptsSurfacePlacements>k__BackingField: 0
   <AttachedTo>k__BackingField: {fileID: 0}
   <RelatedSelectables>k__BackingField:
   - {fileID: 4177148447591003143}
@@ -1885,7 +1886,7 @@ MeshCollider:
   m_LayerOverridePriority: 0
   m_IsTrigger: 0
   m_ProvidesContacts: 0
-  m_Enabled: 1
+  m_Enabled: 0
   serializedVersion: 5
   m_Convex: 1
   m_CookingOptions: 30
@@ -2102,6 +2103,7 @@ MonoBehaviour:
   <AlignForElevationPhoto>k__BackingField: 1
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
+  <AcceptsSurfacePlacements>k__BackingField: 0
   <AttachedTo>k__BackingField: {fileID: 0}
   <RelatedSelectables>k__BackingField:
   - {fileID: 4177148447591003143}
@@ -2140,7 +2142,7 @@ MonoBehaviour:
   profileSync: 0
   previewInEditor: 1
   camerasLayerMask:
-  serializedVersion: 2
+    serializedVersion: 2
     m_Bits: 4294967295
   effectGroup: 0
   effectGroupLayer:
@@ -2461,7 +2463,7 @@ MonoBehaviour:
   profileSync: 0
   previewInEditor: 1
   camerasLayerMask:
-  serializedVersion: 2
+    serializedVersion: 2
     m_Bits: 4294967295
   effectGroup: 0
   effectGroupLayer:
@@ -2737,7 +2739,7 @@ MeshCollider:
   m_LayerOverridePriority: 0
   m_IsTrigger: 0
   m_ProvidesContacts: 0
-  m_Enabled: 1
+  m_Enabled: 0
   serializedVersion: 5
   m_Convex: 1
   m_CookingOptions: 30
@@ -2867,6 +2869,7 @@ MonoBehaviour:
   <AlignForElevationPhoto>k__BackingField: 0
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
+  <AcceptsSurfacePlacements>k__BackingField: 0
   <AttachedTo>k__BackingField: {fileID: 4177148447591003143}
   <RelatedSelectables>k__BackingField:
   - {fileID: 4177148447591003143}
@@ -3349,6 +3352,7 @@ MonoBehaviour:
   <AlignForElevationPhoto>k__BackingField: 0
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
+  <AcceptsSurfacePlacements>k__BackingField: 0
   <AttachedTo>k__BackingField: {fileID: 4177148447591003143}
   <RelatedSelectables>k__BackingField:
   - {fileID: 4177148447591003143}

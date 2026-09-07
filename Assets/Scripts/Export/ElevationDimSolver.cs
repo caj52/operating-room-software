@@ -319,8 +319,14 @@ public static class ElevationDimSolver
         }
         else
         {
-            // Hold the proximal reference point; stretch the distal one along the same
-            // line so printed == drawn without walking the ticks off the joints.
+            // Hold the proximal joint (not whichever end axis-align swapped to).
+            if (ElevationLengthGeometry.TryResolveProximalAttachment(owner, out var holdAp)
+                && holdAp != null)
+            {
+                Vector3 p = holdAp.transform.position;
+                if (Vector3.Distance(b, p) + 1e-4f < Vector3.Distance(a, p))
+                    (a, b) = (b, a);
+            }
             float page = camera != null
                 ? Vector3.ProjectOnPlane(b - a, camera.transform.forward).magnitude
                 : Vector3.Distance(a, b);

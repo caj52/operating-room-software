@@ -356,7 +356,7 @@ public class Save : MonoBehaviour
         if (FreeLookCam.Instance != null)
             FreeLookCam.Instance.isLocked = true;
 
-        savePanel.SetActive(true);
+        ShowNamePanel();
     }
 
     /// <summary>
@@ -390,7 +390,7 @@ public class Save : MonoBehaviour
         if (FreeLookCam.Instance != null)
             FreeLookCam.Instance.isLocked = true;
 
-        savePanel.SetActive(true);
+        ShowNamePanel();
     }
 
     private void OnConfirmNamePanel()
@@ -421,6 +421,26 @@ public class Save : MonoBehaviour
             fileName.text = "";
         if (FreeLookCam.Instance != null)
             FreeLookCam.Instance.isLocked = false;
+    }
+
+    /// <summary>
+    /// Proposal / pricing / export screens sit at sorting 280–320. The name panel
+    /// lives on the in-game HUD (~0), so without this it opens invisibly behind them.
+    /// </summary>
+    private void ShowNamePanel()
+    {
+        if (savePanel == null)
+            return;
+
+        savePanel.SetActive(true);
+
+        var canvas = savePanel.GetComponent<Canvas>();
+        if (canvas == null)
+            canvas = savePanel.AddComponent<Canvas>();
+        canvas.overrideSorting = true;
+        canvas.sortingOrder = 350;
+        if (savePanel.GetComponent<GraphicRaycaster>() == null)
+            savePanel.AddComponent<GraphicRaycaster>();
     }
 
     private void TrySaveRoom(string rawName)
@@ -489,8 +509,7 @@ public class Save : MonoBehaviour
             {
                 UI_DialogPrompt.Close();
                 _namePanelMode = NamePanelMode.Room;
-                if (savePanel != null)
-                    savePanel.SetActive(true);
+                ShowNamePanel();
                 if (FreeLookCam.Instance != null)
                     FreeLookCam.Instance.isLocked = true;
             }));
@@ -555,8 +574,7 @@ public class Save : MonoBehaviour
             {
                 UI_DialogPrompt.Close();
                 _namePanelMode = NamePanelMode.Config;
-                if (savePanel != null)
-                    savePanel.SetActive(true);
+                ShowNamePanel();
                 if (FreeLookCam.Instance != null)
                     FreeLookCam.Instance.isLocked = true;
             }));
@@ -680,6 +698,9 @@ public class Save : MonoBehaviour
         string nice = Path.GetFileNameWithoutExtension(path).Replace('_', ' ');
         if (fileOk)
         {
+            if (ExportPaths.TryResumeAfterSave())
+                yield break;
+
             UI_DialogPrompt.Open(
                 $"Room “{nice}” saved.\nIt will appear in the Load Room list.",
                 new ButtonAction("Done"));

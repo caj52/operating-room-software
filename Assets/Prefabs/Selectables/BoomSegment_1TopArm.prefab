@@ -1201,7 +1201,7 @@ MeshCollider:
   m_LayerOverridePriority: 0
   m_IsTrigger: 0
   m_ProvidesContacts: 0
-  m_Enabled: 1
+  m_Enabled: 0
   serializedVersion: 5
   m_Convex: 1
   m_CookingOptions: 30
@@ -2704,6 +2704,7 @@ MonoBehaviour:
   <AlignForElevationPhoto>k__BackingField: 1
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
+  <AcceptsSurfacePlacements>k__BackingField: 0
   <AttachedTo>k__BackingField: {fileID: 0}
   <RelatedSelectables>k__BackingField:
   - {fileID: 2825526204261083843}
@@ -3170,6 +3171,7 @@ MonoBehaviour:
   <AlignForElevationPhoto>k__BackingField: 0
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
+  <AcceptsSurfacePlacements>k__BackingField: 0
   <AttachedTo>k__BackingField: {fileID: 2825526204261083843}
   <RelatedSelectables>k__BackingField:
   - {fileID: 2825526204261083843}
@@ -3741,7 +3743,7 @@ MeshCollider:
   m_LayerOverridePriority: 0
   m_IsTrigger: 0
   m_ProvidesContacts: 0
-  m_Enabled: 1
+  m_Enabled: 0
   serializedVersion: 5
   m_Convex: 1
   m_CookingOptions: 30
@@ -4044,6 +4046,7 @@ MonoBehaviour:
   <AlignForElevationPhoto>k__BackingField: 0
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
+  <AcceptsSurfacePlacements>k__BackingField: 0
   <AttachedTo>k__BackingField: {fileID: 0}
   <RelatedSelectables>k__BackingField:
   - {fileID: 2825526204261083843}
@@ -4157,6 +4160,7 @@ MonoBehaviour:
   <AlignForElevationPhoto>k__BackingField: 0
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
+  <AcceptsSurfacePlacements>k__BackingField: 0
   <AttachedTo>k__BackingField: {fileID: 2825526204261083843}
   <RelatedSelectables>k__BackingField:
   - {fileID: 2825526204261083843}
@@ -4702,7 +4706,7 @@ MeshCollider:
   m_LayerOverridePriority: 0
   m_IsTrigger: 0
   m_ProvidesContacts: 0
-  m_Enabled: 1
+  m_Enabled: 0
   serializedVersion: 5
   m_Convex: 1
   m_CookingOptions: 30

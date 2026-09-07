@@ -1,7 +1,7 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
 /// <summary>
-/// Live export session — ties elevation photos to the same catalog rows as the PDF tables.
+/// Live export session — catalog rows for PDF tables/dims. The photo is the live room.
 /// </summary>
 public static class ElevationExportContext
 {

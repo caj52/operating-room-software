@@ -172,6 +172,7 @@ public class BoomHeadScaleHandler : MonoBehaviour
             child.shelf.localPosition = child.localPosition;
             // Preserve SKU X stretch — do not force (1,1,1).
             child.shelf.localScale = child.localScale;
+            child.shelf.GetComponent<Selectable>()?.ClampServiceHeadRailTravel();
         }
 
         RailScaleDiag.Dump("SetRailScale", rail);

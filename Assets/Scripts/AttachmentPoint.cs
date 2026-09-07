@@ -55,6 +55,30 @@ public partial class AttachmentPoint : MonoBehaviour
     public bool MoveUpOnAttach { get; private set; }
 
     /// <summary>
+    /// Authored (prefab) parent sits under <paramref name="ancestor"/> with no other
+    /// AttachmentPoint's tube in between — this AP belongs to that tube's own kinematic
+    /// chain (even if currently parked elsewhere by MoveUp), not to a downstream tube
+    /// that happens to be attached somewhere under <paramref name="ancestor"/>. Without
+    /// this boundary check, a shallow tube's scale pass would also unpark/reparent every
+    /// MoveUp AP belonging to every downstream tube attached under it, redundantly
+    /// perturbing (and drifting) poses that the downstream tube's own pass already owns.
+    /// </summary>
+    public bool AuthoredParentIsUnder(Transform ancestor)
+    {
+        if (!MoveUpOnAttach || _originalParent == null || ancestor == null)
+            return false;
+
+        Transform t = _originalParent;
+        while (t != null && t != ancestor)
+        {
+            if (t.GetComponent<AttachmentPoint>() != null)
+                return false;
+            t = t.parent;
+        }
+        return t == ancestor;
+    }
+
+    /// <summary>
     /// Lower transform hierarchy items will use this attachment point as a rotation reference when taking elevation photos (instead of using ceiling mount attachment points). This is used for arm segments having opposite rotation directions in elevation photos.
     /// </summary>
     [field: SerializeField] 
@@ -552,7 +576,6 @@ public partial class AttachmentPoint : MonoBehaviour
         // Find parent attachment point
         Transform current = transform.parent;
         AttachmentPoint parentAP = null;
-
         while (current != null && parentAP == null)
         {
             parentAP = current.GetComponent<AttachmentPoint>();

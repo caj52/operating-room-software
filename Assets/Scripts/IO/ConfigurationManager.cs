@@ -60,18 +60,33 @@ public class ConfigurationManager : MonoBehaviour
     /// Resolves a saved parent path against loaded (possibly inactive) room objects.
     /// GameObject.Find skips inactive objects, so hierarchy restore must search _newObjects.
     /// </summary>
-    private Transform FindLoadedParentTransform(TrackedObject.Data data)
+    private Transform FindLoadedParentTransform(TrackedObject.Data data) => FindLoadedParentTransform(data, out _);
+
+    /// <summary>
+    /// Resolves a saved parent path against loaded (possibly inactive) room objects.
+    /// GameObject.Find skips inactive objects, so hierarchy restore must search _newObjects.
+    /// <paramref name="exact"/> is true only for a full-path match (GUID-grade confidence);
+    /// false for a suffix/"loose" match, which is wave-order dependent and must not be
+    /// committed while an exact match could still appear in a later wave (see ProcessTrackedObjects).
+    /// </summary>
+    private Transform FindLoadedParentTransform(TrackedObject.Data data, out bool exact)
     {
+        exact = false;
         string rawPath = !string.IsNullOrEmpty(data.parentPath) ? data.parentPath : data.parent;
         if (string.IsNullOrEmpty(rawPath))
             return null;
 
-        GameObject found = FindInLoadedObjects(rawPath);
+        GameObject found = FindInLoadedObjects(rawPath, out exact);
         if (found != null)
             return found.transform;
 
+        // GameObject.Find walks an exact hierarchy path (it only fails on inactive objects),
+        // so a hit here is exact-grade, not a suffix guess.
         GameObject active = GameObject.Find(NormalizeFindPath(rawPath));
-        return active != null ? active.transform : null;
+        if (active == null)
+            return null;
+        exact = true;
+        return active.transform;
     }
 
     /// <summary>
@@ -1241,6 +1256,116 @@ public class ConfigurationManager : MonoBehaviour
         _roomLoadSandbox = null;
     }
 
+    /// <summary>
+    /// One resolution pass over <paramref name="pending"/>: parents anything whose parent can
+    /// be resolved right now, skipping anything already parented. When <paramref name="allowLoose"/>
+    /// is false, only GUID matches and exact-path matches are accepted — a suffix/loose match
+    /// is left pending so it can be superseded by an exact match in a later wave (see
+    /// ProcessTrackedObjects for why loose matches are wave-order dependent and unsafe to lock
+    /// in early).
+    /// </summary>
+    private int ResolveTrackedObjectWave(
+        List<(GameObject go, TrackedObject.Data data)> pending,
+        HashSet<GameObject> parented,
+        int wave,
+        bool allowLoose,
+        out int orphansThisWave)
+    {
+        int newlyParented = 0;
+        orphansThisWave = 0;
+
+        foreach ((GameObject go, TrackedObject.Data data) in pending)
+        {
+            if (go == null || parented.Contains(go))
+                continue;
+
+            // Roots with no parent links are done once placed in sandbox.
+            bool wantsParent = !string.IsNullOrEmpty(data.parentGuid)
+                || !string.IsNullOrEmpty(data.parentPath)
+                || !string.IsNullOrEmpty(data.parent);
+            if (!wantsParent)
+            {
+                // Leave RoomLoadSandbox so GetRoot / RandomizeInstanceGUIDs see a true root
+                // (legacy single-pass did SetParent(null) when parent resolve returned null).
+                go.transform.SetParent(null, true);
+                parented.Add(go);
+                var rootTracked = go.GetComponent<TrackedObject>();
+                if (rootTracked != null)
+                {
+                    rootTracked.StoreValues(data);
+                    ResetMaterialPalettes(rootTracked);
+                    rootTracked.RestoreTransform(isRoot: true);
+                }
+                if (!string.IsNullOrEmpty(data.keepRelativePositionParentName) &&
+                    go.TryGetComponent<KeepRelativePosition>(out var krpRoot))
+                    krpRoot.ParentName = data.keepRelativePositionParentName;
+                BoomConfigLoadDiag.Event("PARENT",
+                    $"wave={wave} ROOT '{data.objectName}' name={go.name} inst={data.instance_guid} " +
+                    $"sceneRoot={go.transform.root.name}");
+                continue;
+            }
+
+            string how = null;
+            Transform parent = null;
+            if (!string.IsNullOrEmpty(data.parentGuid) &&
+                _guidToGameObject.TryGetValue(data.parentGuid, out var parentGO) &&
+                parentGO != null)
+            {
+                parent = parentGO.transform;
+                how = "parentGuid";
+            }
+
+            if (parent == null)
+            {
+                Transform found = FindLoadedParentTransform(data, out bool exact);
+                if (found != null && (exact || allowLoose))
+                {
+                    parent = found;
+                    how = exact ? "path" : "pathLoose";
+                }
+            }
+
+            if (parent == null)
+            {
+                orphansThisWave++;
+                continue;
+            }
+
+            go.transform.SetParent(parent, false);
+            parented.Add(go);
+            newlyParented++;
+
+            var trackedObj = go.GetComponent<TrackedObject>();
+            if (trackedObj != null)
+            {
+                trackedObj.StoreValues(data);
+                ResetMaterialPalettes(trackedObj);
+                trackedObj.RestoreTransform(isRoot: false);
+            }
+
+            if (!string.IsNullOrEmpty(data.keepRelativePositionParentName) &&
+                go.TryGetComponent<KeepRelativePosition>(out var krp))
+                krp.ParentName = data.keepRelativePositionParentName;
+
+            bool isAccessory = !string.IsNullOrEmpty(data.objectName) &&
+                (data.objectName.IndexOf("BoomHeadAttachment_", StringComparison.Ordinal) >= 0
+                 || data.objectName.IndexOf("GasOutlet", StringComparison.Ordinal) >= 0
+                 || data.objectName.IndexOf("Outlet_HV", StringComparison.Ordinal) >= 0
+                 || data.objectName.IndexOf("BlankOutlet", StringComparison.Ordinal) >= 0
+                 || data.objectName.IndexOf("EthernetOutlet", StringComparison.Ordinal) >= 0
+                 || data.objectName.IndexOf("NewBoomHead", StringComparison.Ordinal) >= 0);
+
+            if (isAccessory || how == "parentGuid" || how == "pathLoose")
+            {
+                BoomConfigLoadDiag.Event("PARENT",
+                    $"wave={wave} via={how} '{data.objectName}' -> '{parent.name}' " +
+                    $"inst={data.instance_guid} parentGuid={data.parentGuid}");
+            }
+        }
+
+        return newlyParented;
+    }
+
     private async Task ProcessTrackedObjects(List<TrackedObject.Data> trackedObjects)
     {
         _guidToGameObject.Clear();
@@ -1325,101 +1450,22 @@ public class ConfigurationManager : MonoBehaviour
 
         // Pass 2: multi-wave hierarchy. Sphere APs under the head only become uniquely
         // path-addressable after the head is parented — re-bind APs each wave.
+        //
+        // Exact matches are committed as soon as they appear; suffix ("loose") matches are
+        // deferred across every wave first. A loose match's score (segments currently
+        // matching) is wave-order dependent — an unrelated ancestor glued in earlier can
+        // outscore the true ancestor that simply hasn't been parented yet (e.g. a shared
+        // drop-tube AttachPoint outscoring a boom segment's own deeper tip AttachPoint,
+        // which silently misattaches accessories one AttachPoint too shallow). Only once no
+        // exact match is left to resolve do we mop up with loose matches, so a wrong-but-
+        // plausible parent never gets locked in ahead of the real one.
         var pass2Timer = Stopwatch.StartNew();
         var pending = new List<(GameObject go, TrackedObject.Data data)>(_pendingSetup);
         var parented = new HashSet<GameObject>();
         const int maxWaves = 8;
         for (int wave = 0; wave < maxWaves; wave++)
         {
-            int newlyParented = 0;
-            int orphansThisWave = 0;
-
-            foreach ((GameObject go, TrackedObject.Data data) in pending)
-            {
-                if (go == null || parented.Contains(go))
-                    continue;
-
-                // Roots with no parent links are done once placed in sandbox.
-                bool wantsParent = !string.IsNullOrEmpty(data.parentGuid)
-                    || !string.IsNullOrEmpty(data.parentPath)
-                    || !string.IsNullOrEmpty(data.parent);
-                if (!wantsParent)
-                {
-                    // Leave RoomLoadSandbox so GetRoot / RandomizeInstanceGUIDs see a true root
-                    // (legacy single-pass did SetParent(null) when parent resolve returned null).
-                    go.transform.SetParent(null, true);
-                    parented.Add(go);
-                    var rootTracked = go.GetComponent<TrackedObject>();
-                    if (rootTracked != null)
-                    {
-                        rootTracked.StoreValues(data);
-                        ResetMaterialPalettes(rootTracked);
-                        rootTracked.RestoreTransform(isRoot: true);
-                    }
-                    if (!string.IsNullOrEmpty(data.keepRelativePositionParentName) &&
-                        go.TryGetComponent<KeepRelativePosition>(out var krpRoot))
-                        krpRoot.ParentName = data.keepRelativePositionParentName;
-                    BoomConfigLoadDiag.Event("PARENT",
-                        $"wave={wave} ROOT '{data.objectName}' name={go.name} inst={data.instance_guid} " +
-                        $"sceneRoot={go.transform.root.name}");
-                    continue;
-                }
-
-                string how = null;
-                Transform parent = null;
-                if (!string.IsNullOrEmpty(data.parentGuid) &&
-                    _guidToGameObject.TryGetValue(data.parentGuid, out var parentGO) &&
-                    parentGO != null)
-                {
-                    parent = parentGO.transform;
-                    how = "parentGuid";
-                }
-
-                if (parent == null)
-                {
-                    parent = FindLoadedParentTransform(data);
-                    if (parent != null)
-                        how = "path";
-                }
-
-                if (parent == null)
-                {
-                    orphansThisWave++;
-                    continue;
-                }
-
-                go.transform.SetParent(parent, false);
-                parented.Add(go);
-                newlyParented++;
-
-                var trackedObj = go.GetComponent<TrackedObject>();
-                if (trackedObj != null)
-                {
-                    trackedObj.StoreValues(data);
-                    ResetMaterialPalettes(trackedObj);
-                    trackedObj.RestoreTransform(isRoot: false);
-                }
-
-                if (!string.IsNullOrEmpty(data.keepRelativePositionParentName) &&
-                    go.TryGetComponent<KeepRelativePosition>(out var krp))
-                    krp.ParentName = data.keepRelativePositionParentName;
-
-                bool isAccessory = !string.IsNullOrEmpty(data.objectName) &&
-                    (data.objectName.IndexOf("BoomHeadAttachment_", StringComparison.Ordinal) >= 0
-                     || data.objectName.IndexOf("GasOutlet", StringComparison.Ordinal) >= 0
-                     || data.objectName.IndexOf("Outlet_HV", StringComparison.Ordinal) >= 0
-                     || data.objectName.IndexOf("BlankOutlet", StringComparison.Ordinal) >= 0
-                     || data.objectName.IndexOf("EthernetOutlet", StringComparison.Ordinal) >= 0
-                     || data.objectName.IndexOf("NewBoomHead", StringComparison.Ordinal) >= 0);
-
-                if (isAccessory || how == "parentGuid")
-                {
-                    BoomConfigLoadDiag.Event("PARENT",
-                        $"wave={wave} via={how} '{data.objectName}' -> '{parent.name}' " +
-                        $"inst={data.instance_guid} parentGuid={data.parentGuid}");
-                }
-            }
-
+            int newlyParented = ResolveTrackedObjectWave(pending, parented, wave, allowLoose: false, out int orphansThisWave);
             int rebound = BindAttachmentPointInstanceIds();
             BoomConfigLoadDiag.Event("WAVE",
                 $"wave={wave} newlyParented={newlyParented} stillWaiting={pending.Count - parented.Count} " +
@@ -1427,6 +1473,19 @@ public class ConfigurationManager : MonoBehaviour
 
             if (newlyParented == 0)
                 break;
+        }
+
+        // Mop-up: anything still pending never earned an exact match across every wave —
+        // now allow a suffix/loose match so it doesn't orphan unnecessarily.
+        {
+            int newlyParented = ResolveTrackedObjectWave(pending, parented, maxWaves, allowLoose: true, out int orphansThisWave);
+            if (newlyParented > 0)
+            {
+                int rebound = BindAttachmentPointInstanceIds();
+                BoomConfigLoadDiag.Event("WAVE",
+                    $"wave=loose newlyParented={newlyParented} stillWaiting={pending.Count - parented.Count} " +
+                    $"orphansSeen={orphansThisWave} apRebound={rebound} guidMap={_guidToGameObject.Count}");
+            }
         }
 
         // Anything still unresolved becomes an orphan (same as legacy single-pass failure).
@@ -1481,8 +1540,19 @@ public class ConfigurationManager : MonoBehaviour
     // GameObject.Find only searches active objects, so embedded boom parts that are still
     // inactive at Pass 3 (e.g. unselected scale-level siblings) were never found. Search the
     // freshly-instantiated hierarchy (including inactive objects) first.
-    private GameObject FindInLoadedObjects(string rawPath)
+    private GameObject FindInLoadedObjects(string rawPath) => FindInLoadedObjects(rawPath, out _);
+
+    /// <summary>
+    /// <paramref name="exact"/> is true only when a live object's full path equals the saved
+    /// path verbatim. A suffix ("loose") match is inherently wave-order dependent: an
+    /// unrelated ancestor that happens to have been glued into place earlier can rack up more
+    /// matching segments than the true (not-yet-parented) ancestor. Callers resolving
+    /// hierarchy during multi-wave load must not treat a loose match as final until exact
+    /// matches have had every wave to appear — see ProcessTrackedObjects.
+    /// </summary>
+    private GameObject FindInLoadedObjects(string rawPath, out bool exact)
     {
+        exact = false;
         if (string.IsNullOrEmpty(rawPath) || _newObjects == null)
             return null;
 
@@ -1501,7 +1571,10 @@ public class ConfigurationManager : MonoBehaviour
                 // GetLoadComparablePath already normalizes Segement→Segment.
                 string live = GetLoadComparablePath(t.gameObject);
                 if (live == pathWithSlash)
+                {
+                    exact = true;
                     return t.gameObject;
+                }
 
                 // During pass 2, later parts are still sandbox siblings — their live path is
                 // rooted at their own prefab (`/BoomSegment...(Clone)/...`) while the save

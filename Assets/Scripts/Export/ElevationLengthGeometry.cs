@@ -114,6 +114,8 @@ public static class ElevationLengthGeometry
         var nearest = ap.GetComponentInParent<Selectable>(true);
         if (nearest == null)
             return false;
+        if (nearest != lengthOwner && ElevationDimPolicy.IsCatalogLengthOwner(nearest))
+            return false;
         Transform t = nearest.transform;
         while (t != null)
         {
@@ -204,20 +206,16 @@ public static class ElevationLengthGeometry
     }
 
     /// <summary>
-    /// The cutsheet's own reference points on the model: the proximal mount joint, and
-    /// the in-claim joint that actually sits the catalog length away on the sheet.
-    /// <para>
-    /// Architect review note 2 — a catalog dim has to start and end where the cutsheet
-    /// measures it. A cutsheet length is by definition the separation of two joints, so
-    /// the distal reference is identified by that separation rather than by "farthest"
-    /// or by a fixed child name: the fold joint moves with the pose and is the wrong
-    /// point in one boom and the right one in another.
-    /// </para>
+    /// Proximal mount joint + the in-claim joint nearest catalog length in 3D.
+    /// Joints define the dim axis; catalog defines the drawn span (FinishHorizontal).
+    /// A 6% page-length gate rejected PoweredXL (922 mm vs 1000 mm; 1123 mm in the
+    /// other elevation) and fell through to centerTrim on the 961 mm tube AABB.
     /// </summary>
     public static bool TryGetCutsheetReferencePoints(
         Selectable owner, float catalogM, Camera camera,
         out Vector3 proximal, out Vector3 distal, out string refName)
     {
+        _ = camera;
         proximal = distal = default;
         refName = "none";
         if (owner == null || catalogM <= 0.05f)
@@ -226,12 +224,11 @@ public static class ElevationLengthGeometry
             return false;
 
         Vector3 prox = proxAp.transform.position;
-        float PageLen(Vector3 delta) => camera != null
-            ? Vector3.ProjectOnPlane(delta, camera.transform.forward).magnitude
-            : delta.magnitude;
 
         AttachmentPoint best = null;
         float bestErr = float.MaxValue;
+        float bestSpan = 0f;
+        var cand = new System.Text.StringBuilder();
 
         foreach (var ap in owner.GetComponentsInChildren<AttachmentPoint>(true))
         {
@@ -245,19 +242,36 @@ public static class ElevationLengthGeometry
                 continue;
 
             Vector3 delta = ap.transform.position - prox;
-            float pageLen = PageLen(delta);
-            if (pageLen < 0.05f)
+            if (Measurable.IsForcedHorizontalCatalogArm(owner))
+            {
+                float xz = new Vector2(delta.x, delta.z).magnitude;
+                if (Mathf.Abs(delta.y) > xz * 1.15f)
+                    continue;
+            }
+            float span = delta.magnitude;
+            if (span < catalogM * 0.5f || span > catalogM * 1.5f)
                 continue;
-            float err = Mathf.Abs(pageLen - catalogM);
+            float err = Mathf.Abs(span - catalogM);
+            var host = ap.GetComponentInParent<Selectable>(true);
+            string hostName = host != null ? host.name : ap.name;
+            if (cand.Length > 0) cand.Append(" | ");
+            cand.Append(hostName).Append('=').Append(Mathf.RoundToInt(span * 1000f)).Append("mm");
             if (err < bestErr)
             {
                 bestErr = err;
+                bestSpan = span;
                 best = ap;
             }
         }
 
-        float tol = Mathf.Max(0.025f, catalogM * 0.06f);
-        if (best == null || bestErr > tol)
+        bool accepted = best != null;
+        Debug.Log(
+            $"[ElevDim] REF POINTS owner={owner.name} catalogMm={Mathf.RoundToInt(catalogM * 1000f)} " +
+            $"prox={proxAp.name} bestMm={Mathf.RoundToInt(bestSpan * 1000f)} " +
+            $"errMm={(best != null ? Mathf.RoundToInt(bestErr * 1000f) : -1)} " +
+            $"accepted={accepted} candidates | {cand}");
+
+        if (!accepted)
             return false;
 
         proximal = prox;
@@ -443,11 +457,11 @@ public static class ElevationLengthGeometry
             }
         }
 
-        // PdfData root has no Size mesh. Score each length-shell on its own bounds —
+        // Fixed-length root has no Size mesh. Score each length-shell on its own bounds —
         // never encapsulate _2 (housing) with _2_2 (tube).
         if (catalogLenMeters > 0.05f
             && ElevationLengthFormat.ResolveOwnSizeMeters(owner) <= 0f
-            && ElevationLengthFormat.ResolvePdfDataLengthMeters(owner) > 0.05f)
+            && ElevationLengthFormat.ResolveCatalogLengthMeters(owner) > 0.05f)
         {
             foreach (var s in owner.GetComponentsInChildren<Selectable>(true))
             {
@@ -464,6 +478,65 @@ public static class ElevationLengthGeometry
         source = bestSrc;
         meshOwner = bestSel;
         meshStrict = bestStrict;
+        return true;
+    }
+
+    /// <summary>
+    /// Catalog-length shell for a PdfData / empty-ScaleLevels tube: the mesh that
+    /// already scores as the length owner, plus its local long axis and identity length.
+    /// Does not union housings or folds. Caller stretches that axis only.
+    /// </summary>
+    public static bool TryGetCatalogLengthShell(
+        Selectable owner, float catalogM,
+        out Transform shell, out int axis, out float authoredM)
+    {
+        shell = null;
+        axis = 0;
+        authoredM = 0f;
+        if (owner == null || catalogM < 0.05f)
+            return false;
+        if (!TryGetLengthMeshBounds(owner, catalogM, out _, out _, out Selectable meshOwner, out _))
+            return false;
+        if (meshOwner == null)
+            return false;
+
+        MeshFilter best = null;
+        float bestLong = 0f;
+        foreach (var mf in meshOwner.GetComponentsInChildren<MeshFilter>(true))
+        {
+            if (mf == null || mf.sharedMesh == null)
+                continue;
+            var nearest = mf.GetComponentInParent<Selectable>(true);
+            if (nearest != meshOwner)
+                continue;
+            string n = mf.name ?? "";
+            if (n.IndexOf("Sphere", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || n.IndexOf("Measur", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || n.IndexOf("Decal", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || n.IndexOf("Logo", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                continue;
+            Vector3 s = mf.sharedMesh.bounds.size;
+            float longest = Mathf.Max(s.x, Mathf.Max(s.y, s.z));
+            if (longest > bestLong)
+            {
+                bestLong = longest;
+                best = mf;
+            }
+        }
+        if (best == null || bestLong < 0.05f)
+            return false;
+
+        Vector3 size = best.sharedMesh.bounds.size;
+        axis = 0;
+        if (size.y > size.x) axis = 1;
+        if (size[2] > size[axis]) axis = 2;
+        authoredM = size[axis];
+
+        // Wrong shell (housing, stub) — do not invent a 4× stretch.
+        if (authoredM < catalogM * 0.5f || authoredM > catalogM * 1.5f)
+            return false;
+
+        shell = best.transform;
         return true;
     }
 

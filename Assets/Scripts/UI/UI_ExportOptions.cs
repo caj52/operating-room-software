@@ -39,7 +39,7 @@ public class UI_ExportOptions : MonoBehaviour
     {
         try
         {
-            if (!ExportPaths.EnsureRoomSavedForExport())
+            if (!ExportPaths.EnsureRoomSavedForExport(Open))
                 return;
 
             EnsureInstance();
