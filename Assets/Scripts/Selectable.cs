@@ -712,8 +712,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 transform.position + Vector3.down,
                 ZAlignUpIsParentForward ? transform.parent.forward : transform.parent.right);
 
-
-            transform.localEulerAngles = new Vector3(oldX, transform.localEulerAngles.y, 0);
+            SetLocalRotationSafely(Quaternion.Euler(oldX, transform.localEulerAngles.y, 0));
         }
     }
 
@@ -2157,18 +2156,93 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         IsolateOwnedAttachmentPoints();
     }
 
+    /// <summary>
+    /// Unparks (to their authored parent) every MoveUp AP living anywhere under this
+    /// transform's authored subtree, however many tubes deep and wherever MoveUp
+    /// currently has it parked. Call before directly writing a rigid rotate/translate
+    /// (e.g. a joint-angle slider) to a Selectable's transform: a MoveUp AP can be parked
+    /// (for scale isolation) somewhere that is NOT a live descendant right now, so it
+    /// would not otherwise follow via Unity's normal parent-child propagation — leaving
+    /// the downstream assembly hanging behind at its stale pose. Re-promote with
+    /// <see cref="EndRigidPoseChange"/> once the new pose is set.
+    /// </summary>
+    public List<AttachmentPoint> BeginRigidPoseChange()
+    {
+        var owned = new List<AttachmentPoint>();
+        Transform root = transform.root;
+        if (root != null)
+        {
+            var aps = root.GetComponentsInChildren<AttachmentPoint>(true);
+            for (int i = 0; i < aps.Length; i++)
+            {
+                var ap = aps[i];
+                if (ap != null && ap.AuthoredParentIsDescendantOf(transform))
+                    owned.Add(ap);
+            }
+        }
+        for (int i = 0; i < owned.Count; i++)
+            owned[i].SetToOriginalParent();
+        return owned;
+    }
+
+    /// <summary>Re-promotes APs unparked by <see cref="BeginRigidPoseChange"/>, capturing the new pose.</summary>
+    public void EndRigidPoseChange(List<AttachmentPoint> owned)
+    {
+        if (owned == null)
+            return;
+        for (int i = 0; i < owned.Count; i++)
+            owned[i].ApplyProperParentImmediate();
+    }
+
+    /// <summary>
+    /// Single choke point for this class's own direct rotation writes (elevation-photo
+    /// default pose, min/max articulation sweep, face-toward-ground correction) so the
+    /// <see cref="BeginRigidPoseChange"/>/<see cref="EndRigidPoseChange"/> guard can never
+    /// again be skipped case-by-case on a new call site.
+    /// </summary>
+    private void SetLocalRotationSafely(Quaternion rotation)
+    {
+        var unparked = BeginRigidPoseChange();
+        transform.localRotation = rotation;
+        EndRigidPoseChange(unparked);
+    }
+
+    /// <summary>
+    /// MoveUp APs that scaling this tube would actually distort — the union of two cases:
+    /// (a) parked (by an earlier MoveUp) as this tube's own direct child right now — this
+    ///     tube's own length change directly reshapes that child's world pose; and
+    /// (b) authored (pre-MoveUp) under this tube, wherever they currently happen to be
+    ///     parked — their "home" pose (what re-promotion recomputes from) lives inside
+    ///     this tube's own subtree, so this tube's length change moves that home pose too,
+    ///     even while the AP is temporarily parked elsewhere by MoveUp.
+    /// (b) stops at the first OTHER independently-scaling tube it crosses on the way up
+    /// (a Selectable with its own ScaleLevels) — that tube's own pass owns the AP instead,
+    /// so a shallow ancestor doesn't also re-touch what a nested tube already resettled.
+    /// </summary>
     List<AttachmentPoint> CollectMoveUpAPsAuthoredUnderThisTube()
     {
         var list = new List<AttachmentPoint>();
-        Transform root = transform.root;
-        if (root == null)
-            return list;
-        var aps = root.GetComponentsInChildren<AttachmentPoint>(true);
-        for (int i = 0; i < aps.Length; i++)
+        var seen = new HashSet<AttachmentPoint>();
+
+        for (int i = 0; i < transform.childCount; i++)
         {
-            var ap = aps[i];
-            if (ap != null && ap.AuthoredParentIsUnder(transform))
+            var ap = transform.GetChild(i).GetComponent<AttachmentPoint>();
+            if (ap != null && ap.MoveUpOnAttach && seen.Add(ap))
                 list.Add(ap);
+        }
+
+        Transform root = transform.root;
+        if (root != null)
+        {
+            var aps = root.GetComponentsInChildren<AttachmentPoint>(true);
+            for (int i = 0; i < aps.Length; i++)
+            {
+                var ap = aps[i];
+                if (ap == null || seen.Contains(ap))
+                    continue;
+                if (ap.AuthoredParentIsUnder(transform) && seen.Add(ap))
+                    list.Add(ap);
+            }
         }
         return list;
     }
@@ -2556,6 +2630,13 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                         : gizmoSetting.GetMaxValue();
                 }
 
+                // Swings this joint to its elevation-view extreme, possibly through several
+                // ceiling-avoidance iterations below — unpark once for the whole sequence
+                // (a MoveUp AP downstream may be parked somewhere that is NOT a live
+                // descendant right now) and re-promote once the final angle is settled,
+                // rather than per intermediate write.
+                var unparked = selectable.BeginRigidPoseChange();
+
                 selectable.transform.localEulerAngles = newAngles;
                 var childList = selectable.GetComponentsInChildren<Selectable>().ToList();
 
@@ -2569,6 +2650,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                     FaceAllTowardGround();
                 }
                 selectable.transform.localEulerAngles = newAngles;
+
+                selectable.EndRigidPoseChange(unparked);
             }
 
             FaceAllTowardGround();
@@ -3669,7 +3752,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                 foreach (var kv in _originalRotations)
                 {
                     if (kv.Key != null)
-                        kv.Key.transform.localRotation = kv.Value;
+                        kv.Key.SetLocalRotationSafely(kv.Value);
                 }
             }
             else
@@ -3708,7 +3791,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
                     if (item.AlignForElevationPhoto || item.ChangeHeightForElevationPhoto || item.ZAlwaysFacesGroundElevationOnly)
                     {
                         _originalRotations[item] = item.transform.localRotation;
-                        item.transform.localRotation = item._originalLocalRotation;
+                        item.SetLocalRotationSafely(item._originalLocalRotation);
                     }
                 });
             }

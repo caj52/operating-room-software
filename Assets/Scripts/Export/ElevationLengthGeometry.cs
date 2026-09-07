@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 /// <summary>
@@ -264,12 +265,21 @@ public static class ElevationLengthGeometry
             }
         }
 
-        bool accepted = best != null;
+        // Joints only win the axis if they are genuinely close to the catalog length —
+        // otherwise a multi-joint arm's nearest-available AP (still 8-20%+ off, e.g. an
+        // articulated elbow that isn't fully extended for this elevation view) gets
+        // "accepted" and draws the dim way off the visible part. Restores the documented
+        // policy (a 6% gate used to reject PoweredXL's 922 mm vs 1000 mm match and fall
+        // through to the mesh/AABB centerTrim path in FinishHorizontal) that this
+        // function's unconditional `best != null` acceptance had silently dropped.
+        float matchTol = Mathf.Max(ElevationDimSolver.CatalogMatchTolM, catalogM * 0.06f);
+        bool accepted = best != null && bestErr <= matchTol;
         Debug.Log(
             $"[ElevDim] REF POINTS owner={owner.name} catalogMm={Mathf.RoundToInt(catalogM * 1000f)} " +
-            $"prox={proxAp.name} bestMm={Mathf.RoundToInt(bestSpan * 1000f)} " +
+            $"prox={proxAp.name} prox.pos={prox:F3} bestMm={Mathf.RoundToInt(bestSpan * 1000f)} " +
+            $"best.pos={(best != null ? best.transform.position.ToString("F3") : "n/a")} " +
             $"errMm={(best != null ? Mathf.RoundToInt(bestErr * 1000f) : -1)} " +
-            $"accepted={accepted} candidates | {cand}");
+            $"tolMm={Mathf.RoundToInt(matchTol * 1000f)} accepted={accepted} candidates | {cand}");
 
         if (!accepted)
             return false;
@@ -577,17 +587,33 @@ public static class ElevationLengthGeometry
 
         // Same mesh set the winning bounds came from. Gathering only sel's own meshes
         // measured a 111 mm stub on a dual-select arm and drew a zero-length 800 mm dim.
+        //
+        // A dual-select "twin" (Clone/.001 pair) is a mutually-exclusive alternate of
+        // sel itself, so it is always a SIBLING sharing sel's parent — never sel's own
+        // descendant. "MCP - Large Monitor Boom.001" is a distinct downstream joint
+        // nested under "MCP - Large Monitor Boom" (own AttachmentPoint, own hinge to
+        // the next segment) that merely collided on the stem-stripped name. Unioning its
+        // mesh into one rigid-body axis search blended two frames that rotate relative to
+        // each other, so the "single best axis" flipped ~36 deg between the two elevation
+        // sweep poses and drew the catalog-length tick well past the real joint. Bounds
+        // aggregation (TryGetLengthMeshBounds) is a scalar total and stays unaffected by
+        // this — only a directional axis search must stay within one rigid frame.
         var owners = new HashSet<Selectable> { sel };
         if (!strict)
         {
             string stem = Measurable.DualSelectStem(sel.name);
             if (!string.IsNullOrEmpty(stem))
             {
+                bool IsRigidWithSel(Selectable cand) =>
+                    !cand.transform.IsChildOf(sel.transform)
+                    && !sel.transform.IsChildOf(cand.transform);
+
                 if (sel.RelatedSelectables != null)
                 {
                     foreach (var rel in sel.RelatedSelectables)
                     {
-                        if (rel != null && Measurable.DualSelectStem(rel.name) == stem)
+                        if (rel != null && Measurable.DualSelectStem(rel.name) == stem
+                            && IsRigidWithSel(rel))
                             owners.Add(rel);
                     }
                 }
@@ -596,7 +622,8 @@ public static class ElevationLengthGeometry
                 {
                     foreach (var sib in parent.GetComponentsInChildren<Selectable>(true))
                     {
-                        if (sib != null && Measurable.DualSelectStem(sib.name) == stem)
+                        if (sib != null && Measurable.DualSelectStem(sib.name) == stem
+                            && IsRigidWithSel(sib))
                             owners.Add(sib);
                     }
                 }
@@ -711,6 +738,10 @@ public static class ElevationLengthGeometry
         b = centroid + bestAxis * bestMax;
         axis = bestAxis;
         lenM = bestMax - bestMin;
+        Debug.Log(
+            $"[ElevDim] OBB sel={sel.name} owners={string.Join(",", owners.Where(o => o != null).Select(o => o.name))} " +
+            $"meshes={string.Join(",", meshes.Where(m => m != null).Select(m => m.name))} " +
+            $"axis={axis:F3} lenMm={Mathf.RoundToInt(lenM * 1000f)} centroid={centroid:F3}");
         return true;
     }
 

@@ -526,8 +526,11 @@ public class ArticualtionToolScript : MonoBehaviour
                 case Axis.Z: currentPos.z = value; break;
             }
 
-     
+            // Same downstream-MoveUp-AP concern as UpdateTransformRotation above.
+            var unparked = selectable.BeginRigidPoseChange();
             obj.transform.localPosition = currentPos;
+            selectable.EndRigidPoseChange(unparked);
+
             selectable.ClampServiceHeadRailTravel();
         }
 
@@ -568,8 +571,15 @@ public class ArticualtionToolScript : MonoBehaviour
                 case Axis.Z: currentEuler.z = value; break;
             }
 
+            // A MoveUp AP downstream of this joint may currently be parked somewhere that
+            // is NOT a live descendant (promoted away by an earlier scale pass), so it
+            // would not follow this rotation via normal parent-child propagation.
+            var unparked = selectable.BeginRigidPoseChange();
+
             // Apply updated rotation as Quaternion
             obj.transform.localRotation = Quaternion.Euler(currentEuler);
+
+            selectable.EndRigidPoseChange(unparked);
         }
     }
     private void UpdateTransformScale(float value, Axis axis)

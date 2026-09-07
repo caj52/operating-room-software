@@ -131,6 +131,14 @@ public static class ElevationCutsheetPass
 
         DedupeLengthOwnersByStem(lengthByOwner);
         DedupeLengthOwnersBySharedMeasurable(lengthByOwner);
+        // Shared-component pass first: IsFloorClearanceHost uses GetComponentInChildren,
+        // so an upstream arm and its downstream head both qualify and both resolve to the
+        // SAME Measurable_ToFloor. FloorHeadKey can't unify them (its ownerR walk only looks
+        // upward for a head name, so starting from the arm never finds the head below it),
+        // so without this pass the two owners fought over one Measurable — head applied its
+        // correct head-centered XZ, then the arm re-applied and stomped it with the arm's own
+        // (wrong) bounds-center XZ, landing the floor tick under the arm instead of the head.
+        DedupeFloorOwnersBySharedMeasurable(floorBySource);
         DedupeFloorOwnersByHead(floorBySource);
 
         int drewLength = 0;
@@ -227,7 +235,8 @@ public static class ElevationCutsheetPass
 
     /// <summary>
     /// Initial place: every length dim starts at the same near offset.
-    /// <see cref="ElevationDimLayoutResolve"/> stacks outward only when page-rects collide.
+    /// <see cref="ElevationDimLayoutResolve"/> is the sole authority for separating
+    /// colliding body/label rects by walking outboard (or flipping side).
     /// </summary>
     static Dictionary<Selectable, (bool vertical, float side, float lift)> AssignCutsheetLanes(
         Dictionary<Selectable, (Measurable measurable, float sizeM)> lengthByOwner)
@@ -439,6 +448,47 @@ public static class ElevationCutsheetPass
     /// <summary>
     /// One floor dim per hanging product head.
     /// </summary>
+    /// <summary>
+    /// Same fix as <see cref="DedupeLengthOwnersBySharedMeasurable"/>, for floors: two
+    /// different Selectable "hosts" (e.g. an arm and the head hanging off it) can both
+    /// resolve to the one shared Measurable_ToFloor. Keep only the highest-priority owner
+    /// so that owner's ApplyCutsheetElevation call is the only one touching this Measurable.
+    /// </summary>
+    static void DedupeFloorOwnersBySharedMeasurable(Dictionary<Selectable, Measurable> floorBySource)
+    {
+        if (floorBySource == null || floorBySource.Count < 2)
+            return;
+
+        var byMeasurable = new Dictionary<Measurable, List<Selectable>>();
+        foreach (var kv in floorBySource)
+        {
+            if (kv.Key == null || kv.Value == null)
+                continue;
+            if (!byMeasurable.TryGetValue(kv.Value, out var list))
+            {
+                list = new List<Selectable>();
+                byMeasurable[kv.Value] = list;
+            }
+            list.Add(kv.Key);
+        }
+
+        foreach (var group in byMeasurable.Values)
+        {
+            if (group.Count < 2)
+                continue;
+            Selectable keep = group
+                .OrderByDescending(FloorOwnerPriority)
+                .ThenBy(s => s.name)
+                .First();
+            foreach (var s in group)
+            {
+                if (s == keep)
+                    continue;
+                floorBySource.Remove(s);
+            }
+        }
+    }
+
     static void DedupeFloorOwnersByHead(Dictionary<Selectable, Measurable> floorBySource)
     {
         if (floorBySource == null || floorBySource.Count < 2)

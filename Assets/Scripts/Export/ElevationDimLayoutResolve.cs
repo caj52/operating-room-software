@@ -6,12 +6,11 @@ using UnityEngine;
 ///
 /// Rules:
 /// - Label gap to its own dim line is always <see cref="ElevationDimPlacement.LabelGapMeters"/>
-///   (never nudge text alone).
-/// - Each length dim may sit on either side perpendicular to its body (up/down for
-///   horizontal dims, left/right for vertical). Pick the side + offset that maximizes
-///   separation from already-placed dims while staying as close to the part as possible.
-/// - Never park a dim line through the measured part; prefer the other face instead.
-/// - Stay close to the part (hard offset cap) — do not clear the whole service head.
+///   (never nudge text alone — move the whole dim).
+/// - Legal leader directions are the two page-plane perpendiculars to the dim body.
+/// - Prefer the curated outboard side and the closest offset that keeps body + label
+///   clear of already-settled dims and off the measured part.
+/// - If that band is full, walk farther outboard (same side first) until labels clear.
 /// - Overlap tests use camera right/up as the page X/Y axes.
 /// </summary>
 public static class ElevationDimLayoutResolve
@@ -19,12 +18,22 @@ public static class ElevationDimLayoutResolve
     const float PagePadMeters = 0.025f;
     const float OutboardStepMeters = 0.04f;
     const float MinOffsetMeters = 0.08f;
-    /// <summary>Hard cap — never park a length dim farther than this from the part face.</summary>
-    const float MaxOffsetMeters = 0.26f;
+    /// <summary>Far enough for a few stacked horizontal arm callouts under one mount.</summary>
+    const float MaxOffsetMeters = 0.70f;
     const float BodyHalfWidthMeters = 0.012f;
     const float SepWeight = 6f;
     const float OffsetWeight = 18f;
+    const float PreferredSideBonus = 8f;
     const float ThroughPartPenalty = 400f;
+
+    struct SidePick
+    {
+        public bool Valid;
+        public bool Clear;
+        public float Score;
+        public Vector3 Dir;
+        public float Offset;
+    }
 
     public static void Apply(Camera camera)
     {
@@ -102,7 +111,6 @@ public static class ElevationDimLayoutResolve
                 bodyPage = pageRight;
             bodyPage.Normalize();
 
-            // Perpendicular in the page plane — the only legal leader directions.
             Vector3 perp = Vector3.Cross(pageFwd, bodyPage);
             if (perp.sqrMagnitude < 1e-8f)
                 perp = pageUp;
@@ -111,64 +119,76 @@ public static class ElevationDimLayoutResolve
             Vector3 preferred = measurer.ElevationOutboardDir.sqrMagnitude > 1e-8f
                 ? measurer.ElevationOutboardDir.normalized
                 : perp;
-            Vector3 dirA = Vector3.Dot(preferred, perp) >= 0f ? perp : -perp;
-            Vector3 dirB = -dirA;
+            Vector3 dirPreferred = Vector3.Dot(preferred, perp) >= 0f ? perp : -perp;
+            Vector3 dirOther = -dirPreferred;
 
             Selectable owner = GetLengthOwner(measurer);
             bool haveOwnerRect = TryOwnerPageRect(owner, pageRight, pageUp, out Rect ownerRect);
 
-            float bestScore = float.NegativeInfinity;
-            Vector3 bestDir = dirA;
-            float bestOffset = MinOffsetMeters;
-            PageGeom bestGeom = default;
-            bool haveBest = false;
+            SidePick pick = PickBestSide(
+                measurer, solverA, solverB, dirPreferred, dirOther, preferred,
+                camera, pageRight, pageUp, settled, owner, haveOwnerRect, ownerRect,
+                requireOutside: true);
 
-            // Pass 1: only outside placements (path clear of foreign gear + clear of owner).
-            int blocked = 0;
-            EvaluateSide(measurer, solverA, solverB, dirA, camera, pageRight, pageUp, settled,
-                owner, haveOwnerRect, ownerRect, requireOutside: true,
-                ref bestScore, ref bestDir, ref bestOffset, ref bestGeom, ref haveBest, ref blocked);
-            EvaluateSide(measurer, solverA, solverB, dirB, camera, pageRight, pageUp, settled,
-                owner, haveOwnerRect, ownerRect, requireOutside: true,
-                ref bestScore, ref bestDir, ref bestOffset, ref bestGeom, ref haveBest, ref blocked);
-
-            // Pass 2: only if no outside slot exists (should be rare).
-            if (!haveBest)
+            if (!pick.Valid)
             {
-                EvaluateSide(measurer, solverA, solverB, dirA, camera, pageRight, pageUp, settled,
-                    owner, haveOwnerRect, ownerRect, requireOutside: false,
-                    ref bestScore, ref bestDir, ref bestOffset, ref bestGeom, ref haveBest, ref blocked);
-                EvaluateSide(measurer, solverA, solverB, dirB, camera, pageRight, pageUp, settled,
-                    owner, haveOwnerRect, ownerRect, requireOutside: false,
-                    ref bestScore, ref bestDir, ref bestOffset, ref bestGeom, ref haveBest, ref blocked);
+                pick = PickBestSide(
+                    measurer, solverA, solverB, dirPreferred, dirOther, preferred,
+                    camera, pageRight, pageUp, settled, owner, haveOwnerRect, ownerRect,
+                    requireOutside: false);
             }
 
-            if (!haveBest)
+            if (!pick.Valid)
             {
-                bestDir = dirA;
-                bestOffset = MinOffsetMeters;
+                pick.Dir = dirPreferred;
+                pick.Offset = MinOffsetMeters;
             }
 
             ApplyPlacement(
-                measurer, solverA, solverB, bestDir, bestOffset, camera, pageRight, pageUp);
-            if (!TryBuildPageGeom(measurer, pageRight, pageUp, out bestGeom))
-                bestGeom = default;
-
-            settled.Add(bestGeom);
+                measurer, solverA, solverB, pick.Dir, pick.Offset, camera, pageRight, pageUp);
+            if (!TryBuildPageGeom(measurer, pageRight, pageUp, out PageGeom settledGeom))
+                settledGeom = default;
+            settled.Add(settledGeom);
         }
     }
 
-    static void EvaluateSide(
-        Measurer m, Vector3 solverA, Vector3 solverB, Vector3 dir, Camera camera,
-        Vector3 pageRight, Vector3 pageUp, List<PageGeom> settled,
-        Selectable owner, bool haveOwnerRect, Rect ownerRect, bool requireOutside,
-        ref float bestScore, ref Vector3 bestDir, ref float bestOffset,
-        ref PageGeom bestGeom, ref bool haveBest, ref int blockedCount)
+    static SidePick PickBestSide(
+        Measurer m, Vector3 solverA, Vector3 solverB,
+        Vector3 dirPreferred, Vector3 dirOther, Vector3 preferred,
+        Camera camera, Vector3 pageRight, Vector3 pageUp, List<PageGeom> settled,
+        Selectable owner, bool haveOwnerRect, Rect ownerRect, bool requireOutside)
     {
+        SidePick a = FindClosestClearOnSide(
+            m, solverA, solverB, dirPreferred, preferred, camera, pageRight, pageUp,
+            settled, owner, haveOwnerRect, ownerRect, requireOutside);
+        SidePick b = FindClosestClearOnSide(
+            m, solverA, solverB, dirOther, preferred, camera, pageRight, pageUp,
+            settled, owner, haveOwnerRect, ownerRect, requireOutside);
+        return BetterPick(a, b);
+    }
+
+    static SidePick BetterPick(SidePick a, SidePick b)
+    {
+        if (!a.Valid) return b;
+        if (!b.Valid) return a;
+        if (a.Clear != b.Clear) return a.Clear ? a : b;
+        return a.Score >= b.Score ? a : b;
+    }
+
+    /// <summary>
+    /// Walk outboard from the part until body+label clear settled dims (or max).
+    /// First clear slot on this side wins — no style walk beyond that.
+    /// </summary>
+    static SidePick FindClosestClearOnSide(
+        Measurer m, Vector3 solverA, Vector3 solverB, Vector3 dir, Vector3 preferred,
+        Camera camera, Vector3 pageRight, Vector3 pageUp, List<PageGeom> settled,
+        Selectable owner, bool haveOwnerRect, Rect ownerRect, bool requireOutside)
+    {
+        SidePick best = default;
+        bool preferThisSide = Vector3.Dot(dir, preferred) > 0f;
+
         for (float offset = MinOffsetMeters; offset <= MaxOffsetMeters + 1e-4f; offset += OutboardStepMeters)
         {
-            // Only the measured part — do NOT clear the whole service head / assembly
-            // (that shoved 300mm far past the SH). Through-part = body on the wrong face.
             bool throughPart = false;
             if (haveOwnerRect)
             {
@@ -183,12 +203,8 @@ public static class ElevationDimLayoutResolve
                 }
             }
 
-            if (throughPart)
-            {
-                blockedCount++;
-                if (requireOutside)
-                    continue;
-            }
+            if (throughPart && requireOutside)
+                continue;
 
             ApplyPlacement(m, solverA, solverB, dir, offset, camera, pageRight, pageUp);
             if (!TryBuildPageGeom(m, pageRight, pageUp, out PageGeom geom))
@@ -196,44 +212,42 @@ public static class ElevationDimLayoutResolve
             if (!FitsLockedElevationFrame(m, pageRight, pageUp))
                 continue;
 
-            if (haveOwnerRect && geom.Body.Overlaps(ownerRect))
+            if (requireOutside && haveOwnerRect)
             {
-                blockedCount++;
-                if (requireOutside)
+                if (geom.Body.Overlaps(ownerRect))
                     continue;
-            }
-            if (haveOwnerRect && geom.HasLabel && geom.Label.Overlaps(ownerRect))
-            {
-                blockedCount++;
-                if (requireOutside)
+                if (geom.HasLabel && geom.Label.Overlaps(ownerRect))
                     continue;
             }
 
-            float score = ScorePlacement(geom, settled, offset, throughPart);
-            if (!haveBest || score > bestScore + 1e-4f)
+            bool clear = !throughPart && !OverlapsSettled(geom, settled);
+            float sep = SeparationFromSettled(geom, settled, excludeLast: false);
+            float score = (clear ? 50f : -200f)
+                + SepWeight * sep
+                - OffsetWeight * offset
+                + (preferThisSide ? PreferredSideBonus : 0f);
+            if (throughPart)
+                score -= ThroughPartPenalty;
+
+            if (!best.Valid
+                || (clear && !best.Clear)
+                || (clear == best.Clear && score > best.Score + 1e-4f))
             {
-                bestScore = score;
-                bestDir = dir;
-                bestOffset = offset;
-                bestGeom = geom;
-                haveBest = true;
+                best = new SidePick
+                {
+                    Valid = true,
+                    Clear = clear,
+                    Score = score,
+                    Dir = dir,
+                    Offset = offset,
+                };
             }
 
-            // First close, clear slot wins — do not walk farther for "more separation".
-            if (!throughPart && !OverlapsSettled(geom, settled))
+            if (clear)
                 break;
         }
-    }
 
-    static float ScorePlacement(PageGeom geom, List<PageGeom> settled, float offset, bool throughPart)
-    {
-        bool overlaps = OverlapsSettled(geom, settled);
-        float sep = SeparationFromSettled(geom, settled, excludeLast: false);
-        // Prefer close to the part; separation is a tie-break only.
-        float score = (overlaps ? -50f : 50f) + SepWeight * sep - OffsetWeight * offset;
-        if (throughPart)
-            score -= ThroughPartPenalty;
-        return score;
+        return best;
     }
 
     static Selectable GetLengthOwner(Measurer m)

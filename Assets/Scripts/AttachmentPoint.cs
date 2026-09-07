@@ -55,30 +55,6 @@ public partial class AttachmentPoint : MonoBehaviour
     public bool MoveUpOnAttach { get; private set; }
 
     /// <summary>
-    /// Authored (prefab) parent sits under <paramref name="ancestor"/> with no other
-    /// AttachmentPoint's tube in between — this AP belongs to that tube's own kinematic
-    /// chain (even if currently parked elsewhere by MoveUp), not to a downstream tube
-    /// that happens to be attached somewhere under <paramref name="ancestor"/>. Without
-    /// this boundary check, a shallow tube's scale pass would also unpark/reparent every
-    /// MoveUp AP belonging to every downstream tube attached under it, redundantly
-    /// perturbing (and drifting) poses that the downstream tube's own pass already owns.
-    /// </summary>
-    public bool AuthoredParentIsUnder(Transform ancestor)
-    {
-        if (!MoveUpOnAttach || _originalParent == null || ancestor == null)
-            return false;
-
-        Transform t = _originalParent;
-        while (t != null && t != ancestor)
-        {
-            if (t.GetComponent<AttachmentPoint>() != null)
-                return false;
-            t = t.parent;
-        }
-        return t == ancestor;
-    }
-
-    /// <summary>
     /// Lower transform hierarchy items will use this attachment point as a rotation reference when taking elevation photos (instead of using ceiling mount attachment points). This is used for arm segments having opposite rotation directions in elevation photos.
     /// </summary>
     [field: SerializeField] 
@@ -527,6 +503,42 @@ public partial class AttachmentPoint : MonoBehaviour
 
     /// <summary>Drops Unity-destroyed entries so save/load can safely read the list.</summary>
     public void PurgeDestroyedAttachedSelectables() => RemoveNullSelectables();
+
+    /// <summary>
+    /// Authored (prefab) parent sits under <paramref name="ancestor"/> with no OTHER
+    /// independently-scaling tube (a Selectable with its own ScaleLevels) in between —
+    /// this AP's "home" pose (what MoveUp re-promotion recomputes from) lives inside
+    /// ancestor's own subtree, so ancestor's length change moves that home pose even
+    /// while the AP is currently parked elsewhere. Stopping at the nearest such tube
+    /// means a shallow ancestor doesn't also re-touch an AP a nested tube already owns —
+    /// without this boundary a scale pass on e.g. a ceiling flange would redundantly
+    /// unpark/reprogram every MoveUp AP belonging to every tube nested under it.
+    /// </summary>
+    public bool AuthoredParentIsUnder(Transform ancestor)
+    {
+        if (!MoveUpOnAttach || _originalParent == null || ancestor == null)
+            return false;
+
+        Transform t = _originalParent;
+        while (t != null && t != ancestor)
+        {
+            if (t.TryGetComponent(out Selectable sel)
+                && sel.ScaleLevels != null && sel.ScaleLevels.Count > 0)
+                return false;
+            t = t.parent;
+        }
+        return t == ancestor;
+    }
+
+    /// <summary>
+    /// Unbounded version of <see cref="AuthoredParentIsUnder"/> for a single joint's own
+    /// rigid rotate/translate: no other tube's independent pass runs in the same
+    /// interaction, so there is no redundant-reprocessing risk to guard against, and every
+    /// MoveUp AP authored anywhere under <paramref name="ancestor"/> — however many tubes
+    /// deep, wherever MoveUp currently has it parked — must be swept along with the joint.
+    /// </summary>
+    public bool AuthoredParentIsDescendantOf(Transform ancestor) =>
+        MoveUpOnAttach && _originalParent != null && ancestor != null && _originalParent.IsChildOf(ancestor);
     //Anwar Edits
     public void SetToOriginalParent()
     {

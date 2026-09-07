@@ -241,7 +241,7 @@ public static class ElevationDimSolver
             src = (hasSize ? "Size→ref:" : "PdfData→ref:") + refName;
             return FinishHorizontal(
                 owner, catalogM, camera, a, b, axis, meshSpan, src,
-                meshSel, snapToCatalog: false, out solution);
+                meshSel, meshStrict, snapToCatalog: false, out solution);
         }
 
         if (ElevationLengthGeometry.TryGetOwnMeshAxisSegment(
@@ -270,7 +270,7 @@ public static class ElevationDimSolver
 
         return FinishHorizontal(
             owner, catalogM, camera, a, b, axis, meshSpan, src,
-            meshSel, snapToCatalog: true, out solution);
+            meshSel, meshStrict, snapToCatalog: true, out solution);
     }
 
     /// <summary>
@@ -285,14 +285,34 @@ public static class ElevationDimSolver
     static bool FinishHorizontal(
         Selectable owner, float catalogM, Camera camera,
         Vector3 a, Vector3 b, Vector3 axis, float meshSpan, string src,
-        Selectable meshSel, bool snapToCatalog, out Solution solution)
+        Selectable meshSel, bool meshStrict, bool snapToCatalog, out Solution solution)
     {
         if (Vector3.Dot(b - a, axis) < 0f)
             (a, b) = (b, a);
         axis = (b - a).sqrMagnitude > 1e-8f ? (b - a).normalized : axis;
 
-        float run = new Vector2(axis.x, axis.z).magnitude;
-        bool pitched = run > 1e-4f && Mathf.Abs(axis.y) >= run * PitchedArmTanMin;
+        // Level vs pitched has to be decided from the physical part, not from the two
+        // reference-point markers: a rigid, visually-level tube's proximal/distal AP
+        // markers can each sit a few mm off-centre on their own joint housing (e.g. one
+        // parked toward the top of a ball socket, the other toward its side), and that
+        // small per-marker offset reads as several degrees of "droop" over the tube's
+        // own length even though the mesh runs dead level. The mesh path already derives
+        // axis straight off the part's own OBB, so it is already physical truth; only the
+        // cutsheet-reference path needs this cross-check, since its axis is two markers'
+        // raw delta.
+        Vector3 slopeAxis = axis;
+        if (!snapToCatalog
+            && ElevationLengthGeometry.TryGetOwnMeshAxisSegment(
+                meshSel != null ? meshSel : owner, meshStrict, catalogLenMeters: -1f,
+                maxVerticalDot: 0.98f, camera,
+                out _, out _, out Vector3 meshAxis, out _)
+            && meshAxis.sqrMagnitude > 1e-6f)
+        {
+            slopeAxis = meshAxis;
+        }
+
+        float run = new Vector2(slopeAxis.x, slopeAxis.z).magnitude;
+        bool pitched = run > 1e-4f && Mathf.Abs(slopeAxis.y) >= run * PitchedArmTanMin;
         if (!pitched)
         {
             axis.y = 0f;
@@ -338,6 +358,12 @@ public static class ElevationDimSolver
         float pageSpanM = Vector3.Distance(a, b);
         if (camera != null)
             pageSpanM = Vector3.ProjectOnPlane(b - a, camera.transform.forward).magnitude;
+
+        Debug.Log(
+            $"[ElevDim] FIT owner={owner.name} catalogMm={Mathf.RoundToInt(catalogM * 1000f)} " +
+            $"fit={fit} src={src} meshSpanMm={Mathf.RoundToInt(meshSpan * 1000f)} " +
+            $"pageSpanMm={Mathf.RoundToInt(pageSpanM * 1000f)} pitched={pitched} " +
+            $"slopeAxis={slopeAxis:F3} a={a:F3} b={b:F3}");
 
         ElevationLengthGeometry.RememberClaimEndpoints(owner, a, b);
         solution = new Solution(

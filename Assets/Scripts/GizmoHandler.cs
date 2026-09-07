@@ -27,6 +27,7 @@ public class GizmoHandler : MonoBehaviour
     public bool IsBeingUsed { get; private set; }
     private Vector3 _positionBeforeStartDrag;
     private Vector3 _localScaleBeforeStartDrag;
+    private List<AttachmentPoint> _rotateDragUnparkedAPs;
     public Vector3 CurrentScaleDrag { get; private set; }
     public UnityEvent GizmoDragEnded { get; } = new UnityEvent();
     public UnityEvent GizmoDragPostUpdate { get; } = new UnityEvent();
@@ -484,6 +485,17 @@ private IEnumerator Start()
 
     private async void OnGizmoPostDragEnd(Gizmo gizmo, int handleId)
     {
+        // Mirrors ArticualtionToolScript's slider-based rotation: a MoveUp AP downstream
+        // of this joint may currently be parked somewhere that is NOT a live descendant
+        // (promoted away by an earlier scale pass), so it would not follow the mouse-drag
+        // rotate gizmo's direct transform write either. Same Selectable helper, same rule,
+        // for every UI path that rigidly re-poses a joint.
+        if (gizmo.ObjectTransformGizmo == _rotateGizmo && _rotateDragUnparkedAPs != null)
+        {
+            _selectable.EndRigidPoseChange(_rotateDragUnparkedAPs);
+            _rotateDragUnparkedAPs = null;
+        }
+
         if (TryGetComponent(out KeepRelativePosition k))
         {
             k.SelectablePositionChanged();
@@ -514,6 +526,11 @@ private IEnumerator Start()
     private void OnGizmoPostDragBegin(Gizmo gizmo, int handleId)
     {
         GizmoBeingUsed = true;
+
+        if (gizmo.ObjectTransformGizmo == _rotateGizmo)
+        {
+            _rotateDragUnparkedAPs = _selectable.BeginRigidPoseChange();
+        }
     }
 
     // Find the points where the two circles intersect.
