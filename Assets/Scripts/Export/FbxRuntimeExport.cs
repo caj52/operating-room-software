@@ -1,9 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+#if UNITY_EDITOR || FBXSDK_RUNTIME
 using Autodesk.Fbx;
+#endif
 using UnityEngine;
+#if UNITY_EDITOR || FBXSDK_RUNTIME
 using Object = UnityEngine.Object;
+#endif
 
 /// <summary>
 /// Runtime FBX writer via Autodesk.Fbx (Unity Formats FBX exporter is Editor-only).
@@ -12,10 +16,16 @@ using Object = UnityEngine.Object;
 /// </summary>
 public static class FbxRuntimeExport
 {
+#if UNITY_EDITOR || FBXSDK_RUNTIME
     private const float UnitScaleFactor = 100f; // meters → centimeters (FBX default)
+#endif
 
     public static bool ExportGameObjectToFbx(GameObject root, string fbxPath)
     {
+#if !(UNITY_EDITOR || FBXSDK_RUNTIME)
+        Debug.LogWarning("FBX export requires the Editor or FBXSDK_RUNTIME (Windows/macOS/Linux standalone).");
+        return false;
+#else
         if (root == null || string.IsNullOrWhiteSpace(fbxPath))
             return false;
 
@@ -100,8 +110,10 @@ public static class FbxRuntimeExport
             Debug.LogException(e);
             return false;
         }
+#endif
     }
 
+#if UNITY_EDITOR || FBXSDK_RUNTIME
     private static bool ExportNode(
         GameObject go,
         FbxNode parent,
@@ -360,4 +372,5 @@ public static class FbxRuntimeExport
             name = name.Replace(c, '_');
         return name.Trim();
     }
+#endif
 }

@@ -37,6 +37,9 @@ public static class GlbExporter
         "_SpecGlossMap",
     };
 
+    // Room GLBs don't need 2K/4K maps; unique RGBA32 copies of those were OOM'ing BakeImages.
+    private const int MaxExportTextureSize = 1024;
+
     public static async void DoExport(
         bool makeSubmeshes,
         MeshFilter[] meshFilters,
@@ -58,6 +61,7 @@ public static class GlbExporter
         var ownedMeshes = new List<Mesh>();
         var ownedTextures = new List<Texture2D>();
         var ownedMaterials = new List<Material>();
+        var textureCache = new Dictionary<(int id, int colorSpace), Texture2D>();
         GameObject exportRoot = null;
 
         try
@@ -77,7 +81,8 @@ public static class GlbExporter
                     exportRoot.transform,
                     ownedMeshes,
                     ownedTextures,
-                    ownedMaterials))
+                    ownedMaterials,
+                    textureCache))
                 {
                     exported++;
                 }
@@ -97,8 +102,10 @@ public static class GlbExporter
                 return;
             }
 
-            Debug.Log($"GLB export: {exported}/{meshFilters.Length} meshes → {meshName}.glb");
+            Debug.Log($"GLB export: {exported}/{meshFilters.Length} meshes, {textureCache.Count} unique textures → {meshName}.glb");
             ObjExporter.OnMeshCombineSuccess?.Invoke();
+            GC.Collect();
+            await Resources.UnloadUnusedAssets();
             await Task.Yield();
 
             string dir = ExportPaths.ObjSceneDir;
@@ -199,7 +206,8 @@ public static class GlbExporter
         Transform exportRoot,
         List<Mesh> ownedMeshes,
         List<Texture2D> ownedTextures,
-        List<Material> ownedMaterials)
+        List<Material> ownedMaterials,
+        Dictionary<(int id, int colorSpace), Texture2D> textureCache)
     {
         if (filter == null || filter.sharedMesh == null)
             return false;
@@ -255,7 +263,7 @@ public static class GlbExporter
 
                 ResetAllTextureTransforms(mat);
                 SanitizeMaterialForGlb(mat);
-                BakeReadableTextures(mat, ownedTextures);
+                BakeReadableTextures(mat, ownedTextures, textureCache);
                 ownedMaterials.Add(mat);
             }
 
@@ -464,13 +472,16 @@ public static class GlbExporter
         }
     }
 
-    private static void BakeReadableTextures(Material material, List<Texture2D> bakedTextures)
+    private static void BakeReadableTextures(
+        Material material,
+        List<Texture2D> bakedTextures,
+        Dictionary<(int id, int colorSpace), Texture2D> textureCache)
     {
         if (material == null)
             return;
 
         foreach (string prop in ColorMapProps)
-            ReplaceWithReadable(material, prop, RenderTextureReadWrite.sRGB, bakedTextures);
+            ReplaceWithReadable(material, prop, RenderTextureReadWrite.sRGB, bakedTextures, textureCache);
 
         foreach (string prop in LinearMapProps)
         {
@@ -479,7 +490,7 @@ public static class GlbExporter
                 && !material.IsKeywordEnabled("_METALLICGLOSSMAP"))
                 continue;
 
-            ReplaceWithReadable(material, prop, RenderTextureReadWrite.Linear, bakedTextures);
+            ReplaceWithReadable(material, prop, RenderTextureReadWrite.Linear, bakedTextures, textureCache);
         }
     }
 
@@ -487,7 +498,8 @@ public static class GlbExporter
         Material material,
         string prop,
         RenderTextureReadWrite colorSpace,
-        List<Texture2D> bakedTextures)
+        List<Texture2D> bakedTextures,
+        Dictionary<(int id, int colorSpace), Texture2D> textureCache)
     {
         if (!material.HasProperty(prop))
             return;
@@ -496,17 +508,25 @@ public static class GlbExporter
         if (src == null)
             return;
 
-        Texture2D readable = MakeTextureReadable(src, colorSpace);
-        readable.name = string.IsNullOrWhiteSpace(src.name) ? prop : src.name;
+        var key = (src.GetInstanceID(), (int)colorSpace);
+        if (!textureCache.TryGetValue(key, out Texture2D readable) || readable == null)
+        {
+            readable = MakeTextureReadable(src, colorSpace);
+            readable.name = string.IsNullOrWhiteSpace(src.name) ? prop : src.name;
+            textureCache[key] = readable;
+            bakedTextures.Add(readable);
+        }
+
         material.SetTexture(prop, readable);
-        bakedTextures.Add(readable);
     }
 
     private static Texture2D MakeTextureReadable(Texture2D texture, RenderTextureReadWrite colorSpace)
     {
+        GetExportSize(texture.width, texture.height, out int width, out int height);
+
         RenderTexture tmp = RenderTexture.GetTemporary(
-            texture.width,
-            texture.height,
+            width,
+            height,
             0,
             RenderTextureFormat.ARGB32,
             colorSpace);
@@ -515,13 +535,31 @@ public static class GlbExporter
         RenderTexture previous = RenderTexture.active;
         RenderTexture.active = tmp;
 
-        Texture2D readableTex = new Texture2D(texture.width, texture.height, TextureFormat.RGBA32, false, colorSpace == RenderTextureReadWrite.Linear);
+        Texture2D readableTex = new Texture2D(
+            width,
+            height,
+            TextureFormat.RGBA32,
+            false,
+            colorSpace == RenderTextureReadWrite.Linear);
         readableTex.ReadPixels(new Rect(0, 0, tmp.width, tmp.height), 0, 0);
-        readableTex.Apply();
+        readableTex.Apply(false, false);
 
         RenderTexture.active = previous;
         RenderTexture.ReleaseTemporary(tmp);
         return readableTex;
+    }
+
+    private static void GetExportSize(int srcWidth, int srcHeight, out int width, out int height)
+    {
+        width = Mathf.Max(1, srcWidth);
+        height = Mathf.Max(1, srcHeight);
+        int maxDim = Mathf.Max(width, height);
+        if (maxDim <= MaxExportTextureSize)
+            return;
+
+        float scale = MaxExportTextureSize / (float)maxDim;
+        width = Mathf.Max(1, Mathf.RoundToInt(width * scale));
+        height = Mathf.Max(1, Mathf.RoundToInt(height * scale));
     }
 
     private static Material CreateFallbackMaterial(List<Material> ownedMaterials)
