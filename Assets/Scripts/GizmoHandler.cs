@@ -36,10 +36,10 @@ public class GizmoHandler : MonoBehaviour
     public bool IsDestroyed { get; private set; }
 
     private bool RotateGizmoEnabled() => GizmoSelector.CurrentGizmoMode ==
-        GizmoMode.Rotate && _selectable.IsSelected;
+        GizmoMode.Rotate && _selectable.IsSelected && _canUseAnyRotation;
 
     private bool TranslateEnabled() => GizmoSelector.CurrentGizmoMode ==
-        GizmoMode.Translate && _selectable.IsSelected;
+        GizmoMode.Translate && _selectable.IsSelected && _canUseAnyTranslation;
 
     /// <summary>
     /// Wall objects sit flush on the surface; pull the rotate ring into the room
@@ -48,7 +48,7 @@ public class GizmoHandler : MonoBehaviour
     private const float WallRotateGizmoPullForwardMeters = 0.1f;
 
     private bool ScaleEnabled() => GizmoSelector.CurrentGizmoMode ==
-        GizmoMode.Scale && _selectable.IsSelected;
+        GizmoMode.Scale && _selectable.IsSelected && _canUseAnyScale;
 
     [SerializeField, ReadOnly] private bool _canUseAnyTranslation;
     [SerializeField, ReadOnly] private bool _canUseTranslateX;
@@ -156,6 +156,14 @@ private IEnumerator Start()
         _canUseTranslateX = _selectable.IsGizmoSettingAllowed(GizmoType.Move, Axis.X);
         _canUseTranslateY = _selectable.IsGizmoSettingAllowed(GizmoType.Move, Axis.Y);
         _canUseTranslateZ = _selectable.IsGizmoSettingAllowed(GizmoType.Move, Axis.Z);
+        // Inverse-control joints pose via the move gizmo even when Move settings
+        // are dummy 0-range placeholders copied from nested prefabs.
+        if (_selectable.AllowInverseControl)
+        {
+            _canUseTranslateX = true;
+            _canUseTranslateY = true;
+            _canUseTranslateZ = true;
+        }
         _canUseAnyTranslation = _canUseTranslateX || _canUseTranslateY || _canUseTranslateZ;
 
         _canUseRotationX = _selectable.IsGizmoSettingAllowed(GizmoType.Rotate, Axis.X);

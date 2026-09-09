@@ -130,28 +130,37 @@ public static class ElevationDimSolver
 
         if (kind == PartKind.CeilingTube)
         {
-            // Flange ticks belong on the tandem/ceiling COVER (Imagine example,
-            // review notes 2/3). The room ceiling plane is only a fallback when
-            // there is no cover — hanging from it while the plate sits 150 mm
-            // lower is what made the tandem look broken.
+            // With a cover/tandem plate: ticks span the plate's own thickness
+            // (plate top → plate underside). Starting at the underside left the
+            // whole dim hanging under the box — top tick on the bottom face.
+            // No cover: fall back to the tube mesh top → tip.
             cx = top.x;
             cz = top.z;
+            float meshTopY = Mathf.Max(top.y, tip.y);
+            float meshTipY = Mathf.Min(top.y, tip.y);
+
             if (ElevationLengthGeometry.TryGetCeilingPlateBand(
                     cx, cz, room.CeilingY,
-                    out float plateTop, out float plateUnder, out string plateName))
+                    out float plateTop, out float plateUnder, out string plateName)
+                && plateUnder < plateTop - 0.01f)
             {
+                // One dim per physical plate — second tube on a tandem must not redraw it.
+                if (!ElevationLengthGeometry.TryClaimPlateBand(plateTop, plateUnder, plateName))
+                    return false;
+
                 top = new Vector3(cx, plateTop, cz);
-                tip = new Vector3(cx, plateTop - catalogM, cz);
-                fit = "cover(" + plateName + ")";
+                tip = new Vector3(cx, plateUnder, cz);
+                fit = "plate(" + plateName + ")";
                 gap = room.CeilingY - plateTop;
             }
             else
             {
-                top = new Vector3(cx, room.CeilingY, cz);
-                tip = new Vector3(cx, room.CeilingY - catalogM, cz);
-                fit = "ceilingCatalog";
-                gap = 0f;
+                top = new Vector3(cx, meshTopY, cz);
+                tip = new Vector3(cx, meshTipY, cz);
+                fit = "meshColumn";
+                gap = room.CeilingY - meshTopY;
             }
+
             if (tip.y < room.FloorY)
                 tip.y = room.FloorY;
         }
@@ -160,10 +169,16 @@ public static class ElevationDimSolver
             FitVerticalCatalog(ref top, ref tip, catalogM, out fit);
         }
 
+        float pageSpanM = Mathf.Abs(top.y - tip.y);
+        Debug.Log(
+            $"[ElevDim] FIT owner={owner.name} catalogMm={Mathf.RoundToInt(catalogM * 1000f)} " +
+            $"fit={fit} vertical=True meshSpanMm={Mathf.RoundToInt(meshSpan * 1000f)} " +
+            $"pageSpanMm={Mathf.RoundToInt(pageSpanM * 1000f)} a={top:F3} b={tip:F3}");
+
         solution = new Solution(
             top, tip, Vector3.down, vertical: true,
             kind, "column", fit,
-            meshSpan, pageSpanM: Mathf.Abs(top.y - tip.y), ceilingGapM: gap);
+            meshSpan, pageSpanM, ceilingGapM: gap);
         ElevationLengthGeometry.RememberClaimEndpoints(owner, top, tip);
         return true;
     }

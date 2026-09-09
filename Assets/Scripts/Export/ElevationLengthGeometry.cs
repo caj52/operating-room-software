@@ -294,7 +294,30 @@ public static class ElevationLengthGeometry
     static readonly Dictionary<int, (Vector3 a, Vector3 b)> ClaimEndpointsByOwnerId =
         new Dictionary<int, (Vector3 a, Vector3 b)>();
 
-    public static void ClearClaimEndpointCache() => ClaimEndpointsByOwnerId.Clear();
+    /// <summary>
+    /// One vertical plate-thickness dim per cover band. Two ceiling tubes on a tandem
+    /// share the same plate — without this both draw and print their own catalog Size
+    /// on the same span (100 mm vs 150 mm on one box).
+    /// </summary>
+    static readonly HashSet<long> ClaimedPlateBands = new HashSet<long>();
+
+    public static void ClearClaimEndpointCache()
+    {
+        ClaimEndpointsByOwnerId.Clear();
+        ClaimedPlateBands.Clear();
+    }
+
+    public static bool TryClaimPlateBand(float plateTop, float plateUnder, string plateName)
+    {
+        // Key the physical plate only — not each tube's XZ, or a tandem still gets
+        // one dim per stack on the same box.
+        int nameHash = string.IsNullOrEmpty(plateName) ? 0 : plateName.GetHashCode();
+        long key =
+            ((long)Mathf.RoundToInt(plateTop * 200f) << 32)
+            ^ ((long)Mathf.RoundToInt(plateUnder * 200f) << 16)
+            ^ (uint)nameHash;
+        return ClaimedPlateBands.Add(key);
+    }
 
     public static void RememberClaimEndpoints(Selectable owner, Vector3 a, Vector3 b)
     {

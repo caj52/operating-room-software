@@ -548,6 +548,32 @@ public partial class AttachmentPoint : MonoBehaviour
     /// </summary>
     public bool AuthoredParentIsDescendantOf(Transform ancestor) =>
         MoveUpOnAttach && _originalParent != null && ancestor != null && _originalParent.IsChildOf(ancestor);
+
+    /// <summary>
+    /// Dual-stack hub: this AP is parked off <paramref name="posingJoint"/> with an
+    /// attached selectable also off that joint, so sibling arms yaw independently.
+    /// Unparking it for a rigid pose change would recouple them.
+    /// </summary>
+    public bool HoldsIndependentRotationStack(Transform posingJoint)
+    {
+        if (!MoveUpOnAttach || posingJoint == null)
+            return false;
+        if (transform != posingJoint && transform.IsChildOf(posingJoint))
+            return false;
+        if (AttachedSelectable == null || AttachedSelectable.Count == 0)
+            return false;
+        for (int i = 0; i < AttachedSelectable.Count; i++)
+        {
+            Selectable sel = AttachedSelectable[i];
+            if (sel == null)
+                continue;
+            Transform t = sel.transform;
+            if (t == posingJoint || t.IsChildOf(posingJoint))
+                continue;
+            return true;
+        }
+        return false;
+    }
     //Anwar Edits
     public void SetToOriginalParent()
     {

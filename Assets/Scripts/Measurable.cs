@@ -919,6 +919,16 @@ public class Measurable : MonoBehaviour
             return false;
         }
 
+        // Plate-thickness dims: printed mm must match the measured plate span, not each
+        // tube's catalog Size (tandem had 100 mm + 150 mm on the same box).
+        if (sol.FitMode != null
+            && sol.FitMode.StartsWith("plate(", System.StringComparison.Ordinal)
+            && sol.PageSpanM > 0.01f)
+        {
+            catalogLen = sol.PageSpanM;
+            CutsheetCatalogLengthMeters = catalogLen;
+        }
+
         vertical = sol.Vertical;
         Vector3 featureA = sol.A;
         Vector3 featureB = sol.B;

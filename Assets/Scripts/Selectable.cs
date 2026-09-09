@@ -211,6 +211,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
     public bool ScaleLevelsRestoredFromSave { get; set; } = false;
     private bool _deferInitUntilLoadComplete;
+    private bool _prefabSelectableGroupReady;
     private static HighlightProfile _cachedHighlightProfileSelected;
     #endregion
 
@@ -291,8 +292,111 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         UnlockWallInPlaneRotationIfNeeded();
 
+        EnsurePrefabSelectableGroup();
+
         if (!ConfigurationManager.IsLoading)
             NotifyActiveSelectablesInSceneChanged();
+    }
+
+    /// <summary>
+    /// Highest selectable still inside this prefab instance. Stops at an
+    /// AttachmentPoint so an attached product is not grouped with its host.
+    /// </summary>
+    Selectable FindPrefabInstanceRoot()
+    {
+        Selectable top = this;
+        for (Transform t = transform.parent; t != null; t = t.parent)
+        {
+            if (t.GetComponent<AttachmentPoint>() != null)
+                break;
+            if (t.TryGetComponent(out Selectable sel))
+                top = sel;
+        }
+        return top;
+    }
+
+    /// <summary>
+    /// RelatedSelectables is every selectable in this prefab instance (root first).
+    /// Serialized lists miss inactive children and nested logos, and Unity does
+    /// not bubble OnMouseUpAsButton from child colliders — rebuild both here.
+    /// </summary>
+    void EnsurePrefabSelectableGroup()
+    {
+        if (SceneManager.GetActiveScene().name == "ObjectEditor")
+            return;
+
+        Selectable instanceRoot = FindPrefabInstanceRoot();
+        if (instanceRoot._prefabSelectableGroupReady)
+            return;
+
+        var group = new List<Selectable>();
+        foreach (var s in instanceRoot.GetComponentsInChildren<Selectable>(true))
+        {
+            if (s == null || IsInAttachedChildInstance(s, instanceRoot))
+                continue;
+            group.Add(s);
+        }
+
+        if (group.Count == 0)
+            group.Add(instanceRoot);
+
+        group.Remove(instanceRoot);
+        group.Insert(0, instanceRoot);
+
+        foreach (var s in group)
+            s.RelatedSelectables = new List<Selectable>(group);
+
+        ForwardClicksFromChildColliders(instanceRoot, group);
+        instanceRoot._prefabSelectableGroupReady = true;
+    }
+
+    /// <summary>
+    /// True when <paramref name="s"/> belongs to a different product that was
+    /// parented onto an AttachmentPoint under <paramref name="instanceRoot"/>.
+    /// Nested parts of that product do not have ParentAttachmentPoint themselves.
+    /// </summary>
+    static bool IsInAttachedChildInstance(Selectable s, Selectable instanceRoot)
+    {
+        for (Transform t = s.transform; t != null && t != instanceRoot.transform; t = t.parent)
+        {
+            if (t.TryGetComponent(out Selectable sel) &&
+                sel != instanceRoot &&
+                sel.ParentAttachmentPoint != null)
+                return true;
+        }
+        return false;
+    }
+
+    static void ForwardClicksFromChildColliders(Selectable instanceRoot, List<Selectable> group)
+    {
+        foreach (var col in instanceRoot.GetComponentsInChildren<Collider>(true))
+        {
+            if (col == null || !col.enabled)
+                continue;
+
+            GameObject go = col.gameObject;
+            if (go.GetComponent<Selectable>() != null)
+                continue;
+            if (go.GetComponent<AttachmentPoint>() != null)
+                continue;
+            if (go.GetComponent<UnityEventSender>() != null)
+                continue;
+            if (go.GetComponent<DeselectSelectableOnClick>() != null)
+                continue;
+
+            Selectable nearest = go.GetComponentInParent<Selectable>(true);
+            if (nearest == null || !group.Contains(nearest))
+                continue;
+
+            // Collider sits under an AP that belongs to this instance — leave
+            // those clicks for AttachmentPoint, not Select().
+            var ap = go.GetComponentInParent<AttachmentPoint>(true);
+            if (ap != null && ap.transform != nearest.transform && ap.transform.IsChildOf(nearest.transform))
+                continue;
+
+            var sender = go.AddComponent<UnityEventSender>();
+            sender.Target = nearest.gameObject;
+        }
     }
 
     /// <summary>
@@ -763,9 +867,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         previous.ForEach(x =>
         {
-            //Debug.Log($"Firing deselect event for {x.gameObject.name}");
-            x._highlightEffect.highlighted = false;
-            x.Deselected?.Invoke();
+            SetHighlighted(x, false);
+            x?.Deselected?.Invoke();
         });
 
         if (fireEvent)
@@ -773,6 +876,13 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             SelectionChanged?.Invoke();
         }
 
+    }
+
+    static void SetHighlighted(Selectable x, bool on)
+    {
+        if (x == null || x._highlightEffect == null)
+            return;
+        x._highlightEffect.highlighted = on;
     }
 
     public void Select()
@@ -804,7 +914,10 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             SelectedSelectables[0].Deselect(false);
         }
 
-        SelectedSelectables = new List<Selectable>(RelatedSelectables);
+        SelectedSelectables = RelatedSelectables != null
+            ? new List<Selectable>(RelatedSelectables)
+            : new List<Selectable>();
+        SelectedSelectables.RemoveAll(s => s == null);
 
         if (!SelectedSelectables.Contains(this))
         {
@@ -813,8 +926,8 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
 
         SelectedSelectables.ForEach(x =>
         {
-            x._highlightEffect.highlighted = true;
-            x._gizmoHandler.SelectableSelected();
+            SetHighlighted(x, true);
+            x._gizmoHandler?.SelectableSelected();
         });
 
         SelectionDiagnostics.LogSelectOk(this);
@@ -2157,13 +2270,10 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     }
 
     /// <summary>
-    /// Unparks (to their authored parent) every MoveUp AP living anywhere under this
-    /// transform's authored subtree, however many tubes deep and wherever MoveUp
-    /// currently has it parked. Call before directly writing a rigid rotate/translate
-    /// (e.g. a joint-angle slider) to a Selectable's transform: a MoveUp AP can be parked
-    /// (for scale isolation) somewhere that is NOT a live descendant right now, so it
-    /// would not otherwise follow via Unity's normal parent-child propagation — leaving
-    /// the downstream assembly hanging behind at its stale pose. Re-promote with
+    /// Unparks (to their authored parent) MoveUp APs living under this transform's
+    /// authored subtree so they follow a rigid rotate/translate. Skips dual-stack hubs
+    /// (<see cref="AttachmentPoint.HoldsIndependentRotationStack"/>) so sibling
+    /// horizontal light/boom arms keep independent yaw. Re-promote with
     /// <see cref="EndRigidPoseChange"/> once the new pose is set.
     /// </summary>
     public List<AttachmentPoint> BeginRigidPoseChange()
@@ -2176,8 +2286,11 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
             for (int i = 0; i < aps.Length; i++)
             {
                 var ap = aps[i];
-                if (ap != null && ap.AuthoredParentIsDescendantOf(transform))
-                    owned.Add(ap);
+                if (ap == null || !ap.AuthoredParentIsDescendantOf(transform))
+                    continue;
+                if (ap.HoldsIndependentRotationStack(transform))
+                    continue;
+                owned.Add(ap);
             }
         }
         for (int i = 0; i < owned.Count; i++)
@@ -2365,6 +2478,12 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         if (!GizmoSettings.ContainsKey(gizmoType)) return false;
         if (!GizmoSettings[gizmoType].ContainsKey(axis)) return false;
         gizmoSetting = GizmoSettings[gizmoType][axis];
+        if (gizmoSetting == null ||
+            (!gizmoSetting.Unrestricted && gizmoSetting.MaxValue <= gizmoSetting.MinValue))
+        {
+            gizmoSetting = default;
+            return false;
+        }
         return true;
     }
 
@@ -4655,9 +4774,9 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
         AttachmentPoint[] attachPoints =
             GetComponentsInChildren<AttachmentPoint>(true);
 
-        var relatedSelectables = GetComponentsInChildren<Selectable>().ToList();
+        var relatedSelectables = GetComponentsInChildren<Selectable>(true).ToList();
 
-        Array.ForEach(GetComponentsInChildren<Collider>(), collider =>
+        Array.ForEach(GetComponentsInChildren<Collider>(true), collider =>
         {
             // Default layer
             if (collider.gameObject.layer == 0)
