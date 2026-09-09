@@ -4220,6 +4220,10 @@ PrefabInstance:
       propertyPath: <AssetBundleName>k__BackingField
       value: sceneasset_35a108a6632242841ac5864790fd374e
       objectReference: {fileID: 0}
+    - target: {fileID: 8182102928702238876, guid: 6ff2134920f163c419cc221e21847f26, type: 3}
+      propertyPath: <ScenePath>k__BackingField
+      value: Assets/Scenes/ObjectEditor.unity
+      objectReference: {fileID: 0}
     - target: {fileID: 9030572092055625796, guid: 6ff2134920f163c419cc221e21847f26, type: 3}
       propertyPath: m_RootOrder
       value: 3
@@ -4759,6 +4763,10 @@ PrefabInstance:
     - target: {fileID: 8182102928702238876, guid: 6ff2134920f163c419cc221e21847f26, type: 3}
       propertyPath: <AssetBundleName>k__BackingField
       value: sceneasset_9fc0d4010bbf28b4594072e72b8655ab
+      objectReference: {fileID: 0}
+    - target: {fileID: 8182102928702238876, guid: 6ff2134920f163c419cc221e21847f26, type: 3}
+      propertyPath: <ScenePath>k__BackingField
+      value: Assets/Scenes/Main.unity
       objectReference: {fileID: 0}
     - target: {fileID: 9030572092055625796, guid: 6ff2134920f163c419cc221e21847f26, type: 3}
       propertyPath: m_RootOrder
