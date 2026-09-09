@@ -66,8 +66,8 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: aef019abf8f760c4bbf618694f6a4552, type: 2}
-  - {fileID: 2100000, guid: aef019abf8f760c4bbf618694f6a4552, type: 2}
+  - {fileID: 2100000, guid: b01395895412f58449b667aeb1d83512, type: 2}
+  - {fileID: 2100000, guid: b01395895412f58449b667aeb1d83512, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -221,6 +221,7 @@ MonoBehaviour:
   <AlignForElevationPhoto>k__BackingField: 0
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
+  <AcceptsSurfacePlacements>k__BackingField: 0
   <AttachedTo>k__BackingField: {fileID: 0}
   <RelatedSelectables>k__BackingField:
   - {fileID: 9145237415436632371}
@@ -1200,6 +1201,7 @@ MonoBehaviour:
   <AlignForElevationPhoto>k__BackingField: 0
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
+  <AcceptsSurfacePlacements>k__BackingField: 0
   <AttachedTo>k__BackingField: {fileID: 0}
   <RelatedSelectables>k__BackingField:
   - {fileID: 9145237415436632371}
@@ -1533,6 +1535,7 @@ MonoBehaviour:
   <AlignForElevationPhoto>k__BackingField: 0
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
+  <AcceptsSurfacePlacements>k__BackingField: 0
   <AttachedTo>k__BackingField: {fileID: 0}
   <RelatedSelectables>k__BackingField:
   - {fileID: 9145237415436632371}
@@ -1868,6 +1871,7 @@ MonoBehaviour:
   <AlignForElevationPhoto>k__BackingField: 0
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
+  <AcceptsSurfacePlacements>k__BackingField: 0
   <AttachedTo>k__BackingField: {fileID: 0}
   <RelatedSelectables>k__BackingField:
   - {fileID: 9145237415436632371}
@@ -30093,7 +30097,7 @@ MonoBehaviour:
   innerAngle: 20
   outerAngle: 20
   emissiveObject: {fileID: 2008676317851919207}
-  emissionColor: {r: 0.7254902, g: 0.9450981, b: 0.9176471, a: 0}
+  emissionColor: {r: 0.7254902, g: 0.9450981, b: 0.9176471, a: 1}
 --- !u!114 &6843706612714320661
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -30208,6 +30212,7 @@ MonoBehaviour:
   <AlignForElevationPhoto>k__BackingField: 0
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
+  <AcceptsSurfacePlacements>k__BackingField: 0
   <AttachedTo>k__BackingField: {fileID: 0}
   <RelatedSelectables>k__BackingField:
   - {fileID: 9145237415436632371}
@@ -30437,6 +30442,7 @@ MonoBehaviour:
   <AlignForElevationPhoto>k__BackingField: 1
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
+  <AcceptsSurfacePlacements>k__BackingField: 0
   <AttachedTo>k__BackingField: {fileID: 0}
   <RelatedSelectables>k__BackingField:
   - {fileID: 9145237415436632371}

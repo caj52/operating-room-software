@@ -98,6 +98,10 @@ namespace SplenSoft.AssetBundles
         private static float _selfInitializerTimeout = 5f;
         private static float _currentSelfInitializerTimeout = 0f;
         private static int _currentDownloads;
+        /// <summary>
+        /// Set when local-only init fails so AutoInitialize does not spin forever.
+        /// </summary>
+        private static bool _initializeAborted;
 
 
         /// <summary>
@@ -127,6 +131,9 @@ namespace SplenSoft.AssetBundles
                     Log.Write(LogLevel.Log, "Asset Bundle Manager auto initialization was disabled");
                     return;
                 }
+
+                if (_initializeAborted)
+                    return;
 
                 if (!Initialized && !IsInitializing)
                 {
@@ -319,47 +326,109 @@ namespace SplenSoft.AssetBundles
                     $"settings. The Asset Bundle Manager cannot " +
                     $"initialize.");
 
-                IsInitializing = false;
+                AbortInitialize(settings);
                 return;
             }
             string targetName = settings.BuildTargetNames[buildtarget];
 
-            var task = GetAsset<AssetBundleManifest>(targetName, waitForInitialize: false);
-            await task;
-
-            AssetBundleManifest masterManifest = task.Result;
-            if (masterManifest == null)
+            // Player / local shipping: only StreamingAssets (no CDN).
+            if (!settings.AllowRemoteCdn)
             {
-                Debug.LogError(
-                    $"Asset Bundle Manager failed to load platform manifest '{targetName}'.");
+                var local = await TryGetLocalAssetBundleAsync(targetName);
+                if (!Application.isPlaying) return;
+
+                if (!local.Success || local.AssetBundle == null)
+                {
+                    Debug.LogError(
+                        $"Asset Bundle Manager failed to load shipped platform manifest '{targetName}' " +
+                        $"from StreamingAssets/AssetBundles. Rebuild the player so PostBuild copies local bundles.");
+                    AbortInitialize(settings);
+                    return;
+                }
+
+                var loadManifest = local.AssetBundle.LoadAllAssetsAsync<AssetBundleManifest>();
+                while (!loadManifest.isDone)
+                {
+                    await Task.Yield();
+                    if (!Application.isPlaying) return;
+                }
+
+                var masterManifest = loadManifest.asset as AssetBundleManifest;
+                if (masterManifest == null)
+                {
+                    Debug.LogError(
+                        $"Shipped platform bundle '{targetName}' did not contain an AssetBundleManifest.");
+                    AbortInitialize(settings);
+                    return;
+                }
+
+                CacheManifest(masterManifest);
+                _downloadResponseCodePerAssetBundleName[targetName] =
+                    new AssetRetrievalResult(200, UnityWebRequest.Result.Success);
+                Initialized = true;
                 IsInitializing = false;
+                Log.Write(LogLevel.Verbose, "Asset bundle manager initialized from StreamingAssets");
+                Diag("ABM.Initialize",
+                    $"Shipped StreamingAssets — {_assetBundleData.Count} bundles for {Application.platform}");
                 return;
             }
 
-            string[] assetBundleNames = masterManifest.GetAllAssetBundles();
+            var task = GetAsset<AssetBundleManifest>(targetName, waitForInitialize: false);
+            await task;
 
-            foreach (string assetBundleName in assetBundleNames)
+            AssetBundleManifest remoteManifest = task.Result;
+            if (remoteManifest == null)
             {
-                var assetBundleData = new AssetBundleData(assetBundleName)
-                {
-                    Dependencies = masterManifest
-                                   .GetDirectDependencies(assetBundleName)
-                                   .ToList(),
-
-                    Hash = masterManifest
-                                   .GetAssetBundleHash(assetBundleName)
-                };
-
-                Log.Write(LogLevel.Log, $"{assetBundleName} | hash = " +
-                    $"{masterManifest.GetAssetBundleHash(assetBundleName)}");
-
-                _assetBundleData[assetBundleName] = assetBundleData;
+                Debug.LogError(
+                    $"Asset Bundle Manager failed to load platform manifest '{targetName}'.");
+                AbortInitialize(settings);
+                return;
             }
 
+            CacheManifest(remoteManifest);
             Initialized = true;
             IsInitializing = false;
             Log.Write(LogLevel.Verbose, $"Asset bundle manager initialized");
             Diag("ABM.Initialize", $"Manifest cached — {_assetBundleData.Count} bundle entries for platform {Application.platform}");
+        }
+
+        private static void CacheManifest(AssetBundleManifest masterManifest)
+        {
+            _assetBundleData.Clear();
+            string[] assetBundleNames = masterManifest.GetAllAssetBundles();
+            foreach (string assetBundleName in assetBundleNames)
+            {
+                _assetBundleData[assetBundleName] = new AssetBundleData(assetBundleName)
+                {
+                    Dependencies = masterManifest
+                        .GetDirectDependencies(assetBundleName)
+                        .ToList(),
+                    Hash = masterManifest.GetAssetBundleHash(assetBundleName)
+                };
+
+                Log.Write(LogLevel.Log, $"{assetBundleName} | hash = " +
+                    $"{masterManifest.GetAssetBundleHash(assetBundleName)}");
+            }
+        }
+
+        private static void AbortInitialize(AssetBundleManagerSettings settings)
+        {
+            IsInitializing = false;
+            // Local-only shipping: never spin forever waiting for CDN.
+            if (settings == null || !settings.AllowRemoteCdn)
+                _initializeAborted = true;
+        }
+
+        private static async Task<bool> WaitUntilInitializedOrAborted()
+        {
+            while (!Initialized && !_initializeAborted)
+            {
+                await Task.Yield();
+                if (!Application.isPlaying)
+                    return false;
+            }
+
+            return Initialized;
         }
 
         /// <summary>
@@ -405,8 +474,7 @@ namespace SplenSoft.AssetBundles
             // Play Mode with editor assets: AssetDatabase is the catalog of bundle names.
             if (Application.isPlaying && AssetBundleManagerSettings.Get().UseEditorAssetsIfAble)
             {
-                while (!Initialized) await Task.Yield();
-                if (!Application.isPlaying) return null;
+                if (!await WaitUntilInitializedOrAborted()) return null;
                 return AssetDatabase.GetAllAssetBundleNames()
                     .Where(x => Regex.IsMatch(x, regexPattern))
                     .ToArray();
@@ -419,8 +487,7 @@ namespace SplenSoft.AssetBundles
                     .ToArray();
             }
 #endif
-            while (!Initialized) await Task.Yield();
-            if (!Application.isPlaying) return null;
+            if (!await WaitUntilInitializedOrAborted()) return null;
 
             return _assetBundleData.Keys
                 .Where(x => Regex.IsMatch(x, regexPattern))
@@ -472,8 +539,7 @@ namespace SplenSoft.AssetBundles
         {
             if (waitForInitialize)
             {
-                while (!Initialized) await Task.Yield();
-                if (!Application.isPlaying) return null;
+                if (!await WaitUntilInitializedOrAborted()) return null;
             }
 
             AssetRetrievalStarted?.Invoke(name);
@@ -547,7 +613,7 @@ namespace SplenSoft.AssetBundles
                 Debug.LogError($"Asset bundle {name} returned null after attempted download");
                 Diag("ABM.GetAsset", $"CDN FAILED {name} — bundle download returned null");
                 var res = new AssetRetrievalResult(404, UnityWebRequest.Result.ProtocolError);
-                onFailure.Invoke(res);
+                onFailure?.Invoke(res);
                 _downloadResponseCodePerAssetBundleName[name] = res;
                 return null;
             }
@@ -630,8 +696,7 @@ namespace SplenSoft.AssetBundles
         {
             if (waitForInitialize)
             {
-                while (!Initialized) await Task.Yield();
-                if (!Application.isPlaying) return null;
+                if (!await WaitUntilInitializedOrAborted()) return null;
             }
 
             AssetBundleDownloadStarted?.Invoke(name);
@@ -884,11 +949,25 @@ namespace SplenSoft.AssetBundles
         {
             if (waitForInitialize)
             {
-                while (!Initialized) await Task.Yield();
-                if (!Application.isPlaying) return;
+                if (!await WaitUntilInitializedOrAborted()) return;
             }
 
             SceneAssetRetrievalStarted?.Invoke(name);
+
+#if UNITY_EDITOR
+            // Editor Play Mode: load scenes from Assets/ like prefabs (no CDN / StreamingAssets).
+            if (AssetBundleManagerSettings.Get().UseEditorAssetsIfAble)
+            {
+                string[] assetPaths = AssetDatabase.GetAssetPathsFromAssetBundle(name);
+                string scenePath = assetPaths?.FirstOrDefault(p =>
+                    p.EndsWith(".unity", StringComparison.OrdinalIgnoreCase));
+                if (!string.IsNullOrEmpty(scenePath))
+                {
+                    await LoadSceneFromPath(name, scenePath, progress, onSuccess, onFailure);
+                    return;
+                }
+            }
+#endif
 
             if (_assetBundleData.TryGetValue(name, out AssetBundleData data))
             {
@@ -902,7 +981,50 @@ namespace SplenSoft.AssetBundles
             Diag("SceneLoad.CDN", $"bundle '{name}' fetched in {bundleTimer.ElapsedMilliseconds}ms");
 
             var bundle = getBundleTask.Result;
+            if (bundle == null)
+            {
+                Debug.LogError($"Scene asset bundle '{name}' could not be loaded.");
+                onFailure?.Invoke(new AssetRetrievalResult(404, UnityWebRequest.Result.ProtocolError));
+                return;
+            }
+
             LoadSceneAssetBundle(name, bundle, progress, onSuccess, onFailure, bundleTimer.ElapsedMilliseconds);
+        }
+
+        private static async Task LoadSceneFromPath(
+            string name,
+            string scenePath,
+            IProgress<AssetRetrievalProgress> progress,
+            Action onSuccess,
+            Action<AssetRetrievalResult> onFailure)
+        {
+            try
+            {
+                AsyncOperation operation = SceneManager.LoadSceneAsync(scenePath);
+                if (operation == null)
+                {
+                    Debug.LogError($"Could not load scene '{scenePath}' (bundle {name}).");
+                    onFailure?.Invoke(new AssetRetrievalResult(404, UnityWebRequest.Result.ProtocolError));
+                    return;
+                }
+
+                while (!operation.isDone)
+                {
+                    progress?.Report(new AssetRetrievalProgress(
+                        AssetRetrievalStatus.Loading, 0.4f + operation.progress * 0.4f));
+                    await Task.Yield();
+                    if (!Application.isPlaying) return;
+                }
+
+                progress?.Report(new AssetRetrievalProgress(AssetRetrievalStatus.Done, 1));
+                onSuccess?.Invoke();
+                SceneAssetLoaded?.Invoke(name);
+            }
+            catch
+            {
+                onFailure?.Invoke(new AssetRetrievalResult(500, UnityWebRequest.Result.DataProcessingError));
+                throw;
+            }
         }
 
         private static async void LoadSceneAssetBundle(
@@ -1001,10 +1123,7 @@ namespace SplenSoft.AssetBundles
         /// <returns>A list of AssetBundle names as strings</returns>
         public static async Task<List<string>> GetDependencies(string assetBundleName)
         {
-            while (!Initialized) 
-                await Task.Yield();
-
-            if (!Application.isPlaying)
+            if (!await WaitUntilInitializedOrAborted())
                 throw new Exception("App quit during task");
 
             var result = new List<string>();

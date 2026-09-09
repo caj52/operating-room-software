@@ -667,14 +667,15 @@ MonoBehaviour:
   <ZAlwaysFacesGroundElevationOnly>k__BackingField: 0
   <ZAlignUpIsParentForward>k__BackingField: 0
   <Measurables>k__BackingField:
-  - {fileID: 2944390531974447992, guid: 00000000000000000000000000000000, type: 0}
-  - {fileID: 3081078228097071316, guid: 00000000000000000000000000000000, type: 0}
-  - {fileID: 8425885570343605855, guid: 00000000000000000000000000000000, type: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
   Measurers: []
   measurements: []
   <AlignForElevationPhoto>k__BackingField: 0
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
+  <AcceptsSurfacePlacements>k__BackingField: 0
   <AttachedTo>k__BackingField: {fileID: 0}
   <RelatedSelectables>k__BackingField:
   - {fileID: 7696177457738574473}

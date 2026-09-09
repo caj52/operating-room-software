@@ -358,13 +358,14 @@ MonoBehaviour:
   <AlignForElevationPhoto>k__BackingField: 0
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
+  <AcceptsSurfacePlacements>k__BackingField: 0
   <AttachedTo>k__BackingField: {fileID: 0}
   <RelatedSelectables>k__BackingField:
   - {fileID: 2954072631648425232}
   - {fileID: 3131619152337864307}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
+  - {fileID: 4660406308373064754}
+  - {fileID: 7199033547630616578}
+  - {fileID: 2279422193469429507}
   _assemblySelectables: []
   UIButtonName: 
   canBeDuplicated: 0
@@ -2214,9 +2215,14 @@ MonoBehaviour:
   <AlignForElevationPhoto>k__BackingField: 0
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
+  <AcceptsSurfacePlacements>k__BackingField: 0
   <AttachedTo>k__BackingField: {fileID: 0}
   <RelatedSelectables>k__BackingField:
+  - {fileID: 2954072631648425232}
+  - {fileID: 3131619152337864307}
   - {fileID: 4660406308373064754}
+  - {fileID: 7199033547630616578}
+  - {fileID: 2279422193469429507}
   _assemblySelectables: []
   UIButtonName: 
   canBeDuplicated: 0
@@ -7726,9 +7732,14 @@ MonoBehaviour:
   <AlignForElevationPhoto>k__BackingField: 0
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
+  <AcceptsSurfacePlacements>k__BackingField: 0
   <AttachedTo>k__BackingField: {fileID: 0}
   <RelatedSelectables>k__BackingField:
+  - {fileID: 2954072631648425232}
+  - {fileID: 3131619152337864307}
+  - {fileID: 4660406308373064754}
   - {fileID: 7199033547630616578}
+  - {fileID: 2279422193469429507}
   _assemblySelectables: []
   UIButtonName: 
   canBeDuplicated: 0
@@ -8901,8 +8912,13 @@ MonoBehaviour:
   <AlignForElevationPhoto>k__BackingField: 0
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
+  <AcceptsSurfacePlacements>k__BackingField: 0
   <AttachedTo>k__BackingField: {fileID: 0}
   <RelatedSelectables>k__BackingField:
+  - {fileID: 2954072631648425232}
+  - {fileID: 3131619152337864307}
+  - {fileID: 4660406308373064754}
+  - {fileID: 7199033547630616578}
   - {fileID: 2279422193469429507}
   _assemblySelectables: []
   UIButtonName: 
@@ -9458,13 +9474,14 @@ MonoBehaviour:
   <AlignForElevationPhoto>k__BackingField: 1
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
+  <AcceptsSurfacePlacements>k__BackingField: 0
   <AttachedTo>k__BackingField: {fileID: 0}
   <RelatedSelectables>k__BackingField:
   - {fileID: 2954072631648425232}
   - {fileID: 3131619152337864307}
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
+  - {fileID: 4660406308373064754}
+  - {fileID: 7199033547630616578}
+  - {fileID: 2279422193469429507}
   _assemblySelectables: []
   UIButtonName: 
   canBeDuplicated: 0

@@ -1,6 +1,5 @@
 #if UNITY_EDITOR
 using System.IO;
-using System.Linq;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
@@ -8,59 +7,38 @@ using UnityEngine;
 
 namespace SplenSoft.AssetBundles
 {
+    /// <summary>
+    /// After player build: copy packed placeables into the player's
+    /// StreamingAssets/AssetBundles (kept outside Assets/ during the build).
+    /// </summary>
     internal class PostBuild : IPostprocessBuildWithReport
     {
-        public int callbackOrder { get { return 0; } }
+        public int callbackOrder => 0;
 
         public void OnPostprocessBuild(BuildReport report)
         {
             var settings = AssetBundleManagerSettings.Get();
-            if (!settings.KeepLocalCopy) return;
+            bool shipLocal = !settings.AllowRemoteCdn || settings.KeepLocalCopy;
+            if (!shipLocal)
+                return;
 
-            var streamingAssetsPath = Path.Combine(
-                Application.dataPath,
-                "StreamingAssets"
-            );
-
-            var assetPath = Path.Combine(
-                streamingAssetsPath,
-                "AssetBundles"
-            );
-
-            if (!Directory.Exists(assetPath))
+            BuildTarget target = report.summary.platform;
+            string builtPath = AssetBundleManager.GetBuiltBundlesDirectory(target);
+            if (!Directory.Exists(builtPath))
             {
-                // maybe the user is deleting it
+                Debug.LogError(
+                    $"[Placeables] Built bundles missing at {builtPath}; " +
+                    "player will not have placeables in StreamingAssets.");
                 return;
             }
 
-            Directory.Delete(assetPath, true);
+            AssetBundleManager.EnsureRuntimePlatformManifestAlias(target, settings);
 
-            var assetPathMeta = assetPath + ".meta";
+            string playerStreaming = AssetBundleManager.GetPlayerStreamingAssetsPath(report);
+            AssetBundleManager.CopyBundlesIntoPlayerStreamingAssets(playerStreaming, builtPath);
 
-            if (File.Exists(assetPathMeta)) 
-            {
-                File.Delete(assetPathMeta);
-            }
-
-            //if (IsDirectoryEmpty(streamingAssetsPath))
-            if (PlayerPrefs.GetInt("ezcdn-streamingassets-didnotexist") == 1)
-            {
-                Directory.Delete(streamingAssetsPath, true);
-
-                var streamingAssetsMeta = streamingAssetsPath + ".meta";
-
-                if (File.Exists(streamingAssetsMeta))
-                {
-                    File.Delete(streamingAssetsMeta);
-                }
-
-                AssetDatabase.Refresh();
-            }
-        }
-
-        private bool IsDirectoryEmpty(string path)
-        {
-            return !Directory.EnumerateFileSystemEntries(path).Any();
+            // Leftover from older stage-into-Assets flow — delete without Refresh.
+            AssetBundleManager.CleanupProjectStreamingAssetBundles();
         }
     }
 }

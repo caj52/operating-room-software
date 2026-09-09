@@ -397,6 +397,7 @@ MonoBehaviour:
   <AlignForElevationPhoto>k__BackingField: 0
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
+  <AcceptsSurfacePlacements>k__BackingField: 0
   <AttachedTo>k__BackingField: {fileID: 0}
   <RelatedSelectables>k__BackingField:
   - {fileID: 7790988835564570694}
@@ -639,9 +640,9 @@ MonoBehaviour:
   <elements>k__BackingField:
   - <_zeroStart>k__BackingField: 1
     materials:
-    - {fileID: 4609463500596455307, guid: 00000000000000000000000000000000, type: 0}
-    - {fileID: -7516882464552761326, guid: 00000000000000000000000000000000, type: 0}
-    - {fileID: -5375423069460599189, guid: 00000000000000000000000000000000, type: 0}
+    - {fileID: 0}
+    - {fileID: 0}
+    - {fileID: 0}
   <meshRenderer>k__BackingField: {fileID: 6201552759824445927}
   <currentMat>k__BackingField: {fileID: 0}
   <MaterialGroup>k__BackingField: 2
@@ -1109,6 +1110,7 @@ MonoBehaviour:
   <AlignForElevationPhoto>k__BackingField: 0
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
+  <AcceptsSurfacePlacements>k__BackingField: 0
   <AttachedTo>k__BackingField: {fileID: 0}
   <RelatedSelectables>k__BackingField:
   - {fileID: 7790988835564570694}
@@ -1145,9 +1147,9 @@ MonoBehaviour:
   <elements>k__BackingField:
   - <_zeroStart>k__BackingField: 1
     materials:
-    - {fileID: -7516882464552761326, guid: 00000000000000000000000000000000, type: 0}
-    - {fileID: 4609463500596455307, guid: 00000000000000000000000000000000, type: 0}
-    - {fileID: -5375423069460599189, guid: 00000000000000000000000000000000, type: 0}
+    - {fileID: 0}
+    - {fileID: 0}
+    - {fileID: 0}
   <meshRenderer>k__BackingField: {fileID: 197780887003700521}
   <currentMat>k__BackingField: {fileID: 0}
   <MaterialGroup>k__BackingField: 3
@@ -1747,6 +1749,7 @@ MonoBehaviour:
   <AlignForElevationPhoto>k__BackingField: 0
   <ChangeHeightForElevationPhoto>k__BackingField: 0
   <CanPlaceAnywhere>k__BackingField: 0
+  <AcceptsSurfacePlacements>k__BackingField: 0
   <AttachedTo>k__BackingField: {fileID: 0}
   <RelatedSelectables>k__BackingField:
   - {fileID: 7790988835564570694}
@@ -2015,9 +2018,9 @@ MonoBehaviour:
   <elements>k__BackingField:
   - <_zeroStart>k__BackingField: 1
     materials:
-    - {fileID: 1378258407481337446, guid: 00000000000000000000000000000000, type: 0}
-    - {fileID: 639247963062259904, guid: 00000000000000000000000000000000, type: 0}
-    - {fileID: -8816118491419991768, guid: 00000000000000000000000000000000, type: 0}
+    - {fileID: 0}
+    - {fileID: 0}
+    - {fileID: 0}
   <meshRenderer>k__BackingField: {fileID: 3123351360766199621}
   <currentMat>k__BackingField: {fileID: 0}
   <MaterialGroup>k__BackingField: 1

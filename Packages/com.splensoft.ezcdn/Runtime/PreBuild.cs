@@ -1,5 +1,4 @@
 #if UNITY_EDITOR
-using System.IO;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
@@ -7,74 +6,72 @@ using UnityEngine;
 
 namespace SplenSoft.AssetBundles
 {
+    /// <summary>
+    /// Packs local placeable/UI bundles before BuildPlayer, then builds.
+    /// </summary>
+    [InitializeOnLoad]
+    internal static class PlaceablePlayerBuildHook
+    {
+        private static bool _isHandlingBuild;
+
+        static PlaceablePlayerBuildHook()
+        {
+            BuildPlayerWindow.RegisterBuildPlayerHandler(OnBuildPlayer);
+        }
+
+        private static void OnBuildPlayer(BuildPlayerOptions options)
+        {
+            if (_isHandlingBuild)
+            {
+                BuildPlayerWindow.DefaultBuildMethods.BuildPlayer(options);
+                return;
+            }
+
+            _isHandlingBuild = true;
+            try
+            {
+                var settings = AssetBundleManagerSettings.Get();
+                if (!settings.AllowRemoteCdn || settings.KeepLocalCopy)
+                {
+                    AssetBundleManager.CleanupProjectStreamingAssetBundles();
+
+                    if (!AssetBundleManager.BuiltPlatformManifestExists(options.target, settings))
+                    {
+                        Debug.Log($"[Placeables] Packing bundles for {options.target}…");
+                        AssetBundleManager.BuildAndStageLocalBundles(options.target, forceRebuild: false);
+                    }
+                    else
+                    {
+                        Debug.Log($"[Placeables] Using existing packs for {options.target}");
+                        AssetBundleManager.EnsureRuntimePlatformManifestAlias(options.target, settings);
+                    }
+                }
+
+                BuildPlayerWindow.DefaultBuildMethods.BuildPlayer(options);
+            }
+            finally
+            {
+                _isHandlingBuild = false;
+            }
+        }
+    }
+
     internal class PreBuild : IPreprocessBuildWithReport
     {
-        public int callbackOrder { get { return 0; } }
+        public int callbackOrder => 0;
 
         public void OnPreprocessBuild(BuildReport report)
         {
             var settings = AssetBundleManagerSettings.Get();
-            if (!settings.KeepLocalCopy) return;
+            if (settings.AllowRemoteCdn && !settings.KeepLocalCopy)
+                return;
 
-            BuildTarget buildTarget = report.summary.platform;
-            string buildTargetString = buildTarget.ToString();
-
-            var streamingAssetsPath = Path.Combine(
-                Application.dataPath,
-                "StreamingAssets"
-            );
-
-            var assetPath = Path.Combine(
-                streamingAssetsPath,
-                "AssetBundles"
-            );
-
-            int exists = Directory.Exists(streamingAssetsPath) ? 0 : 1;
-            PlayerPrefs.SetInt("ezcdn-streamingassets-didnotexist", exists);
-
-            if (!Directory.Exists(assetPath)) 
+            BuildTarget target = report.summary.platform;
+            if (!AssetBundleManager.BuiltPlatformManifestExists(target, settings))
             {
-                Directory.CreateDirectory(assetPath);
-            }
-
-            var di = new DirectoryInfo(assetPath);
-
-            // delete existing assets in StreamAssets
-            foreach (FileInfo file in di.EnumerateFiles())
-            {
-                file.Delete();
-            }
-
-            var assetBundlesPath = Path.Combine(
-                AssetBundleManager.AssetBundlePath,
-                buildTargetString
-            );
-
-            // ensure assets have been built once
-            if (!Directory.Exists(assetBundlesPath)) 
-            {
-                throw new System.Exception($"No asset bundle " +
-                    $"path ({assetBundlesPath}) exists for build target " +
-                    $"{buildTargetString}. Please complete an " +
-                    $"assetbundle build before building the app.");
-            }
-
-            // get existing asset bundle files
-            string[] files = Directory.GetFiles(
-                assetBundlesPath,
-                "*",
-                SearchOption.AllDirectories
-            );
-
-            // copy all files to streaming assets
-            foreach (string path in files)
-            {
-                string newFilePath = path.Replace(
-                    assetBundlesPath,
-                    assetPath
-                );
-
-                File.Copy(path, newFilePath, true);
+                throw new BuildFailedException(
+                    $"Placeable bundles missing under Library/PlayerLocalBundles/{target}/. " +
+                    "Wait for scripts to finish compiling, then Build again so packing can complete.");
             }
         }
     }

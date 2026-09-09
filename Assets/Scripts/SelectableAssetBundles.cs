@@ -26,7 +26,7 @@ using UnityEditor;
     order = 1)]
 public class SelectableAssetBundles : ScriptableObject, IPreprocessAssetBundle
 {
-    private const string CatalogAssetPath = "Assets/SelectableAssetBundles.asset";
+    private const string CatalogAssetPath = "Assets/Resources/SelectableAssetBundles.asset";
     private const string CatalogBundleName = "selectableassetbundles_837398f6c50183d4f80b5c0c2f0daa33";
 
     public static bool Initialized { get; private set; }
@@ -52,7 +52,7 @@ public class SelectableAssetBundles : ScriptableObject, IPreprocessAssetBundle
     }
 
     /// <summary>
-    /// Loads the local selectable catalog from Assets (editor) or StreamingAssets.
+    /// Loads the local selectable catalog from Assets/Resources.
     /// </summary>
     private static void GetDatas()
     {
@@ -92,6 +92,13 @@ public class SelectableAssetBundles : ScriptableObject, IPreprocessAssetBundle
             return true;
         }
 #endif
+
+        catalog = Resources.Load<SelectableAssetBundles>("SelectableAssetBundles");
+        if (catalog != null)
+        {
+            AssetPipelineDiagnostics.Log("Catalog", "Loaded from Resources/SelectableAssetBundles");
+            return true;
+        }
 
         foreach (string path in GetLocalCatalogBundlePaths())
         {

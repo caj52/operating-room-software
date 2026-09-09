@@ -9,6 +9,7 @@ using System.Diagnostics;
 using Debug = UnityEngine.Debug;
 using System.Text;
 using UnityEditor;
+using UnityEditor.Build.Reporting;
 using System.Reflection;
 using System.Text.RegularExpressions;
 
@@ -84,9 +85,14 @@ namespace SplenSoft.AssetBundles
             return _customAssetHandlers;
         }
 
+        /// <summary>
+        /// Temp pack output under Library/ (not a permanent project duplicate).
+        /// PostBuild copies into the player; this folder is disposable cache.
+        /// </summary>
         public static string AssetBundlePath => Path.Combine(
             Directory.GetCurrentDirectory(),
-            "AssetBundles"
+            "Library",
+            "PlayerLocalBundles"
         );
 
         #region Menu items
@@ -347,6 +353,288 @@ namespace SplenSoft.AssetBundles
             var guidString = guid.ToString();
             var importer = AssetImporter.GetAtPath(path);
             return TryGetAssetBundleName(obj, importer, guidString, out assetBundleName);
+        }
+
+        /// <summary>
+        /// Packs selectables under project AssetBundles/ (outside Assets/).
+        /// Player StreamingAssets is filled in PostBuild — never stage into
+        /// Assets/StreamingAssets (AssetDatabase.Refresh on thousands of
+        /// binaries hangs the editor).
+        /// </summary>
+        public static string BuildAndStageLocalBundles(BuildTarget buildTarget, bool forceRebuild = false)
+        {
+            string builtPath = BuildLocalAssetBundles(buildTarget, forceRebuild);
+            EnsureRuntimePlatformManifestAlias(buildTarget, AssetBundleManagerSettings.Get());
+            return builtPath;
+        }
+
+        /// <summary>
+        /// Packs Prefabs/Selectables (+ catalog) into AssetBundles/&lt;target&gt;.
+        /// </summary>
+        public static string BuildLocalAssetBundles(BuildTarget buildTarget, bool forceRebuild = false)
+        {
+            IsPackagingAssets = true;
+            try
+            {
+                var builds = CollectSelectableAssetBundleBuilds();
+                if (builds.Count == 0)
+                {
+                    throw new Exception(
+                        "No selectable prefab asset bundles found under Assets/Prefabs/Selectables.");
+                }
+
+                string path = Path.Combine(AssetBundlePath, buildTarget.ToString());
+                if (!Directory.Exists(path))
+                    Directory.CreateDirectory(path);
+
+                BuildAssetBundleOptions flags =
+                    BuildAssetBundleOptions.AssetBundleStripUnityVersion |
+                    BuildAssetBundleOptions.ChunkBasedCompression;
+                if (forceRebuild)
+                    flags |= BuildAssetBundleOptions.ForceRebuildAssetBundle;
+
+                Log.Write(LogLevel.Log,
+                    $"Building {builds.Count} selectable asset bundles for {buildTarget}…");
+
+                var manifest = BuildPipeline.BuildAssetBundles(
+                    path, builds.ToArray(), flags, buildTarget);
+                if (manifest == null)
+                {
+                    throw new Exception(
+                        $"BuildPipeline.BuildAssetBundles failed for {buildTarget} at {path}");
+                }
+
+                EditorUtility.UnloadUnusedAssetsImmediate(true);
+                Log.Write(LogLevel.Log,
+                    $"Built {builds.Count} local selectable bundles for {buildTarget} at {path}");
+                return path;
+            }
+            finally
+            {
+                IsPackagingAssets = false;
+            }
+        }
+
+        public static string GetBuiltBundlesDirectory(BuildTarget buildTarget) =>
+            Path.Combine(AssetBundlePath, buildTarget.ToString());
+
+        public static bool BuiltPlatformManifestExists(
+            BuildTarget buildTarget,
+            AssetBundleManagerSettings settings)
+        {
+            string dir = GetBuiltBundlesDirectory(buildTarget);
+            string runtimeName = GetRuntimePlatformManifestName(buildTarget, settings);
+            string builtName = buildTarget.ToString();
+            return File.Exists(Path.Combine(dir, runtimeName))
+                || File.Exists(Path.Combine(dir, builtName));
+        }
+
+        private static List<AssetBundleBuild> CollectSelectableAssetBundleBuilds()
+        {
+            var builds = new List<AssetBundleBuild>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            void AddPath(string assetPath)
+            {
+                if (string.IsNullOrEmpty(assetPath))
+                    return;
+                var importer = AssetImporter.GetAtPath(assetPath);
+                if (importer == null || string.IsNullOrEmpty(importer.assetBundleName))
+                    return;
+                string bundleName = importer.assetBundleName;
+                if (!seen.Add(bundleName))
+                    return;
+
+                string[] paths = AssetDatabase.GetAssetPathsFromAssetBundle(bundleName);
+                if (paths == null || paths.Length == 0)
+                    paths = new[] { assetPath };
+
+                builds.Add(new AssetBundleBuild
+                {
+                    assetBundleName = bundleName,
+                    assetNames = paths
+                });
+            }
+
+            // Placeables + UI / shell prefabs (AutoInstantiator loads these at startup).
+            string[] prefabGuids = AssetDatabase.FindAssets(
+                "t:Prefab", new[] { "Assets/Prefabs" });
+            foreach (string guid in prefabGuids)
+                AddPath(AssetDatabase.GUIDToAssetPath(guid));
+
+            AddPath("Assets/AutoInstantiator.asset");
+            AddPath("Assets/Resources/SelectableAssetBundles.asset");
+
+            return builds;
+        }
+
+        public static string GetRuntimePlatformManifestName(
+            BuildTarget builtTarget,
+            AssetBundleManagerSettings settings)
+        {
+            string builtName = builtTarget.ToString();
+            RuntimePlatform? runtime = builtTarget switch
+            {
+                BuildTarget.StandaloneWindows => RuntimePlatform.WindowsPlayer,
+                BuildTarget.StandaloneWindows64 => RuntimePlatform.WindowsPlayer,
+                BuildTarget.StandaloneOSX => RuntimePlatform.OSXPlayer,
+                BuildTarget.StandaloneLinux64 => RuntimePlatform.LinuxPlayer,
+                _ => null
+            };
+
+            if (runtime == null ||
+                settings?.BuildTargetsByPlatform == null ||
+                !settings.BuildTargetsByPlatform.TryGetValue(runtime.Value, out int id) ||
+                settings.BuildTargetNames == null ||
+                !settings.BuildTargetNames.TryGetValue(id, out string expected) ||
+                string.IsNullOrEmpty(expected))
+            {
+                return builtName;
+            }
+
+            return expected;
+        }
+
+        /// <summary>
+        /// Copies built bundles into the player build's StreamingAssets/AssetBundles.
+        /// </summary>
+        public static void CopyBundlesIntoPlayerStreamingAssets(
+            string playerStreamingAssetsRoot,
+            string builtBundlesPath)
+        {
+            if (string.IsNullOrEmpty(builtBundlesPath) || !Directory.Exists(builtBundlesPath))
+            {
+                throw new Exception(
+                    $"Cannot copy asset bundles — missing folder: {builtBundlesPath}");
+            }
+
+            if (string.IsNullOrEmpty(playerStreamingAssetsRoot))
+            {
+                throw new Exception("Player StreamingAssets path is empty.");
+            }
+
+            string destRoot = Path.Combine(playerStreamingAssetsRoot, "AssetBundles");
+            if (Directory.Exists(destRoot))
+                Directory.Delete(destRoot, true);
+            Directory.CreateDirectory(destRoot);
+
+            string[] files = Directory.GetFiles(builtBundlesPath, "*", SearchOption.AllDirectories);
+            int copied = 0;
+            foreach (string path in files)
+            {
+                if (path.EndsWith(".meta", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                string relative = path.Substring(builtBundlesPath.Length)
+                    .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string dest = Path.Combine(destRoot, relative);
+                string destDir = Path.GetDirectoryName(dest);
+                if (!string.IsNullOrEmpty(destDir) && !Directory.Exists(destDir))
+                    Directory.CreateDirectory(destDir);
+                File.Copy(path, dest, true);
+                copied++;
+            }
+
+            Log.Write(LogLevel.Log,
+                $"Copied {copied} asset bundle files into player StreamingAssets/AssetBundles");
+        }
+
+        /// <summary>
+        /// Removes a prior mistaken stage under Assets/StreamingAssets/AssetBundles
+        /// without AssetDatabase.Refresh (Refresh on thousands of binaries hangs).
+        /// </summary>
+        public static void CleanupProjectStreamingAssetBundles()
+        {
+            string assetPath = Path.Combine(Application.dataPath, "StreamingAssets", "AssetBundles");
+            if (!Directory.Exists(assetPath))
+                return;
+
+            try
+            {
+                Directory.Delete(assetPath, true);
+                string meta = assetPath + ".meta";
+                if (File.Exists(meta))
+                    File.Delete(meta);
+                Log.Write(LogLevel.Log,
+                    "Removed Assets/StreamingAssets/AssetBundles (bundles ship via PostBuild copy).");
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning(
+                    $"[Placeables] Could not delete Assets/StreamingAssets/AssetBundles: {e.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Runtime looks up the platform manifest via settings BuildTargetNames
+        /// (often "StandaloneWindows") while the player build target may be
+        /// StandaloneWindows64. Ensure both names exist in the built bundle folder.
+        /// </summary>
+        public static void EnsureRuntimePlatformManifestAlias(
+            BuildTarget builtTarget,
+            AssetBundleManagerSettings settings)
+        {
+            RuntimePlatform? runtime = builtTarget switch
+            {
+                BuildTarget.StandaloneWindows => RuntimePlatform.WindowsPlayer,
+                BuildTarget.StandaloneWindows64 => RuntimePlatform.WindowsPlayer,
+                BuildTarget.StandaloneOSX => RuntimePlatform.OSXPlayer,
+                BuildTarget.StandaloneLinux64 => RuntimePlatform.LinuxPlayer,
+                _ => null
+            };
+
+            if (runtime == null ||
+                settings.BuildTargetsByPlatform == null ||
+                !settings.BuildTargetsByPlatform.TryGetValue(runtime.Value, out int configuredId) ||
+                settings.BuildTargetNames == null ||
+                !settings.BuildTargetNames.TryGetValue(configuredId, out string expectedName) ||
+                string.IsNullOrEmpty(expectedName))
+            {
+                return;
+            }
+
+            string builtName = builtTarget.ToString();
+            if (string.Equals(builtName, expectedName, StringComparison.Ordinal))
+                return;
+
+            string dir = GetBuiltBundlesDirectory(builtTarget);
+            string builtFile = Path.Combine(dir, builtName);
+            string expectedFile = Path.Combine(dir, expectedName);
+            if (!File.Exists(builtFile))
+                return;
+
+            File.Copy(builtFile, expectedFile, true);
+            string builtManifest = builtFile + ".manifest";
+            string expectedManifest = expectedFile + ".manifest";
+            if (File.Exists(builtManifest))
+                File.Copy(builtManifest, expectedManifest, true);
+
+            Log.Write(LogLevel.Log,
+                $"Aliased platform manifest {builtName} → {expectedName} for runtime lookup");
+        }
+
+        public static string GetPlayerStreamingAssetsPath(BuildReport report)
+        {
+            string outputPath = report.summary.outputPath;
+            BuildTarget target = report.summary.platform;
+
+            switch (target)
+            {
+                case BuildTarget.StandaloneWindows:
+                case BuildTarget.StandaloneWindows64:
+                case BuildTarget.StandaloneLinux64:
+                {
+                    string dir = Path.GetDirectoryName(outputPath);
+                    string name = Path.GetFileNameWithoutExtension(outputPath);
+                    return Path.Combine(dir ?? string.Empty, name + "_Data", "StreamingAssets");
+                }
+                case BuildTarget.StandaloneOSX:
+                    return Path.Combine(outputPath, "Contents", "Resources", "Data", "StreamingAssets");
+                default:
+                    // Fallback: sibling StreamingAssets next to output (some non-standalone targets).
+                    string parent = Path.GetDirectoryName(outputPath) ?? string.Empty;
+                    return Path.Combine(parent, "StreamingAssets");
+            }
         }
 
         private static void PackageAssetBundles(List<BuildTargetBucket> buildTargetBuckets, bool cleanBuild = false)
