@@ -1,6 +1,5 @@
 #if UNITY_EDITOR
 using System.IO;
-using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEngine;
@@ -8,8 +7,9 @@ using UnityEngine;
 namespace SplenSoft.AssetBundles
 {
     /// <summary>
-    /// After player build: copy packed placeables into the player's
-    /// StreamingAssets/AssetBundles (kept outside Assets/ during the build).
+    /// After player build: drop the temporary Assets/StreamingAssets/AssetBundles
+    /// stage. Do not copy into the player — Unity already shipped those files,
+    /// and injecting into a Mac .app after codesign makes Gatekeeper refuse to open it.
     /// </summary>
     internal class PostBuild : IPostprocessBuildWithReport
     {
@@ -19,26 +19,23 @@ namespace SplenSoft.AssetBundles
         {
             var settings = AssetBundleManagerSettings.Get();
             bool shipLocal = !settings.AllowRemoteCdn || settings.KeepLocalCopy;
-            if (!shipLocal)
-                return;
 
-            BuildTarget target = report.summary.platform;
-            string builtPath = AssetBundleManager.GetBuiltBundlesDirectory(target);
-            if (!Directory.Exists(builtPath))
+            if (shipLocal)
             {
-                Debug.LogError(
-                    $"[Placeables] Built bundles missing at {builtPath}; " +
-                    "player will not have placeables in StreamingAssets.");
-                return;
+                string playerBundles = Path.Combine(
+                    AssetBundleManager.GetPlayerStreamingAssetsPath(report),
+                    "AssetBundles");
+                if (!Directory.Exists(playerBundles) ||
+                    Directory.GetFiles(playerBundles, "*", SearchOption.AllDirectories).Length == 0)
+                {
+                    Debug.LogError(
+                        "[Placeables] Player StreamingAssets/AssetBundles is empty. " +
+                        "Placeables will fail at runtime. Rebuild so PreBuild can stage bundles " +
+                        "into Assets/StreamingAssets before Unity copies them into the player.");
+                }
             }
 
-            AssetBundleManager.EnsureRuntimePlatformManifestAlias(target, settings);
-
-            string playerStreaming = AssetBundleManager.GetPlayerStreamingAssetsPath(report);
-            AssetBundleManager.CopyBundlesIntoPlayerStreamingAssets(playerStreaming, builtPath);
-
-            // Leftover from older stage-into-Assets flow — delete without Refresh.
-            AssetBundleManager.CleanupProjectStreamingAssetBundles();
+            AssetBundleManager.EndProjectStreamingAssetsStage();
         }
     }
 }

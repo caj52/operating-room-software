@@ -9,6 +9,7 @@ using System.Diagnostics;
 using Debug = UnityEngine.Debug;
 using System.Text;
 using UnityEditor;
+using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using System.Reflection;
 using System.Text.RegularExpressions;
@@ -87,13 +88,15 @@ namespace SplenSoft.AssetBundles
 
         /// <summary>
         /// Temp pack output under Library/ (not a permanent project duplicate).
-        /// PostBuild copies into the player; this folder is disposable cache.
+        /// PreBuild stages a copy into Assets/StreamingAssets so Unity ships it.
         /// </summary>
         public static string AssetBundlePath => Path.Combine(
             Directory.GetCurrentDirectory(),
             "Library",
             "PlayerLocalBundles"
         );
+
+        private static bool _autoRefreshDisabledForStage;
 
         #region Menu items
 
@@ -356,9 +359,9 @@ namespace SplenSoft.AssetBundles
         }
 
         /// <summary>
-        /// Packs selectables under project AssetBundles/ (outside Assets/).
-        /// Player StreamingAssets is filled in PostBuild — never stage into
-        /// Assets/StreamingAssets (AssetDatabase.Refresh on thousands of
+        /// Packs selectables under Library/PlayerLocalBundles (outside Assets/).
+        /// Call <see cref="PrepareLocalBundlesForPlayerBuild"/> to copy into
+        /// Assets/StreamingAssets without Refresh (Refresh on thousands of
         /// binaries hangs the editor).
         /// </summary>
         public static string BuildAndStageLocalBundles(BuildTarget buildTarget, bool forceRebuild = false)
@@ -366,6 +369,34 @@ namespace SplenSoft.AssetBundles
             string builtPath = BuildLocalAssetBundles(buildTarget, forceRebuild);
             EnsureRuntimePlatformManifestAlias(buildTarget, AssetBundleManagerSettings.Get());
             return builtPath;
+        }
+
+        /// <summary>
+        /// Pack if needed, then copy into Assets/StreamingAssets/AssetBundles
+        /// so the upcoming player build includes them (no post-build inject).
+        /// </summary>
+        public static void PrepareLocalBundlesForPlayerBuild(BuildTarget buildTarget)
+        {
+            var settings = AssetBundleManagerSettings.Get();
+            if (!BuiltPlatformManifestExists(buildTarget, settings))
+            {
+                Debug.Log($"[Placeables] Packing bundles for {buildTarget}…");
+                BuildAndStageLocalBundles(buildTarget, forceRebuild: false);
+            }
+            else
+            {
+                Debug.Log($"[Placeables] Using existing packs for {buildTarget}");
+                EnsureRuntimePlatformManifestAlias(buildTarget, settings);
+            }
+
+            if (!BuiltPlatformManifestExists(buildTarget, settings))
+            {
+                throw new BuildFailedException(
+                    $"Placeable bundles missing under Library/PlayerLocalBundles/{buildTarget}/. " +
+                    "Wait for scripts to finish compiling, then Build again so packing can complete.");
+            }
+
+            StageBuiltBundlesIntoProjectStreamingAssets(GetBuiltBundlesDirectory(buildTarget));
         }
 
         /// <summary>
@@ -496,24 +527,25 @@ namespace SplenSoft.AssetBundles
         }
 
         /// <summary>
-        /// Copies built bundles into the player build's StreamingAssets/AssetBundles.
+        /// Copies packed bundles into Assets/StreamingAssets/AssetBundles without
+        /// AssetDatabase.Refresh (Refresh on thousands of binaries hangs the editor).
+        /// Unity's player build then copies that folder into the player before codesign.
         /// </summary>
-        public static void CopyBundlesIntoPlayerStreamingAssets(
-            string playerStreamingAssetsRoot,
-            string builtBundlesPath)
+        public static void StageBuiltBundlesIntoProjectStreamingAssets(string builtBundlesPath)
         {
             if (string.IsNullOrEmpty(builtBundlesPath) || !Directory.Exists(builtBundlesPath))
             {
                 throw new Exception(
-                    $"Cannot copy asset bundles — missing folder: {builtBundlesPath}");
+                    $"Cannot stage asset bundles — missing folder: {builtBundlesPath}");
             }
 
-            if (string.IsNullOrEmpty(playerStreamingAssetsRoot))
+            if (!_autoRefreshDisabledForStage)
             {
-                throw new Exception("Player StreamingAssets path is empty.");
+                AssetDatabase.DisallowAutoRefresh();
+                _autoRefreshDisabledForStage = true;
             }
 
-            string destRoot = Path.Combine(playerStreamingAssetsRoot, "AssetBundles");
+            string destRoot = Path.Combine(Application.dataPath, "StreamingAssets", "AssetBundles");
             if (Directory.Exists(destRoot))
                 Directory.Delete(destRoot, true);
             Directory.CreateDirectory(destRoot);
@@ -536,11 +568,11 @@ namespace SplenSoft.AssetBundles
             }
 
             Log.Write(LogLevel.Log,
-                $"Copied {copied} asset bundle files into player StreamingAssets/AssetBundles");
+                $"Staged {copied} asset bundle files into Assets/StreamingAssets/AssetBundles");
         }
 
         /// <summary>
-        /// Removes a prior mistaken stage under Assets/StreamingAssets/AssetBundles
+        /// Removes the temporary Assets/StreamingAssets/AssetBundles stage
         /// without AssetDatabase.Refresh (Refresh on thousands of binaries hangs).
         /// </summary>
         public static void CleanupProjectStreamingAssetBundles()
@@ -556,13 +588,26 @@ namespace SplenSoft.AssetBundles
                 if (File.Exists(meta))
                     File.Delete(meta);
                 Log.Write(LogLevel.Log,
-                    "Removed Assets/StreamingAssets/AssetBundles (bundles ship via PostBuild copy).");
+                    "Removed Assets/StreamingAssets/AssetBundles (already copied into the player).");
             }
             catch (Exception e)
             {
                 Debug.LogWarning(
                     $"[Placeables] Could not delete Assets/StreamingAssets/AssetBundles: {e.Message}");
             }
+        }
+
+        /// <summary>
+        /// Drop the project StreamingAssets stage and re-enable auto-refresh.
+        /// </summary>
+        public static void EndProjectStreamingAssetsStage()
+        {
+            CleanupProjectStreamingAssetBundles();
+            if (!_autoRefreshDisabledForStage)
+                return;
+
+            AssetDatabase.AllowAutoRefresh();
+            _autoRefreshDisabledForStage = false;
         }
 
         /// <summary>
@@ -629,7 +674,25 @@ namespace SplenSoft.AssetBundles
                     return Path.Combine(dir ?? string.Empty, name + "_Data", "StreamingAssets");
                 }
                 case BuildTarget.StandaloneOSX:
-                    return Path.Combine(outputPath, "Contents", "Resources", "Data", "StreamingAssets");
+                {
+                    string appPath = outputPath;
+                    if (!appPath.EndsWith(".app", StringComparison.OrdinalIgnoreCase) &&
+                        Directory.Exists(outputPath))
+                    {
+                        string named = Path.Combine(
+                            outputPath, PlayerSettings.productName + ".app");
+                        if (Directory.Exists(named))
+                            appPath = named;
+                        else
+                        {
+                            string[] apps = Directory.GetDirectories(outputPath, "*.app");
+                            if (apps.Length == 1)
+                                appPath = apps[0];
+                        }
+                    }
+                    return Path.Combine(
+                        appPath, "Contents", "Resources", "Data", "StreamingAssets");
+                }
                 default:
                     // Fallback: sibling StreamingAssets next to output (some non-standalone targets).
                     string parent = Path.GetDirectoryName(outputPath) ?? string.Empty;

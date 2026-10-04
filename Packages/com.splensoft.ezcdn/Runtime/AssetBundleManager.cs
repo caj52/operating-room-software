@@ -341,7 +341,7 @@ namespace SplenSoft.AssetBundles
                 {
                     Debug.LogError(
                         $"Asset Bundle Manager failed to load shipped platform manifest '{targetName}' " +
-                        $"from StreamingAssets/AssetBundles. Rebuild the player so PostBuild copies local bundles.");
+                        $"from StreamingAssets/AssetBundles. Rebuild the player so placeable bundles ship in StreamingAssets.");
                     AbortInitialize(settings);
                     return;
                 }

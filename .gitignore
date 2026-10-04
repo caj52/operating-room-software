@@ -72,6 +72,9 @@ crashlytics-build.properties
 /[Aa]ssets/[Ss]treamingAssets/aa.meta
 /[Aa]ssets/[Ss]treamingAssets/aa/*
 
+# Placeable bundles staged only for the player build (not source)
+/[Aa]ssets/[Ss]treamingAssets/[Aa]sset[Bb]undles/
+
 # Root-level Unity batchmode logs
 /unity-*.log
 
