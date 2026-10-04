@@ -218,7 +218,7 @@ public class UI_ExportOptions : MonoBehaviour
             includeCustomize: false);
 
         _rowObj = CreateDeliverableRow(
-            "3D model",
+            "OBJ / MTL",
             RunObjExport,
             includeCustomize: true);
 

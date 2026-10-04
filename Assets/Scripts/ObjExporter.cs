@@ -5,7 +5,6 @@ using System.Collections.Generic;
 using System;
 using Object = UnityEngine.Object;
 using Debug = UnityEngine.Debug;
-using System.Threading.Tasks;
 using UnityEngine.Events;
 using System.Linq;
 using RTG;
@@ -19,7 +18,7 @@ public static class ObjExporter
     public static UnityEvent OnMeshDataWritten { get; } = new();
     public static UnityEvent OnExportFinished { get; } = new();
     public static int count = 1;
-    public static async void DoExport(
+    public static void DoExport(
         bool makeSubmeshes,
         MeshFilter[] meshFilters,
         string name,
@@ -37,6 +36,54 @@ public static class ObjExporter
         ObjExporterScript.Start();
         OnExportStarted?.Invoke();
 
+        try
+        {
+            string path = ExportPaths.ObjSceneDir;
+            if (!TryExportObjMtl(makeSubmeshes, meshFilters, name, path))
+                return;
+
+            OnSubMeshProcessed?.Invoke(1f);
+            OnMeshDataWritten?.Invoke();
+            ExportFinishedSuccessfully?.Invoke(path);
+        }
+        catch (Exception e)
+        {
+            Debug.LogException(e);
+        }
+        finally
+        {
+            OnExportFinished?.Invoke();
+            ObjExporterScript.End();
+        }
+    }
+
+    /// <summary>
+    /// Writes an OBJ/MTL package (plus PNG maps) into <paramref name="outputDirectory"/>.
+    /// Does not write GLB/FBX. Safe to call from EditMode tests.
+    /// </summary>
+    public static bool TryExportObjMtl(
+        bool makeSubmeshes,
+        MeshFilter[] meshFilters,
+        string name,
+        string outputDirectory)
+    {
+        if (meshFilters == null || meshFilters.Length == 0)
+        {
+            Debug.LogWarning("OBJ export skipped — no mesh filters provided.");
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(outputDirectory))
+        {
+            Debug.LogWarning("OBJ export skipped — no output directory.");
+            return false;
+        }
+
+        ObjExporterScript.Start();
+        List<CombineInstance> finalCombiners = new();
+        List<Mesh> tempSubmeshes = new();
+        Mesh finalMesh = null;
+        GameObject combinedGo = null;
         try
         {
             string meshName = string.IsNullOrWhiteSpace(name) ? "Export" : name;
@@ -64,24 +111,14 @@ public static class ObjExporter
             {
                 ProcessMaterials(kvp.Key, kvp.Value, materials, combineInstancesByMaterial, materialInstanceMap);
                 OnMeshCombiningUpdate?.Invoke((float)(counter + 1) / (meshFilters.Length + 1));
-
-                if (counter % 10 == 0)
-                    await Task.Yield();
-
                 counter++;
-
-                if (!Application.isPlaying)
-                    throw new Exception("App quit during task");
             }
 
             if (materials.Count == 0 || combineInstancesByMaterial.Count == 0)
             {
                 Debug.LogWarning("OBJ export skipped — no materials/meshes to combine.");
-                return;
+                return false;
             }
-
-            List<CombineInstance> finalCombiners = new();
-            List<Mesh> tempSubmeshes = new();
 
             for (int i = 0; i < combineInstancesByMaterial.Count; i++)
             {
@@ -100,41 +137,35 @@ public static class ObjExporter
 
                 finalCombiners.Add(EnsureOutwardFacingNormals(ci));
                 tempSubmeshes.Add(submesh);
-
-                if (i % 5 == 0)
-                    await Task.Yield();
             }
 
-            Mesh finalMesh = new()
+            finalMesh = new Mesh
             {
                 indexFormat = UnityEngine.Rendering.IndexFormat.UInt32
             };
             finalMesh.CombineMeshes(finalCombiners.ToArray(), false);
 
             OnMeshCombineSuccess?.Invoke();
-            await Task.Yield();
 
             ObjExportData data = new();
             data.Obj.Append($"#{meshName}.obj\n# {DateTime.Now.ToLongDateString()}\n# {DateTime.Now.ToLongTimeString()}\n#-------\n\n");
             data.Obj.Append($"mtllib {meshName}.mtl\n\n");
 
-            var obj = new GameObject("CombinedMesh", typeof(MeshFilter));
-            obj.GetComponent<MeshFilter>().sharedMesh = finalMesh;
-            obj.transform.position = Vector3.zero;
+            combinedGo = new GameObject("CombinedMesh", typeof(MeshFilter));
+            combinedGo.GetComponent<MeshFilter>().sharedMesh = finalMesh;
+            combinedGo.transform.position = Vector3.zero;
 
-            await ProcessTransform(obj.transform, makeSubmeshes, materials, data);
+            ProcessTransform(combinedGo.transform, makeSubmeshes, materials, data);
 
-            // MeshToString already wrote usemtl/newmtl blocks; write texture maps via AddMaterialToMtl.
             data.Mtl.Clear();
             foreach (var material in materials)
                 AddMaterialToMtl(data, material);
 
             data.Bake();
 
-            string path = ExportPaths.ObjSceneDir;
-            Directory.CreateDirectory(path);
-            File.WriteAllText(Path.Combine(path, $"{meshName}.obj"), data.ObjString);
-            File.WriteAllText(Path.Combine(path, $"{meshName}.mtl"), data.MtlString);
+            Directory.CreateDirectory(outputDirectory);
+            File.WriteAllText(Path.Combine(outputDirectory, $"{meshName}.obj"), data.ObjString);
+            File.WriteAllText(Path.Combine(outputDirectory, $"{meshName}.mtl"), data.MtlString);
 
             count++;
 
@@ -147,34 +178,30 @@ public static class ObjExporter
                     continue;
 
                 byte[] imageByteArray = Convert.FromBase64String(item.TextureBase64);
-                File.WriteAllBytes(Path.Combine(path, $"{item.Name}.png"), imageByteArray);
+                File.WriteAllBytes(Path.Combine(outputDirectory, $"{item.Name}.png"), imageByteArray);
             }
 
-            // Folder package (established workflow): .obj + matching .mtl + texture PNGs
-            // side-by-side so importers load materials with the mesh.
-            OnSubMeshProcessed?.Invoke(1f);
-            OnMeshDataWritten?.Invoke();
-            Debug.Log($"OBJ export written: {Path.Combine(path, meshName + ".obj")} (mtl + textures in same folder)");
-            ExportFinishedSuccessfully?.Invoke(path);
-
-            foreach (var m in tempSubmeshes)
-                Object.Destroy(m);
-
-            Object.Destroy(finalMesh);
-            Object.Destroy(obj);
-
-            GC.Collect();
-            Resources.UnloadUnusedAssets();
-        }
-        catch (Exception e)
-        {
-            Debug.LogException(e);
+            Debug.Log($"OBJ export written: {Path.Combine(outputDirectory, meshName + ".obj")} (mtl + textures in same folder)");
+            return true;
         }
         finally
         {
-            OnExportFinished?.Invoke();
+            foreach (var m in tempSubmeshes)
+                DestroyExportAsset(m);
+            DestroyExportAsset(finalMesh);
+            DestroyExportAsset(combinedGo);
             ObjExporterScript.End();
         }
+    }
+
+    private static void DestroyExportAsset(Object asset)
+    {
+        if (asset == null)
+            return;
+        if (Application.isPlaying)
+            Object.Destroy(asset);
+        else
+            Object.DestroyImmediate(asset);
     }
 
 
@@ -188,6 +215,8 @@ public static class ObjExporter
         for (int j = 0; j < sharedMaterials.Length; j++)
         {
             Material sharedMat = sharedMaterials[j];
+            if (sharedMat == null)
+                continue;
 
             // Check if a new instance already exists for this shared material
             if (!materialInstanceMap.TryGetValue(sharedMat, out Material mat))
@@ -313,7 +342,7 @@ public static class ObjExporter
 
 
 
-    private static async Task<ObjExportData> ProcessTransform(Transform t, bool makeSubmeshes, List<Material> materials, ObjExportData data)
+    private static ObjExportData ProcessTransform(Transform t, bool makeSubmeshes, List<Material> materials, ObjExportData data)
     {
         data ??= new ObjExportData();
 
@@ -323,10 +352,7 @@ public static class ObjExporter
             if (makeSubmeshes)
                 data.Obj.Append("g ").Append(t.name).Append("\n");
 
-            var task = ObjExporterScript.MeshToString(mf, t, materials, data);
-            await task;
-
-            data.Obj.Append(task.Result);
+            ObjExporterScript.MeshToString(mf, t, materials, data);
         }
 
         return data;
@@ -504,7 +530,7 @@ public class ObjExporterScript
         sb.Append(text).Append("\n");
     }
 
-    public static async Task<ObjExportData> MeshToString(
+    public static ObjExportData MeshToString(
     MeshFilter mf,
     Transform t,
     List<Material> materials,
@@ -614,10 +640,6 @@ public class ObjExporterScript
             }
 
             ObjExporter.OnSubMeshProcessed?.Invoke((float)subMesh / (m.subMeshCount + 1));
-
-            await Task.Yield();
-            if (!Application.isPlaying)
-                throw new Exception("App quit during task");
         }
 
         _startIndex += numVertices;
