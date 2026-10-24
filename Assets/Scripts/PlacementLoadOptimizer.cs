@@ -76,16 +76,28 @@ public static class PlacementLoadOptimizer
             return 0;
 
         int restored = 0;
+        bool keptBox = false;
         foreach (MeshCollider meshCollider in root.GetComponentsInChildren<MeshCollider>(true))
         {
             if (!meshCollider.convex || meshCollider.enabled)
                 continue;
 
+            // Convex hulls are capped at 256 polygons, but enabling one still cooks the
+            // entire source mesh. That cook is the stall when this robot is set down.
+            Mesh source = meshCollider.sharedMesh;
+            if (source != null && source.vertexCount > 100000)
+            {
+                EnsureBoxColliderFromRenderers(root);
+                keptBox = true;
+                continue;
+            }
+
             meshCollider.enabled = true;
             restored++;
         }
 
-        RemoveFallbackBoxColliders(root);
+        if (!keptBox)
+            RemoveFallbackBoxColliders(root);
 
         foreach (Collider collider in root.GetComponentsInChildren<Collider>(true))
         {

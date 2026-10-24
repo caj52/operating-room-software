@@ -757,6 +757,69 @@ MonoBehaviour:
       <Categories>k__BackingField: []
       <KeyWords>k__BackingField: []
       <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: DaVinci5PatientCart
+    <SaveLoadGuid>k__BackingField: gameobject_bdbce0ef631c4806a25f0d4c756b027e
+    <AssetBundleName>k__BackingField: gameobject_bdbce0ef631c4806a25f0d4c756b027e
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: DaVinci 5 Patient Cart
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - DaVinci
+      <KeyWords>k__BackingField:
+      - DaVinci
+      - da vinci
+      - davinci
+      - robot
+      - surgical
+      - intuitive
+      - da Vinci 5
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: DaVinci5SurgeonConsole
+    <SaveLoadGuid>k__BackingField: gameobject_bebb62acdc5a4540910ac0ae485b73f6
+    <AssetBundleName>k__BackingField: gameobject_bebb62acdc5a4540910ac0ae485b73f6
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: DaVinci 5 Surgeon Console
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - DaVinci
+      <KeyWords>k__BackingField:
+      - DaVinci
+      - da vinci
+      - davinci
+      - robot
+      - surgical
+      - intuitive
+      - da Vinci 5
+      <AttachmentPointGuidMetaData>k__BackingField: []
+  - <PrefabName>k__BackingField: DaVinci5TowerMonitor
+    <SaveLoadGuid>k__BackingField: gameobject_71d3934a02c74d03946309dfb5341614
+    <AssetBundleName>k__BackingField: gameobject_71d3934a02c74d03946309dfb5341614
+    <MetaData>k__BackingField:
+      <IsSubSelectable>k__BackingField: 0
+      <Enabled>k__BackingField: 1
+      <IsStandalone>k__BackingField: 1
+      <ThumbnailBase64>k__BackingField: 
+      <Name>k__BackingField: DaVinci 5 Vision Tower
+      <SubPartName>k__BackingField: 
+      <Categories>k__BackingField:
+      - DaVinci
+      <KeyWords>k__BackingField:
+      - DaVinci
+      - da vinci
+      - davinci
+      - robot
+      - surgical
+      - intuitive
+      - da Vinci 5
+      <AttachmentPointGuidMetaData>k__BackingField: []
   - <PrefabName>k__BackingField: Decal_StorzLogo
     <SaveLoadGuid>k__BackingField: gameobject_409a9b4621dcd74438b93f3a0bcbcf81
     <AssetBundleName>k__BackingField: gameobject_409a9b4621dcd74438b93f3a0bcbcf81
