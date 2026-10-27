@@ -1,0 +1,7 @@
+result=Passed
+pass=5 fail=0 skip=0 inconclusive=0
+ObjMtlExportTests.MtlFile_HasNewmtl_AndMapKdWhenTextured: Passed
+ObjMtlExportTests.ObjectExportPipeline_CallsObjExporter_NotGlbExporter: Passed
+ObjMtlExportTests.ObjFile_ReferencesMatchingMtl_AndHasGeometry: Passed
+ObjMtlExportTests.TryExport_EmptyFilters_ReturnsFalse_WritesNothing: Passed
+ObjMtlExportTests.TryExport_WritesObjAndMtl_NotGlbOrFbx: Passed
