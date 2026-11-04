@@ -212,6 +212,7 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     public bool ScaleLevelsRestoredFromSave { get; set; } = false;
     private bool _deferInitUntilLoadComplete;
     private bool _prefabSelectableGroupReady;
+    private bool _suppressColliderRestore;
     private static HighlightProfile _cachedHighlightProfileSelected;
     #endregion
 
@@ -486,10 +487,35 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     public bool isDuplicated;
     private void Start()
     {
+        // After Awake, so a menu spawn can opt out before this runs. Room load
+        // restores in its own pass while IsLoading is still true.
+        if (!ConfigurationManager.IsLoading && !_suppressColliderRestore)
+            RestoreCollidersOnSceneEnter();
+
         if (Started || ConfigurationManager.IsLoading)
             return;
 
         InitializeAfterStart();
+    }
+
+    /// <summary>
+    /// Menu spawns and duplicates enter raycast placement after Instantiate.
+    /// Leave their colliders off until that drag drops them.
+    /// </summary>
+    public void SuppressColliderRestore()
+    {
+        _suppressColliderRestore = true;
+    }
+
+    void RestoreCollidersOnSceneEnter()
+    {
+        if (FindPrefabInstanceRoot() != this)
+            return;
+
+        PlacementLoadOptimizer.RestoreInstanceCollidersAfterLoad(gameObject);
+
+        if (_prefabSelectableGroupReady && RelatedSelectables != null)
+            ForwardClicksFromChildColliders(this, RelatedSelectables);
     }
 
     private void InitializeAfterStart()
@@ -4378,6 +4404,12 @@ public partial class Selectable : MonoBehaviour, IPreprocessAssetBundle
     {
         if (ParentAttachmentPoint != null)
             return;
+
+        foreach (Selectable sel in GetComponentsInChildren<Selectable>(true))
+        {
+            if (sel != null)
+                sel.SuppressColliderRestore();
+        }
 
         DeselectAll();
         _highlightEffect.highlighted = true;

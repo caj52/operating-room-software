@@ -127,7 +127,10 @@ public class UI_Button_DuplicateObject : MonoBehaviour
         GameObject duplicate = Instantiate(original, position, original.transform.rotation);
         // Mark before any await / Start so InitializeAfterStart skips SetScaleLevel.
         foreach (var sel in duplicate.GetComponentsInChildren<Selectable>(true))
+        {
             sel.isDuplicated = true;
+            sel.SuppressColliderRestore();
+        }
         ScaleAuditLog.Event("Dup.CreateDuplicate",
             $"Instantiate done; before localScale assign " +
             $"srcLocal={sourceLocal} srcLossy={sourceLossy} " +
