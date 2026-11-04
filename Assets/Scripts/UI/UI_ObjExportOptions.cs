@@ -412,6 +412,7 @@ public class UI_ObjExportOptions : MonoBehaviour
             return false;
 
         string roomName = ExportPaths.SanitizeFolderName(ExportPaths.GetRoomExportName());
+        // Whole-room export. roomPackage true keeps this in the shared folder named Room.
         ObjExporter.DoExport(makeSubmeshes, meshFilters, roomName, roomPackage: true);
         return true;
     }
@@ -460,6 +461,8 @@ public class UI_ObjExportOptions : MonoBehaviour
             return false;
 
         string exportName = ExportPaths.GetObjectExportName(obj, "Object");
+        // One object. Leave roomPackage false so this gets its own folder, named exportName.
+        // Do not pass roomPackage: true here — that dumps the object into the room's shared folder.
         ObjExporter.DoExport(makeSubmeshes, meshFilters, exportName);
         return true;
     }

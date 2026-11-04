@@ -5,8 +5,13 @@ using UnityEngine;
 /// <summary>
 /// Resolves export output folders.
 /// Parent is always Application.persistentDataPath (AppData LocalLow).
-/// Every export goes under {parent}/{RoomName}/ with deliverables in subfolders
-/// (OBJ/Room, elevations, proposals, snapshots). No OS folder picker.
+/// Saved rooms and saved configurations do not come from here — those stay under Saved and Saved/Configs.
+/// Every export goes under {parent}/{RoomName}/. No OS folder picker.
+///
+/// 3D files are the easy one to get wrong. There are two different folders:
+/// - The whole room goes in OBJ/Room. The folder is literally named Room.
+/// - One object goes in OBJ/{that object's name}. It must not be dropped into OBJ/Room.
+/// PDFs, the sales proposal, and renders stay in their own folders (elevations, proposals, snapshots).
 /// </summary>
 public static class ExportPaths
 {
@@ -392,8 +397,22 @@ public static class ExportPaths
         return Path.Combine(GetDefaultParentFolder(), roomName);
     }
 
-    /// <summary>Folder for 3D model exports: {RoomName}/OBJ/Room</summary>
+    /// <summary>
+    /// Whole-room 3D export only. Folder name is "Room" on purpose.
+    /// Do not use this for a single object — that was the bug where object files
+    /// piled up next to the room file.
+    /// </summary>
     public static string ObjSceneDir => Path.Combine(GetExportBasePath(), "OBJ", "Room");
+
+    /// <summary>
+    /// One object's 3D export. Folder name is that object's name, next to the Room folder,
+    /// not inside it. Passing a blank name falls back to "Object".
+    /// </summary>
+    public static string GetObjectPackageDir(string objectName)
+    {
+        string folder = string.IsNullOrWhiteSpace(objectName) ? "Object" : objectName;
+        return Path.Combine(GetExportBasePath(), "OBJ", SanitizeFolderName(folder));
+    }
     public static string ElevationsDir => Path.Combine(GetExportBasePath(), "elevations");
     public static string ProposalsDir => Path.Combine(GetExportBasePath(), "proposals");
     public static string SnapshotsDir => Path.Combine(GetExportBasePath(), "snapshots");

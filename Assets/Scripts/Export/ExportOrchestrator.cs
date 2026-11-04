@@ -203,6 +203,9 @@ public class ExportOrchestrator : MonoBehaviour
         {
             var opts = options ?? ObjExportOptions.CreateDefaults();
 
+            // A selected object and the whole room are different 3D destinations.
+            // The object call below must stay on the single-object overload (its own folder).
+            // The room call must stay on the list overload (the shared folder named Room).
             bool started;
             if (activeRequestScopeIsSelection())
             {

@@ -18,14 +18,18 @@ public static class ObjExporter
     public static UnityEvent OnMeshDataWritten { get; } = new();
     public static UnityEvent OnExportFinished { get; } = new();
     public static int count = 1;
+    /// <summary>
+    /// Writes the OBJ/MTL package.
+    /// roomPackage true: the whole room, into the shared folder named Room.
+    /// roomPackage false: one object, into a folder named after <paramref name="name"/>.
+    /// Do not send both to the Room folder.
+    /// </summary>
     public static void DoExport(
         bool makeSubmeshes,
         MeshFilter[] meshFilters,
         string name,
         bool roomPackage = false)
     {
-        _ = roomPackage;
-
         if (meshFilters == null || meshFilters.Length == 0)
         {
             Debug.LogWarning("OBJ export skipped — no mesh filters provided.");
@@ -38,7 +42,10 @@ public static class ObjExporter
 
         try
         {
-            string path = ExportPaths.ObjSceneDir;
+            // Whole room -> OBJ/Room. One object -> OBJ/{object name}.
+            string path = roomPackage
+                ? ExportPaths.ObjSceneDir
+                : ExportPaths.GetObjectPackageDir(name);
             if (!TryExportObjMtl(makeSubmeshes, meshFilters, name, path))
                 return;
 
