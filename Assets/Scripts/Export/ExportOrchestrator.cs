@@ -103,7 +103,7 @@ public class ExportOrchestrator : MonoBehaviour
                 UI_GeneralLoadingScreen.instance.SetStatus("Exporting 3D model (OBJ + MTL)...");
                 UI_GeneralLoadingScreen.instance.SetProgress((float)stepIndex / stepCount);
                 yield return null;
-                yield return ExportObj(activeRequest.ObjOptions);
+                yield return ExportObj(activeRequest);
                 stepIndex++;
                 yield return null;
             }
@@ -185,91 +185,153 @@ public class ExportOrchestrator : MonoBehaviour
         return Math.Max(count, 1);
     }
 
-    private IEnumerator ExportObj(ObjExportOptions options)
+    private bool _lastObjOk;
+    private string _lastObjPath;
+
+    /// <summary>
+    /// Room export writes the whole room once.
+    /// Export All then also writes each configuration in the room as its own OBJ/MTL.
+    /// A lone "export this object" stays one file and does not walk the other configurations.
+    /// </summary>
+    private IEnumerator ExportObj(ExportRequest request)
     {
-        bool finished = false;
-        bool succeeded = false;
-        string outputPath = null;
-        UnityEngine.Events.UnityAction onFinished = () => finished = true;
-        UnityEngine.Events.UnityAction<string> onSuccess = path =>
+        var opts = request?.ObjOptions ?? ObjExportOptions.CreateDefaults();
+
+        if (activeRequestScopeIsSelection())
         {
-            succeeded = true;
-            outputPath = path;
-        };
-        ObjExporter.OnExportFinished.AddListener(onFinished);
-        ObjExporter.ExportFinishedSuccessfully.AddListener(onSuccess);
-
-        try
-        {
-            var opts = options ?? ObjExportOptions.CreateDefaults();
-
-            // A selected object and the whole room are different 3D destinations.
-            // The object call below must stay on the single-object overload (its own folder).
-            // The room call must stay on the list overload (the shared folder named Room).
-            bool started;
-            if (activeRequestScopeIsSelection())
+            if (!ExportRequest.HasSelection())
             {
-                if (!ExportRequest.HasSelection())
-                {
-                    _failedSteps.Add("3D model (nothing selected)");
-                    yield break;
-                }
-
-                var selected = Selectable.SelectedSelectables[0];
-                if (selected.TryGetArmAssemblyRoot(out GameObject root))
-                    started = UI_ObjExportOptions.TryDoExport(true, root, opts);
-                else
-                    started = UI_ObjExportOptions.TryDoExport(true, selected.gameObject, opts);
-            }
-            else
-            {
-                if (Selectable.ActiveSelectables == null || Selectable.ActiveSelectables.Count == 0)
-                {
-                    _failedSteps.Add("Room 3D model (nothing in the room to export)");
-                    yield break;
-                }
-
-                started = UI_ObjExportOptions.TryDoExport(true, Selectable.ActiveSelectables, opts);
-            }
-
-            if (!started)
-            {
-                _failedSteps.Add(activeRequestScopeIsSelection()
-                    ? "3D model (no meshes matched export filters)"
-                    : "Room 3D model (no meshes matched export filters)");
+                _failedSteps.Add("3D model (nothing selected)");
                 yield break;
             }
 
-            yield return new WaitUntil(() => finished || _cancelled);
+            var selected = Selectable.SelectedSelectables[0];
+            GameObject target = selected.TryGetArmAssemblyRoot(out GameObject root)
+                ? root
+                : selected.gameObject;
 
-            // Keep SuppressIndividualDialogs until the in-flight 3D export finishes,
-            // otherwise a late success dialog can pop after "Export cancelled".
-            if (_cancelled && !finished)
-                yield return new WaitUntil(() => finished);
-
+            yield return RunObjWrite(() => UI_ObjExportOptions.TryDoExport(true, target, opts));
             if (_cancelled)
                 yield break;
 
-            if (succeeded)
-            {
-                _completedSteps.Add(activeRequestScopeIsSelection()
-                    ? "Selected 3D model (OBJ + MTL)"
-                    : "Room 3D model (OBJ + MTL)");
-                if (!string.IsNullOrWhiteSpace(outputPath))
-                    _outputPaths.Add(outputPath);
-            }
-            else
-            {
-                _failedSteps.Add(activeRequestScopeIsSelection()
-                    ? "3D model (export failed)"
-                    : "Room 3D model (export failed)");
-            }
+            NoteObjResult("Selected 3D model (OBJ + MTL)", "3D model (export failed)");
+            yield break;
+        }
+
+        if (Selectable.ActiveSelectables == null || Selectable.ActiveSelectables.Count == 0)
+        {
+            _failedSteps.Add("Room 3D model (nothing in the room to export)");
+            yield break;
+        }
+
+        // Whole room goes in the shared folder named Room. This call uses the list overload on purpose.
+        yield return RunObjWrite(() =>
+            UI_ObjExportOptions.TryDoExport(true, Selectable.ActiveSelectables, opts));
+        if (_cancelled)
+            yield break;
+
+        NoteObjResult("Room 3D model (OBJ + MTL)", "Room 3D model (export failed)");
+
+        if (request == null || !request.IncludeEachConfigurationObj)
+            yield break;
+
+        // Each boom in the room is one configuration. One folder and one OBJ/MTL each.
+        var configs = PdfBatchExporter.CollectBoomAssemblyRoots();
+        var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < configs.Count; i++)
+        {
+            if (_cancelled)
+                yield break;
+
+            var config = configs[i];
+            if (config == null)
+                continue;
+
+            string configName = NextConfigFolderName(
+                ExportPaths.GetSelectableExportName(config, "Configuration"),
+                usedNames);
+
+            if (UI_GeneralLoadingScreen.instance != null)
+                UI_GeneralLoadingScreen.instance.SetStatus(
+                    $"Exporting configuration {i + 1} of {configs.Count}...");
+
+            yield return null;
+            yield return RunObjWrite(() =>
+                UI_ObjExportOptions.TryDoExport(true, config.gameObject, opts, configName));
+            if (_cancelled)
+                yield break;
+
+            NoteObjResult($"{configName} (OBJ + MTL)", $"{configName} (export failed)");
+        }
+    }
+
+    private void NoteObjResult(string successLabel, string failLabel)
+    {
+        if (_lastObjOk)
+        {
+            _completedSteps.Add(successLabel);
+            if (!string.IsNullOrWhiteSpace(_lastObjPath))
+                _outputPaths.Add(_lastObjPath);
+            return;
+        }
+
+        _failedSteps.Add(failLabel);
+    }
+
+    /// <summary>
+    /// Writes one OBJ/MTL. The caller chooses the room list or one configuration.
+    /// </summary>
+    private IEnumerator RunObjWrite(Func<bool> start)
+    {
+        _lastObjOk = false;
+        _lastObjPath = null;
+
+        bool finished = false;
+        UnityEngine.Events.UnityAction onFinished = () => finished = true;
+        UnityEngine.Events.UnityAction<string> onSuccess = path =>
+        {
+            _lastObjOk = true;
+            _lastObjPath = path;
+        };
+
+        ObjExporter.OnExportFinished.AddListener(onFinished);
+        ObjExporter.ExportFinishedSuccessfully.AddListener(onSuccess);
+        try
+        {
+            bool started = start != null && start();
+            if (!started)
+                yield break;
+
+            yield return new WaitUntil(() => finished || _cancelled);
+            if (_cancelled && !finished)
+                yield return new WaitUntil(() => finished);
         }
         finally
         {
             ObjExporter.OnExportFinished.RemoveListener(onFinished);
             ObjExporter.ExportFinishedSuccessfully.RemoveListener(onSuccess);
         }
+    }
+
+    /// <summary>
+    /// Folder name for one configuration. "Room" is reserved for the whole-room file.
+    /// A repeated name gets _2, _3, so the second file is not overwritten.
+    /// </summary>
+    private static string NextConfigFolderName(string preferred, HashSet<string> used)
+    {
+        string baseName = string.IsNullOrWhiteSpace(preferred) ? "Configuration" : preferred.Trim();
+        if (baseName.Equals("Room", StringComparison.OrdinalIgnoreCase))
+            baseName = "Configuration";
+
+        string candidate = baseName;
+        int n = 2;
+        while (!used.Add(candidate))
+        {
+            candidate = $"{baseName}_{n}";
+            n++;
+        }
+
+        return candidate;
     }
 
     private bool activeRequestScopeIsSelection() => _activeScope == ExportScope.SelectedObject;

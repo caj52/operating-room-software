@@ -18,6 +18,13 @@ public class ExportRequest
     public ExportScope Scope = ExportScope.Room;
 
     public bool IncludeObj = true;
+
+    /// <summary>
+    /// Export All only. After the room file, also write one OBJ/MTL per configuration in the room.
+    /// A configuration here is a boom assembly. Leave this off for a room-only 3D export.
+    /// </summary>
+    public bool IncludeEachConfigurationObj = false;
+
     public bool IncludeElevations = true;
     public bool IncludeProposal = false;
     public bool IncludeSnapshots = true;
@@ -75,6 +82,7 @@ public class ExportRequest
         {
             Scope = ExportScope.Room,
             IncludeObj = true,
+            IncludeEachConfigurationObj = true,
             IncludeElevations = true,
             IncludeProposal = true,
             IncludeSnapshots = true,

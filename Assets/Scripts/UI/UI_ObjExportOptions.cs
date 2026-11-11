@@ -449,7 +449,11 @@ public class UI_ObjExportOptions : MonoBehaviour
         TryDoExport(makeSubmeshes, obj, options);
     }
 
-    public static bool TryDoExport(bool makeSubmeshes, GameObject obj, ObjExportOptions options)
+    public static bool TryDoExport(
+        bool makeSubmeshes,
+        GameObject obj,
+        ObjExportOptions options,
+        string nameOverride = null)
     {
         MeshFilter[] meshFilters = obj.GetComponentsInChildren<MeshRenderer>()
             .Where(x => FilterMeshRenderers(x, options))
@@ -460,9 +464,12 @@ public class UI_ObjExportOptions : MonoBehaviour
         if (meshFilters.Length == 0)
             return false;
 
-        string exportName = ExportPaths.GetObjectExportName(obj, "Object");
-        // One object. Leave roomPackage false so this gets its own folder, named exportName.
-        // Do not pass roomPackage: true here — that dumps the object into the room's shared folder.
+        // One configuration or object. Leave roomPackage false so this gets its own folder.
+        // nameOverride is set by Export All when two configurations would otherwise share a name.
+        // Do not pass roomPackage: true here — that dumps it into the room's shared folder.
+        string exportName = string.IsNullOrWhiteSpace(nameOverride)
+            ? ExportPaths.GetObjectExportName(obj, "Object")
+            : ExportPaths.SanitizeFolderName(nameOverride);
         ObjExporter.DoExport(makeSubmeshes, meshFilters, exportName);
         return true;
     }
