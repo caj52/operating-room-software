@@ -112,7 +112,7 @@ public class ExcelReader : MonoBehaviour
     public PriceExcelData[] GetColumnData(int priceColumnNumber, int minRowNumber, int maxRowNumber, string sheetName)
     {
         bool boom = (sheetName ?? "").IndexOf("Boom", StringComparison.OrdinalIgnoreCase) >= 0;
-        return PricingBridgeStore.ListFamily(boom ? "Boom" : "Light");
+        return PricingBridgeStore.ListQuoteMenu(boom, minRowNumber, maxRowNumber);
     }
 
     static IWorkbook OpenWorkbook(Stream stream, string path)

@@ -35,6 +35,10 @@ public static class PricingBridgeImporter
         public int LightSupplierRows;
         public int BoomSupplierRows;
         public int InstallSupplierRows;
+        public double Margin;
+        public double Tariff;
+        public double ShippingPerConfig;
+        public double InstallationPerConfig;
         public List<string> Problems = new();
         public List<PricingBridgeItem> Items = new();
     }
@@ -76,6 +80,12 @@ public static class PricingBridgeImporter
             return report;
         }
 
+        var rates = SupplierExcelReader.ReadQuoteRates(sourcePath);
+        report.Margin = rates.Margin;
+        report.Tariff = rates.Tariff;
+        report.ShippingPerConfig = rates.ShippingPerConfig;
+        report.InstallationPerConfig = rates.InstallationPerConfig;
+
         var supplierPrices = ExtractSupplierPrices(sheets, report.Problems);
         report.SupplierRowCount = supplierPrices.Count;
         report.LightSupplierRows = supplierPrices.Count(s => s.Family == "Light");
@@ -94,7 +104,11 @@ public static class PricingBridgeImporter
         var items = new List<PricingBridgeItem>();
         foreach (var row in supplierPrices)
         {
-            if (row == null || row.Price <= 0) continue;
+            if (row == null) continue;
+            double quoted = row.Price;
+            if (row.Cost > 0 && row.Family != "Install" && report.Margin > 0 && report.Margin < 1)
+                quoted = ProposalPricingResolver.SellPrice(row.Cost, report.Margin, report.Tariff);
+            if (quoted <= 0) continue;
             items.Add(new PricingBridgeItem
             {
                 sheetName = row.Family,
@@ -102,8 +116,9 @@ public static class PricingBridgeImporter
                 configurationName = "",
                 objectName = (row.Name ?? "").Trim(),
                 size = "",
-                catalogPrice = row.Price,
-                effectivePrice = row.Price,
+                catalogPrice = quoted,
+                effectivePrice = quoted,
+                cost = row.Cost,
                 source = "Supplier",
                 supplierMatch = row.Label,
                 missingFromSupplier = false
@@ -138,7 +153,14 @@ public static class PricingBridgeImporter
         string destPath = Path.Combine(PricingBridgeStore.SupplierDirectory, destName);
         File.Copy(sourcePath, destPath, overwrite: true);
 
-        PricingBridgeStore.ReplaceItems(report.Items, destName, report.Message);
+        PricingBridgeStore.ReplaceItems(
+            report.Items,
+            destName,
+            report.Message,
+            report.Margin,
+            report.Tariff,
+            report.ShippingPerConfig,
+            report.InstallationPerConfig);
 
         PricingManager.Instance?.ClearCache();
         var reader = UnityEngine.Object.FindAnyObjectByType<ExcelReader>();
@@ -152,6 +174,7 @@ public static class PricingBridgeImporter
         public string PartNumber;
         public string Name;
         public double Price;
+        public double Cost;
         public string Label;
         public string Family; // Light | Boom | Install | Legacy
     }
@@ -202,28 +225,24 @@ public static class PricingBridgeImporter
 
     static void ExtractSimeon(SupplierExcelReader.SheetTable sheet, List<SupplierPriceRow> prices)
     {
+        if (!TryHeaderColumn(sheet, "Simeon Sales", out int costCol)
+            || !TryHeaderColumn(sheet, "Base Model", out int nameCol))
+            return;
+        TryHeaderColumn(sheet, "Part #", out int partCol);
+
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var row in sheet.Rows)
         {
-            if (row.Length < 6) continue;
-            string part = Cell(row, 1);
-            string name = Cell(row, 2);
+            if (row.Length <= costCol || row.Length <= nameCol) continue;
+            string part = partCol >= 0 ? Cell(row, partCol) : null;
+            string name = Cell(row, nameCol);
             if (string.IsNullOrWhiteSpace(name)) continue;
             if (part != null && part.IndexOf("Part", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+            if (name.IndexOf("Base Model", StringComparison.OrdinalIgnoreCase) >= 0) continue;
 
-            // Base-model table: Imagine List in col 7 (always above Simeon list in col 5).
-            // Accessory / BOM tables leave Imagine blank or put COGS in col 7 — use col 5.
-            bool hasImagine = SupplierExcelReader.TryParsePrice(Cell(row, 7), out double imagine) && imagine > 0;
-            bool hasSimeon = SupplierExcelReader.TryParsePrice(Cell(row, 5), out double simeon) && simeon > 0;
-            double price;
-            if (hasImagine && hasSimeon && imagine > simeon + 0.5)
-                price = imagine;
-            else if (hasSimeon)
-                price = simeon;
-            else if (hasImagine)
-                price = imagine;
-            else
+            if (!SupplierExcelReader.TryParsePrice(Cell(row, costCol), out double cost) || cost <= 0.5)
                 continue;
+            double price = cost;
 
             string key = NormalizeKey(name);
             if (string.IsNullOrEmpty(key) || !seen.Add(key)) continue;
@@ -233,6 +252,7 @@ public static class PricingBridgeImporter
                 PartNumber = part,
                 Name = name.Trim(),
                 Price = price,
+                Cost = cost,
                 Family = "Light",
                 Label = $"Simeon Lights / {part} / {name.Trim()}"
             });
@@ -242,22 +262,28 @@ public static class PricingBridgeImporter
     static void ExtractOndal(SupplierExcelReader.SheetTable sheet, List<SupplierPriceRow> prices)
     {
         // Prefer the first priced occurrence of each base-model name (header table).
+        if (!TryHeaderColumn(sheet, "Ondal Sales", out int costCol)
+            || !TryHeaderColumn(sheet, "Base Model Sales Price", out int nameCol))
+            return;
+
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var row in sheet.Rows)
         {
-            if (row.Length < 5) continue;
-            string name = Cell(row, 1);
+            if (row.Length <= costCol || row.Length <= nameCol) continue;
+            string name = Cell(row, nameCol);
             if (string.IsNullOrWhiteSpace(name)) continue;
             if (name.IndexOf("Base Model", StringComparison.OrdinalIgnoreCase) >= 0) continue;
             if (LooksLikeArmLengthAddon(name)) continue;
             if (LooksLikeSapPart(Cell(row, 0))) continue;
-            if (!SupplierExcelReader.TryParsePrice(Cell(row, 4), out double price) || price <= 0.5) continue;
+            if (!SupplierExcelReader.TryParsePrice(Cell(row, costCol), out double cost) || cost <= 0.5) continue;
+            double price = cost;
             string key = NormalizeKey(name);
             if (string.IsNullOrEmpty(key) || !seen.Add(key)) continue;
             prices.Add(new SupplierPriceRow
             {
                 Name = name.Trim(),
                 Price = price,
+                Cost = cost,
                 Family = "Boom",
                 Label = $"Ondal Booms / {name.Trim()}"
             });
@@ -282,6 +308,26 @@ public static class PricingBridgeImporter
                 Label = $"Install Pricelist / {name}"
             });
         }
+    }
+
+    static bool TryHeaderColumn(SupplierExcelReader.SheetTable sheet, string header, out int index)
+    {
+        index = -1;
+        if (sheet?.Rows == null || string.IsNullOrWhiteSpace(header))
+            return false;
+        foreach (var row in sheet.Rows)
+        {
+            if (row == null) continue;
+            for (int i = 0; i < row.Length; i++)
+            {
+                if (string.Equals((row[i] ?? "").Trim(), header, StringComparison.OrdinalIgnoreCase))
+                {
+                    index = i;
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     static string Cell(string[] row, int i) =>
@@ -812,6 +858,8 @@ public static class PricingBridgeImporter
         return n;
     }
 
+    public static string SheetRowAlias(string name, string size = null) => BoomLightAlias(name, size);
+
     static string BoomLightAlias(string name, string size = null)
     {
         string n = StripFamilyPrefix(name).ToLowerInvariant();
@@ -835,19 +883,11 @@ public static class PricingBridgeImporter
             && n.IndexOf("regulator", StringComparison.Ordinal) >= 0)
             return "Nitrogen Regulator";
 
-        if (n.IndexOf("flange", StringComparison.Ordinal) >= 0)
-        {
-            bool xl = n.IndexOf("xl", StringComparison.Ordinal) >= 0;
-            bool fiveHundred = n.IndexOf("500", StringComparison.Ordinal) >= 0
-                               || sz.IndexOf("500", StringComparison.Ordinal) >= 0;
-            if (xl)
-                return fiveHundred
-                    ? "Powered XL - 500mm XL Ceiling Flange"
-                    : "Powered XL - 300mm XL Ceiling Flange";
-            return fiveHundred
-                ? "Powered - 500mm Ceiling Flange"
-                : "Powered - 300mm Ceiling Flange";
-        }
+        // Plain "Ceiling Flange" is not a Powered boom SKU. Powered flange
+        // rows are chosen later from the boom arm that was actually placed.
+        if (n.IndexOf("flange", StringComparison.Ordinal) >= 0
+            && n.IndexOf("powered", StringComparison.Ordinal) < 0)
+            return null;
 
         var duplex = System.Text.RegularExpressions.Regex.Match(n, @"(\d+)\s*duplex");
         if (duplex.Success)

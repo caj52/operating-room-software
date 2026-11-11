@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using UnityEngine;
 
@@ -13,6 +14,10 @@ public class PricingBridgeState
     public string supplierFileName;
     public string lastImportUtc;
     public string lastImportSummary;
+    public double equipmentMargin;
+    public double equipmentTariff;
+    public double shippingPerConfig;
+    public double installationPerConfig;
     public List<PricingBridgeItem> items = new();
 }
 
@@ -27,6 +32,8 @@ public class PricingBridgeItem
     public string size;
     public double catalogPrice;
     public double effectivePrice;
+    /// <summary>Supplier sales column. The quote price is this plus the sheet's margin and tariff.</summary>
+    public double cost;
     /// <summary>Catalog | Supplier | Manual</summary>
     public string source;
     public string supplierMatch;
@@ -154,7 +161,14 @@ public static class PricingBridgeStore
         RebuildIndex();
     }
 
-    public static void ReplaceItems(List<PricingBridgeItem> items, string supplierFileName, string summary)
+    public static void ReplaceItems(
+        List<PricingBridgeItem> items,
+        string supplierFileName,
+        string summary,
+        double equipmentMargin = 0,
+        double equipmentTariff = 0,
+        double shippingPerConfig = 0,
+        double installationPerConfig = 0)
     {
         _state ??= new PricingBridgeState();
         var previousManual = new Dictionary<string, PricingBridgeItem>(StringComparer.OrdinalIgnoreCase);
@@ -187,6 +201,10 @@ public static class PricingBridgeStore
         _state.supplierFileName = supplierFileName;
         _state.lastImportUtc = DateTime.UtcNow.ToString("o");
         _state.lastImportSummary = summary;
+        _state.equipmentMargin = equipmentMargin;
+        _state.equipmentTariff = equipmentTariff;
+        _state.shippingPerConfig = shippingPerConfig;
+        _state.installationPerConfig = installationPerConfig;
         Save();
     }
 
@@ -238,7 +256,7 @@ public static class PricingBridgeStore
     public static void EnsureBundledPriceList()
     {
         Load();
-        if (ItemsAreV6List() && HasSimeonAccessoryPrices())
+        if (ItemsAreV6List() && HasSimeonAccessoryPrices() && HasCostBasis() && State.equipmentMargin > 0)
             return;
 
         string path = BundledV6Path;
@@ -280,6 +298,18 @@ public static class PricingBridgeStore
                 v6++;
         }
         return v6 > items.Count / 2;
+    }
+
+    static bool HasCostBasis()
+    {
+        var items = State.items;
+        if (items == null) return false;
+        foreach (var i in items)
+        {
+            if (i != null && i.cost > 0)
+                return true;
+        }
+        return false;
     }
 
     static bool HasSimeonAccessoryPrices()
@@ -378,6 +408,247 @@ public static class PricingBridgeStore
             list.Add(ToExcel(i, i.size));
         }
         return list.ToArray();
+    }
+
+    /// <summary>
+    /// Choices for one quote menu. The row range is the menu that was built
+    /// on the old price sheet (wall control, camera, adapters, and so on).
+    /// An untouched menu stays on None, which adds no charge.
+    /// </summary>
+    public static PriceExcelData[] ListQuoteMenu(bool boom, int minRow, int maxRow)
+    {
+        EnsureBundledPriceList();
+        EnsureIndex();
+
+        var list = new List<PriceExcelData>
+        {
+            new PriceExcelData { ObjectName = "None", PartNumber = "", ListPrice = 0 }
+        };
+
+        string[] names = QuoteMenuChoiceNames(boom, minRow, maxRow);
+        if (names == null)
+            return list.ToArray();
+
+        string family = boom ? "Boom" : "Light";
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string name in names)
+        {
+            PriceExcelData hit = FindMenuChoice(family, name);
+            if (hit == null || hit.ListPrice <= 0 || string.IsNullOrWhiteSpace(hit.ObjectName))
+                continue;
+            if (!seen.Add(hit.ObjectName))
+                continue;
+            list.Add(hit);
+        }
+
+        return list.ToArray();
+    }
+
+    static string[] QuoteMenuChoiceNames(bool boom, int minRow, int maxRow)
+    {
+        if (!boom && minRow == 71 && maxRow == 78)
+        {
+            return new[]
+            {
+                "Wall Control (Touch)",
+                "Wall Control (Single)",
+                "Wall Control (Dual)",
+                "Wall Control (Triple)",
+                "Wall Control (Single w/ Cam)",
+                "Wall Control (Dual w/ Cam)",
+                "Wall Control (Triple w/ Cam)"
+            };
+        }
+
+        if (!boom && minRow == 80 && maxRow == 81)
+            return new[] { "Storz Integration Control" };
+
+        if (!boom && minRow == 83 && maxRow == 86)
+        {
+            return new[]
+            {
+                "Wired Camera Prep",
+                "Wired Prep",
+                "Wired Camera",
+                "Wired",
+                "Wireless Camera",
+                "Wireless"
+            };
+        }
+
+        if (!boom && minRow == 88 && maxRow == 90)
+        {
+            return new[]
+            {
+                "(1) Screw-On Adapters",
+                "(2) Screw-On Adapters",
+                "(3) Screw-On Adapters",
+                "(1) Slip-On Adapter",
+                "(2) Slip-On Adapters",
+                "(3) Slip-On Adapters",
+                "Screw-On",
+                "Slip-On"
+            };
+        }
+
+        if (!boom && minRow == 92 && maxRow == 95)
+        {
+            return new[]
+            {
+                "Yes, 1 Light Exchange",
+                "Yes, 2 Light Exchange",
+                "Yes, 3 Light Exchange"
+            };
+        }
+
+        if (boom && minRow == 678 && maxRow == 684)
+        {
+            return new[]
+            {
+                "Nitrogen Regulator",
+                "Data Pass Thru",
+                "Tandem Mount with 1 blank cell for Future Boom Option",
+                "Rails (1000mm)",
+                "Shelf (500mm)",
+                "500mm Shelves (cost per shelf)",
+                "Shelf (750mm)",
+                "750mm Shelves (cost per shelf)",
+                "Accessory Rail"
+            };
+        }
+
+        return null;
+    }
+
+    static PriceExcelData FindMenuChoice(string family, string name)
+    {
+        if (State.items != null)
+        {
+            foreach (var item in State.items)
+            {
+                if (item == null)
+                    continue;
+                if (!string.Equals(item.sheetName, family, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (string.Equals((item.objectName ?? "").Trim(), name, StringComparison.OrdinalIgnoreCase))
+                    return ToExcel(item, item.size);
+            }
+        }
+
+        EnsureSheetChoices();
+        if (_sheetChoices != null && _sheetChoices.TryGetValue(name, out PriceExcelData fromSheet))
+            return fromSheet;
+        return null;
+    }
+
+    static Dictionary<string, PriceExcelData> _sheetChoices;
+    static string _sheetChoicesPath;
+    static DateTime _sheetChoicesWrite;
+
+    static void EnsureSheetChoices()
+    {
+        string path = LiveSheetPath;
+        if (string.IsNullOrEmpty(path) || !File.Exists(path))
+            path = File.Exists(BundledV6Path) ? BundledV6Path : null;
+        if (string.IsNullOrEmpty(path))
+        {
+            _sheetChoices = new Dictionary<string, PriceExcelData>(StringComparer.OrdinalIgnoreCase);
+            return;
+        }
+
+        DateTime write = File.GetLastWriteTimeUtc(path);
+        if (_sheetChoices != null && _sheetChoicesPath == path && _sheetChoicesWrite == write)
+            return;
+
+        var map = new Dictionary<string, PriceExcelData>(StringComparer.OrdinalIgnoreCase);
+        if (SupplierExcelReader.TryOpen(path, out var sheets, out _))
+        {
+            foreach (var sheet in sheets)
+            {
+                if (sheet?.Rows == null)
+                    continue;
+                foreach (var row in sheet.Rows)
+                    AddSheetChoice(map, row);
+            }
+        }
+
+        _sheetChoices = map;
+        _sheetChoicesPath = path;
+        _sheetChoicesWrite = write;
+    }
+
+    static void AddSheetChoice(Dictionary<string, PriceExcelData> map, string[] row)
+    {
+        if (row == null)
+            return;
+
+        double price = 0;
+        string part = "";
+        var labels = new List<string>();
+        for (int c = 0; c < row.Length; c++)
+        {
+            string cell = row[c]?.Trim();
+            if (string.IsNullOrEmpty(cell))
+                continue;
+            if (IsNumberCell(cell, out double n))
+            {
+                if (n > price)
+                    price = n;
+                continue;
+            }
+            if (LooksLikePartNumber(cell))
+            {
+                if (part.Length == 0)
+                    part = cell;
+                continue;
+            }
+            labels.Add(cell);
+        }
+
+        if (price <= 0.5)
+            return;
+
+        foreach (string label in labels)
+        {
+            if (!map.ContainsKey(label))
+            {
+                map[label] = new PriceExcelData
+                {
+                    ObjectName = label,
+                    PartNumber = part,
+                    ListPrice = price
+                };
+            }
+        }
+    }
+
+    static bool IsNumberCell(string cell, out double value)
+    {
+        value = 0;
+        string cleaned = cell.Replace("$", "").Replace(",", "").Trim();
+        if (cleaned.Length == 0)
+            return false;
+        foreach (char ch in cleaned)
+        {
+            if (!(char.IsDigit(ch) || ch == '.' || ch == '-'))
+                return false;
+        }
+        return double.TryParse(cleaned, NumberStyles.Any, CultureInfo.InvariantCulture, out value);
+    }
+
+    static bool LooksLikePartNumber(string cell)
+    {
+        if (cell.Length < 5 || cell.Length > 24 || cell.IndexOf(' ') >= 0 || cell.IndexOf('-') < 0)
+            return false;
+        bool digit = false;
+        foreach (char ch in cell)
+        {
+            if (char.IsDigit(ch))
+                digit = true;
+            else if (ch != '-')
+                return false;
+        }
+        return digit;
     }
 
     public static PriceExcelData FindNamed(string family, params string[] nameParts)

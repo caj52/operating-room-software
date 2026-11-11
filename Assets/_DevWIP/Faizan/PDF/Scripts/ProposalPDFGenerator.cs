@@ -1151,66 +1151,36 @@ public class ProposalPDFGenerator : MonoBehaviour
             return;
         }
 
-        int configCount = 1;
-
         foreach (var group in rootGroups)
         {
-            var first = group.Last();
             var lights = group.Where(sp => !sp.isBoomObject).ToList();
             var booms = group.Where(sp => sp.isBoomObject).ToList();
 
 
             document.Add(Chunk.NEWLINE);
-            AddTableTitle(document, configName);
 
-            // Page 1 model rows must match page 3 / ProposalPricingResolver (not raw light counts).
+            var boomRoot = group.Key != null ? group.Key.gameObject : null;
             var lightLines = ProposalPricingResolver.ResolveLightLines(lights);
-            if (lightLines.Count > 0)
-            {
-                foreach (var line in lightLines)
-                {
-                    string desc = string.IsNullOrWhiteSpace(line.Description) ? "LIGHT" : line.Description;
-                    document.Add(CreateModelTable(
-                        "MODEL DESCRIPTION", "QTY", desc, Math.Max(1, line.Qty).ToString()));
-                    AddHorizontalLine(document);
-                }
+            var boomLines = ProposalPricingResolver.ResolveBoomLines(boomRoot, booms);
+            var boomExtras = ProposalPricingResolver.ResolveBoomExtraLines(boomRoot, booms);
+            string listing = ListingFor(boomRoot, lights, booms, boomLines);
 
+            document.Add(CreateModelTable("MODEL DESCRIPTION", "QTY", listing, "1"));
+            AddHorizontalLine(document);
+
+            string lightChoices = ProposalListing.LightChoices(lights);
+            if (!string.IsNullOrWhiteSpace(lightChoices))
+            {
                 AddSectionHeader(document, "OPTION/ACCESSORY DESCRIPTION");
-                string lightOptionsText = BuildOptionsDescriptionString(lights, false);
-                document.Add(CreateOptionTable(lightOptionsText));
+                document.Add(CreateOptionTable(lightChoices));
                 document.Add(Chunk.NEWLINE);
             }
 
-            var boomRoot = group.Key != null ? group.Key.gameObject : null;
-            var boomLines = ProposalPricingResolver.ResolveBoomLines(boomRoot, booms);
-            var boomExtras = ProposalPricingResolver.ResolveBoomExtraLines(boomRoot, booms);
-            foreach (var boomLine in boomLines)
-            {
-                string boomDesc = string.IsNullOrWhiteSpace(boomLine.Description)
-                    ? "ARTICULATING BOOM"
-                    : boomLine.Description;
-                document.Add(CreateModelTable(
-                    "MODEL DESCRIPTION", "QTY", boomDesc, Math.Max(1, boomLine.Qty).ToString()));
-                AddHorizontalLine(document);
-            }
-
-            if (boomLines.Count > 0 || boomExtras.Count > 0)
+            if (boomExtras.Count > 0)
             {
                 AddSectionHeader(document, "OPTION/ACCESSORY DESCRIPTION");
-                // Prefer priced extra names; fall back to the old name dump if none resolved.
-                string boomOptionsText = boomExtras.Count > 0
-                    ? string.Join(", ", boomExtras.Select(e =>
-                        e.Qty > 1 ? $"{e.Description} (x{e.Qty})" : e.Description))
-                    : BuildOptionsDescriptionString(booms, true);
-                var ddBoom = DropdownPopulator.GetAllCurrentStates()
-                    .Where(s => s.Item1 != null && s.Item1.isBoomExcelFileDropDown
-                                && s.Item2 != null && !IsNoneOptionName(s.Item2.ObjectName))
-                    .Select(s => s.Item2.ObjectName);
-                string ddText = string.Join(", ", ddBoom.Where(s => !string.IsNullOrWhiteSpace(s)));
-                if (!string.IsNullOrWhiteSpace(ddText))
-                    boomOptionsText = string.IsNullOrWhiteSpace(boomOptionsText)
-                        ? ddText
-                        : $"{boomOptionsText}, {ddText}";
+                string boomOptionsText = string.Join(", ", boomExtras.Select(e =>
+                    e.Qty > 1 ? $"{e.Description} (x{e.Qty})" : e.Description));
                 document.Add(CreateOptionTable(
                     string.IsNullOrWhiteSpace(boomOptionsText) ? "No options selected" : boomOptionsText));
                 AddHorizontalLine(document);
@@ -1231,7 +1201,7 @@ public class ProposalPDFGenerator : MonoBehaviour
     {
         AddCompanyHeader(document);
 
-        AddTableTitle(document, configName);
+        AddTableTitle(document, ListingForAll());
         HashSet<Selectable> processedRoots = new HashSet<Selectable>();
         float availableHeight = document.PageSize.Height - document.TopMargin - document.BottomMargin - 125f;
         float imageHeight = availableHeight / 3f;
@@ -1390,8 +1360,7 @@ public class ProposalPDFGenerator : MonoBehaviour
 
         foreach (var configGroup in rootConfigs)
         {
-            var firstSp = configGroup.FirstOrDefault();  
-            AddTableTitle(document, configName);
+            var firstSp = configGroup.FirstOrDefault();
 
             PdfPTable table = new PdfPTable(5);
             table.WidthPercentage = 100;
@@ -1407,16 +1376,19 @@ public class ProposalPDFGenerator : MonoBehaviour
             var lightLines = ProposalPricingResolver.ResolveLightLines(lights);
             var boomRoot = firstSp != null ? firstSp.transform.root.gameObject : null;
             var boomLines = ProposalPricingResolver.ResolveBoomLines(boomRoot, booms);
+            AddTableTitle(document, ListingFor(boomRoot, lights, booms, boomLines));
 
-            // ---------- LIGHT MODELS (combo sheet, same as pricing UI) ----------
             if (lightLines.Count > 0)
             {
                 AddRowToTable(table, "MODEL DESCRIPTION", BaseColor.WHITE, BaseColor.BLACK, PdfPCell.NO_BORDER);
-
+                string lightName = ProposalListing.LightPhrase(lights, article: false);
                 foreach (var line in lightLines)
                 {
+                    string desc = lightLines.Count == 1 && !string.IsNullOrWhiteSpace(lightName)
+                        ? lightName
+                        : (line.Description ?? "");
                     table.AddCell(CreateLeftAlignedCell(line.PartNumber ?? "N/A", normalFont));
-                    table.AddCell(CreateLeftAlignedCell(line.Description ?? "", normalFont));
+                    table.AddCell(CreateLeftAlignedCell(desc, normalFont));
                     table.AddCell(CreateCenteredCell(line.Qty.ToString(), normalFont));
                     table.AddCell(CreateRightAlignedCell(line.UnitPrice.ToString("C"), normalFont));
                     table.AddCell(CreateRightAlignedCell(line.ExtPrice.ToString("C"), normalFont));
@@ -1469,16 +1441,17 @@ public class ProposalPDFGenerator : MonoBehaviour
                 }
             }
 
-            // ---------- BOOM MODELS (bundled 3D config sheet) ----------
             var boomExtras = ProposalPricingResolver.ResolveBoomExtraLines(boomRoot, booms);
+
             if (boomLines.Count > 0)
             {
                 AddRowToTable(table, "MODEL DESCRIPTION", BaseColor.WHITE, BaseColor.BLACK, PdfPCell.NO_BORDER);
-
                 foreach (var boomLine in boomLines)
                 {
                     table.AddCell(CreateLeftAlignedCell(boomLine.PartNumber ?? "N/A", normalFont));
-                    table.AddCell(CreateLeftAlignedCell(boomLine.Description ?? "", normalFont));
+                    table.AddCell(CreateLeftAlignedCell(
+                        string.IsNullOrWhiteSpace(boomLine.Description) ? "ARTICULATING BOOM" : boomLine.Description,
+                        normalFont));
                     table.AddCell(CreateCenteredCell(boomLine.Qty.ToString(), normalFont));
                     table.AddCell(CreateRightAlignedCell(boomLine.UnitPrice.ToString("C"), normalFont));
                     table.AddCell(CreateRightAlignedCell(boomLine.ExtPrice.ToString("C"), normalFont));
@@ -1634,14 +1607,17 @@ public class ProposalPDFGenerator : MonoBehaviour
         misc.SpacingBefore = 5f;
         misc.SpacingAfter = 5f;
 
-        var reader = FindObjectOfType<ExcelReader>();
-        if (reader != null)
+        if (!AddSheetShippingRow(misc))
         {
-            var install = reader.GetInstallationLightsCharges();
-            if (install != null) AddRowToTable(misc, install);
+            var reader = FindObjectOfType<ExcelReader>();
+            if (reader != null)
+            {
+                var install = reader.GetInstallationLightsCharges();
+                if (install != null) AddRowToTable(misc, install);
 
-            var ship = reader.GetShippingLightsCharges();
-            if (ship != null) AddRowToTable(misc, ship);
+                var ship = reader.GetShippingLightsCharges();
+                if (ship != null) AddRowToTable(misc, ship);
+            }
         }
 
         if (misc.Rows.Count > 0)
@@ -1769,6 +1745,40 @@ public class ProposalPDFGenerator : MonoBehaviour
     static bool IsNoneOptionName(string name)
         => string.IsNullOrWhiteSpace(name)
            || name.Trim().Equals("None", StringComparison.OrdinalIgnoreCase);
+
+    string ListingFor(
+        GameObject boomRoot,
+        List<SelectablePrice> lights,
+        List<SelectablePrice> booms,
+        List<ProposalPricingResolver.Line> boomLines)
+    {
+        if (!string.IsNullOrWhiteSpace(ProposalPreviewModel.ConfigNameOverride))
+            return ProposalPreviewModel.ConfigNameOverride.Trim();
+        return ProposalListing.Describe(lights, boomRoot, booms, boomLines);
+    }
+
+    string ListingForAll()
+    {
+        if (!string.IsNullOrWhiteSpace(ProposalPreviewModel.ConfigNameOverride))
+            return ProposalPreviewModel.ConfigNameOverride.Trim();
+
+        var names = new List<string>();
+        var rootGroups = (selectablePrices ?? Array.Empty<SelectablePrice>())
+            .Where(sp => sp != null && sp.objectPricingData != null)
+            .GroupBy(sp => sp.transform.root);
+        foreach (var group in rootGroups)
+        {
+            var lights = group.Where(sp => !sp.isBoomObject).ToList();
+            var booms = group.Where(sp => sp.isBoomObject).ToList();
+            var boomRoot = group.Key != null ? group.Key.gameObject : null;
+            var boomLines = ProposalPricingResolver.ResolveBoomLines(boomRoot, booms);
+            string listing = ProposalListing.Describe(lights, boomRoot, booms, boomLines);
+            if (!string.IsNullOrWhiteSpace(listing))
+                names.Add(listing.Trim());
+        }
+
+        return names.Count > 0 ? string.Join("\n", names) : "Configuration";
+    }
 
     // ADDED: Build OPTION/ACCESSORY text like the old script
     private string BuildOptionsDescriptionString(IEnumerable<SelectablePrice> group, bool isBoom)
@@ -1922,6 +1932,20 @@ public class ProposalPDFGenerator : MonoBehaviour
             };
             table.AddCell(cell);
         }
+    }
+
+    bool AddSheetShippingRow(PdfPTable table)
+    {
+        int count = ProposalPricingResolver.ConfigurationCount(selectablePrices);
+        if (!ProposalPricingResolver.TryShippingCharge(count, out double sell))
+            return false;
+        AddRowToTable(table, new PriceExcelData
+        {
+            PartNumber = "N/A",
+            ObjectName = "Shipping and Installation",
+            ListPrice = sell
+        });
+        return true;
     }
 
     private void AddRowToTable(PdfPTable table, PriceExcelData data)
@@ -2414,8 +2438,8 @@ public class ProposalPDFGenerator : MonoBehaviour
             if (_totalPageTemplate == null || _footerBaseFont == null)
                 return;
 
-            // iTextSharp reports PageNumber+1 in OnCloseDocument; subtract one for the real total.
-            int total = Mathf.Max(1, writer.PageNumber - 1);
+            // Same choice on several widgets is one line, not one charge each.
+            int total = Mathf.Max(1, writer.PageNumber);
             ColumnText.ShowTextAligned(
                 _totalPageTemplate,
                 Element.ALIGN_LEFT,

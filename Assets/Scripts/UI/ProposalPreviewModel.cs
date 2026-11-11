@@ -267,28 +267,26 @@ public sealed class ProposalPreviewModel
             var boomLines = ProposalPricingResolver.ResolveBoomLines(boomRoot, booms);
             var boomExtras = ProposalPricingResolver.ResolveBoomExtraLines(boomRoot, booms);
             double subtotal = ProposalPricingResolver.SumEquipment(group);
-
-            string lightText = BuildOptionsText(lights, false);
-            string boomText = boomExtras.Count > 0
-                ? string.Join(", ", boomExtras.Select(e =>
-                    e.Qty > 1 ? $"{e.Description} (x{e.Qty})" : e.Description))
-                : BuildOptionsText(booms, true);
+            string listing = !string.IsNullOrWhiteSpace(ConfigNameOverride)
+                ? ConfigNameOverride.Trim()
+                : ProposalListing.Describe(lights, boomRoot, booms, boomLines);
+            string lightChoices = ProposalListing.LightChoices(lights);
+            string boomText = string.Join(", ", boomExtras.Select(e =>
+                e.Qty > 1 ? $"{e.Description} (x{e.Qty})" : e.Description));
 
             ConfigBlocks.Add(new ConfigBlock
             {
-                Title = ConfigName,
+                Title = listing,
                 HasLights = lightLines.Count > 0,
                 LightQty = lightLines.Sum(l => Math.Max(1, l.Qty)),
-                LightDescription = lightLines.Count > 0
-                    ? string.Join(" + ", lightLines.Select(l => l.Description).Where(d => !string.IsNullOrWhiteSpace(d)))
-                    : "",
-                LightOptionsText = lightText,
+                LightDescription = lightLines.Count == 1
+                    ? ProposalListing.LightPhrase(lights, article: false)
+                    : string.Join(" + ", lightLines.Select(l => l.Description).Where(d => !string.IsNullOrWhiteSpace(d))),
+                LightOptionsText = lightChoices,
                 LightLines = lightLines,
                 HasBooms = boomLines.Count > 0 || boomExtras.Count > 0,
                 BoomQty = boomLines.Sum(l => Math.Max(1, l.Qty)),
-                BoomDescription = boomLines.Count > 0
-                    ? string.Join(" + ", boomLines.Select(l => l.Description).Where(d => !string.IsNullOrWhiteSpace(d)))
-                    : "",
+                BoomDescription = string.Join(" + ", boomLines.Select(l => l.Description).Where(d => !string.IsNullOrWhiteSpace(d))),
                 BoomOptionsText = boomText,
                 Subtotal = subtotal
             });
@@ -337,18 +335,23 @@ public sealed class ProposalPreviewModel
             PricingLines.Add(new LineItem
             {
                 IsConfigTitle = true,
-                Description = string.IsNullOrWhiteSpace(ConfigName) ? "Configuration" : ConfigName
+                Description = !string.IsNullOrWhiteSpace(ConfigNameOverride)
+                    ? ConfigNameOverride.Trim()
+                    : ProposalListing.Describe(lights, boomRoot, booms, boomLines)
             });
 
             if (lightLines.Count > 0)
             {
+                string lightName = ProposalListing.LightPhrase(lights, article: false);
                 PricingLines.Add(new LineItem { IsSectionHeader = true, SectionTitle = "MODEL DESCRIPTION" });
                 foreach (var line in lightLines)
                 {
                     PricingLines.Add(new LineItem
                     {
                         PartNumber = string.IsNullOrEmpty(line.PartNumber) ? "N/A" : line.PartNumber,
-                        Description = line.Description,
+                        Description = lightLines.Count == 1 && !string.IsNullOrWhiteSpace(lightName)
+                            ? lightName
+                            : line.Description,
                         Qty = line.Qty,
                         UnitPrice = line.UnitPrice,
                         ExtPrice = line.ExtPrice
@@ -526,6 +529,22 @@ public sealed class ProposalPreviewModel
                     ExtPrice = optSub
                 });
             }
+        }
+
+        int configs = ProposalPricingResolver.ConfigurationCount(selectablePrices);
+        if (ProposalPricingResolver.TryShippingCharge(configs, out double shipSell))
+        {
+            InstallCharge = 0;
+            ShippingCharge = shipSell;
+            PricingLines.Add(new LineItem
+            {
+                PartNumber = "N/A",
+                Description = "Shipping and Installation",
+                Qty = 1,
+                UnitPrice = shipSell,
+                ExtPrice = shipSell
+            });
+            return;
         }
 
         // Install / ship — same placement as PDF (after configs). Include when Excel returns a row.

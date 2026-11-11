@@ -67,7 +67,7 @@ public class SelectablePrice : MonoBehaviour
     private void Awake()
     {
         // Ensure the PricingManager (and ExcelReader) is initialized
-        PricingManager.Instance.TryGetComponent<PricingManager>(out _);
+        PricingManager.Instance?.TryGetComponent<PricingManager>(out _);
         // Note: PricingManager.Instance access will create the manager if not present.
     }
 
