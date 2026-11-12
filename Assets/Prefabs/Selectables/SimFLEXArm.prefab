@@ -883,7 +883,8 @@ MonoBehaviour:
   <HighlightHovered>k__BackingField: {fileID: 7849228956460352963}
   <MetaData>k__BackingField:
     <Guid>k__BackingField: 39a0f036-0263-4c96-9678-05c33031dbcd
-    <AllowedSelectableCategories>k__BackingField: []
+    <AllowedSelectableCategories>k__BackingField:
+    - Lights - End Attachments
     <AllowedSelectableAssetBundleNames>k__BackingField: []
   <MoveUpOnAttach>k__BackingField: 0
   <TreatAsTopMost>k__BackingField: 0
@@ -1298,7 +1299,8 @@ MonoBehaviour:
     - <Guid>k__BackingField: 39a0f036-0263-4c96-9678-05c33031dbcd
       <MetaData>k__BackingField:
         <Guid>k__BackingField: 39a0f036-0263-4c96-9678-05c33031dbcd
-        <AllowedSelectableCategories>k__BackingField: []
+        <AllowedSelectableCategories>k__BackingField:
+        - Lights - End Attachments
         <AllowedSelectableAssetBundleNames>k__BackingField: []
     - <Guid>k__BackingField: 7aaaa3c0-175b-47ad-bd42-848dc99f110e
       <MetaData>k__BackingField:
