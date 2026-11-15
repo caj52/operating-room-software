@@ -260,7 +260,7 @@ public class LineToMeshConverter : MonoBehaviour
             {
                 _activeRelevantCollisions.Add(other);
                 SetRendererColor(this, new Color(1f, 0f, 0f, 0.5f)); // Red
-                SetRendererColor(other.GetComponent<LineToMeshConverter>(), new Color(1f, 0f, 0f, 1f));
+                SetRendererColor(other.GetComponent<LineToMeshConverter>(), new Color(1f, 0f, 0f, 0.5f));
             }
         }
     }

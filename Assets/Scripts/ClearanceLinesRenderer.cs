@@ -15,40 +15,14 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
     #region Non-method Members
     private class MeshVertsData
     {
-        public MeshVertsData(MeshFilter meshFilter, ClearanceLinesRenderer clearanceLinesRenderer)
+        public MeshVertsData(MeshFilter meshFilter)
         {
             MeshFilter = meshFilter;
-            _clearanceLinesRenderer = clearanceLinesRenderer;
         }
 
         public MeshFilter MeshFilter { get; }
-        public Quaternion Rotation { get; set; }
-        public Vector3 GlobalPosition { get; set; }
         public Vector3[] Vertices { get; set; }
-        public int Rotations { get; set; } = 1;
-        public Vector3 LossyScale { get; set; }
-        private int? _hierarchyNestedLevel;
-        public int HierarchyNestedLevel
-        { 
-            get 
-            { 
-                _hierarchyNestedLevel ??= GetHierarchyNestedLevel();
-                return (int)_hierarchyNestedLevel;
-            }
-        }
-        private ClearanceLinesRenderer _clearanceLinesRenderer;
-
-        private int GetHierarchyNestedLevel()
-        {
-            int level = 0;
-            Transform parent = MeshFilter.transform.parent;
-            while (parent != null)
-            {
-                parent = parent.parent;
-                level++;
-            }
-            return level;
-        }
+        public Vector3[] WorldVertices { get; set; }
     }
 
     public enum RendererType
@@ -98,29 +72,18 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
     private List<Selectable> _trackedParentSelectables = new();
     private readonly List<Selectable> _assemblyScaleSubscribed = new();
     private List<MeshVertsData> _meshVertsDatas;
-    /// <summary>Snapshot held for the in-flight parallel sweep (must not be nulled mid-task).</summary>
-    private List<MeshVertsData> _recordingMeshVertsDatas;
-    private Vector2 _originPointXZ;
     private List<Vector3> _positions = new();
     private float _highestY;
     private float _lowestY;
     private float _farthestDistance;
-    private bool _rotateMeshWhenFindingFarthestVert;
+    private float _clearanceYOffset;
+    private bool _hasClearanceRadius;
+    private Vector3 _placedPivot;
     private bool _needsUpdate = true;
     private bool _taskRunning = false;
     private bool _cancelTask = false;
 
     [SerializeField] float epsilon = 0.00001f;
-    private float MedianY
-    {
-        get
-        {
-            if (_highestSelectable == null || _highestY < _lowestY)
-                return 0f;
-            return ((_highestY + _lowestY) / 2f) - _highestSelectable.transform.position.y;
-        }
-    }
-    private object _lockObj = new();
    public Material renderMaterialColor;
 
     // Special offsets (in meters) derived from manufacturer guidance
@@ -130,6 +93,8 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
 
     // Cache last computed extra offset to trigger regen when parts change
     private float _lastSpecialOffset = 0f;
+    private string _lastMeasureLog = "";
+    private string _lastLoggedClearance = "";
     private Vector3 _petCtLogPos;
     private Vector3 _petCtLogEuler;
     #endregion
@@ -197,8 +162,6 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
                 return;
             }
 
-            _rotateMeshWhenFindingFarthestVert = _selectable != null
-                && _selectable.IsGizmoSettingAllowed(GizmoType.Rotate, Axis.Z);
         }
         CheckStatus();
     }
@@ -233,6 +196,14 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
             float size = Mathf.Min(_sizeScalarOrthoMax, _sizeScalarOrtho * cam.orthographicSize);
             _lineRenderer.startWidth = size;
             _lineRenderer.endWidth = size;
+        }
+
+        if (Type == RendererType.ArmAssembly && _hasClearanceRadius
+            && _lineRenderer.gameObject.activeInHierarchy)
+        {
+            Vector3 pivot = GetMountStack().position;
+            if ((pivot - _placedPivot).sqrMagnitude > 0.000001f)
+                PlaceArmCircle();
         }
 
         // For arm assemblies, if special-offset presence changes (parts added/removed), regenerate
@@ -289,9 +260,8 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
     }
 
     /// <summary>
-    /// Parent-chain ScaleUpdated misses sibling arms under a tandem mount.
-    /// Subscribe every selectable under the shared root so length/scale changes
-    /// on any arm rebuild the ring.
+    /// Parent-chain ScaleUpdated misses sibling parts on this mount.
+    /// Subscribe this stack only, so the other tandem mount keeps its own ring.
     /// </summary>
     private void RefreshAssemblyScaleSubscriptions()
     {
@@ -299,9 +269,9 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         if (_highestSelectable == null)
             return;
 
-        foreach (var sel in _highestSelectable.GetComponentsInChildren<Selectable>(true))
+        foreach (var sel in GetMountStack().GetComponentsInChildren<Selectable>(true))
         {
-            if (sel == null)
+            if (sel == null || _trackedParentSelectables.Contains(sel))
                 continue;
             sel.ScaleUpdated.AddListener(SetNeedsUpdate);
             _assemblyScaleSubscribed.Add(sel);
@@ -382,83 +352,12 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         }
     }
 
-    public void RecordData(int rotationAmount, Vector3 forwardVector)
-    {
-        var meshes = _recordingMeshVertsDatas;
-        if (meshes == null || meshes.Count == 0)
-            return;
-
-        float farthest = 0f;
-        float localHighestY = float.MinValue;
-        float localLowestY = float.MaxValue;
-
-        Vector3 origin = new Vector3(_originPointXZ.x, 0f, _originPointXZ.y);
-        Quaternion yaw = Quaternion.AngleAxis(rotationAmount, forwardVector);
-
-        for (int j = 0; j < meshes.Count; j++)
-        {
-            MeshVertsData vertData = meshes[j];
-            if (vertData?.Vertices == null)
-                continue;
-
-            for (int i = 0; i < vertData.Vertices.Length; i++)
-            {
-                Vector3 vert = vertData.Vertices[i];
-                vert.x *= vertData.LossyScale.x;
-                vert.y *= vertData.LossyScale.y;
-                vert.z *= vertData.LossyScale.z;
-                // World-space vertex at the current pose, then yaw around the mount XZ origin
-                // so every arm under a tandem/multi mount contributes to one sweep radius.
-                Vector3 worldVert = vertData.GlobalPosition + (vertData.Rotation * vert);
-                Vector3 relativeXZ = new Vector3(worldVert.x - origin.x, 0f, worldVert.z - origin.z);
-                Vector3 spunXZ = yaw * relativeXZ;
-                Vector3 transformedPoint = new Vector3(
-                    origin.x + spunXZ.x,
-                    worldVert.y,
-                    origin.z + spunXZ.z);
-
-                float distance = Vector2.Distance(_originPointXZ, new Vector2(transformedPoint.x, transformedPoint.z));
-                if (distance >= farthest)
-                {
-                    farthest = distance;
-
-                    if (transformedPoint.y > localHighestY)
-                        localHighestY = transformedPoint.y;
-
-                    if (transformedPoint.y < localLowestY)
-                        localLowestY = transformedPoint.y;
-                }
-
-                if (_cancelTask)
-                    return;
-            }
-        }
-
-        if (farthest > _farthestDistance)
-        {
-            lock (_lockObj)
-            {
-                if (farthest > _farthestDistance)
-                {
-                    _farthestDistance = farthest;
-                    _highestY = localHighestY;
-                    _lowestY = localLowestY;
-                }
-            }
-        }
-    }
-
     private void ResetMeshVertsData()
     {
         if (_meshVertsDatas == null)
         {
             _meshVertsDatas = new();
             MeshFilter[] meshFilters = CollectMeshFiltersForClearance();
-            // Yawing a fixed pose around the mount does not change XZ radius — one pass
-            // over world verts is enough. (Legacy 361-spin was for the old origin math.)
-            int rotations = _rotateMeshWhenFindingFarthestVert && Type != RendererType.ArmAssembly
-                ? 361
-                : 1;
             for (int j = 0; j < meshFilters.Length; j++)
             {
                 var filter = meshFilters[j];
@@ -480,39 +379,66 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
                 if (verts == null || verts.Length == 0)
                     continue;
 
-                _meshVertsDatas.Add(new MeshVertsData(filter, this)
+                var data = new MeshVertsData(filter)
                 {
-                    Rotation = filter.transform.rotation,
-                    GlobalPosition = filter.transform.position,
                     Vertices = verts,
-                    Rotations = rotations,
-                    LossyScale = filter.transform.lossyScale,
-                });
-            }
-        }
-        else
-        {
-            foreach (var meshVertsData in _meshVertsDatas)
-            {
-                if (meshVertsData.MeshFilter == null)
-                    continue;
-                meshVertsData.GlobalPosition = meshVertsData.MeshFilter.transform.position;
-                meshVertsData.Rotation = meshVertsData.MeshFilter.transform.rotation;
-                meshVertsData.LossyScale = meshVertsData.MeshFilter.transform.lossyScale;
+                };
+                BakeWorldVertices(data);
+                _meshVertsDatas.Add(data);
             }
         }
     }
 
     /// <summary>
-    /// Arm assemblies: every active mesh under the shared mount root (all arms),
-    /// so tandem / multi-arm clearance grows to the farthest reach.
+    /// lossyScale is not local scale once a parent is rotated. Multiplying verts by it
+    /// blew the ring up when an arm length changed (attach local Z jumped past 3).
+    /// </summary>
+    private static void BakeWorldVertices(MeshVertsData data)
+    {
+        var filter = data.MeshFilter;
+        var verts = data.Vertices;
+        if (filter == null || verts == null)
+            return;
+
+        var world = data.WorldVertices;
+        if (world == null || world.Length != verts.Length)
+            world = new Vector3[verts.Length];
+
+        Transform tr = filter.transform;
+        for (int i = 0; i < verts.Length; i++)
+            world[i] = tr.TransformPoint(verts[i]);
+        data.WorldVertices = world;
+    }
+
+    /// <summary>
+    /// The direct child of the ceiling mount that this ring hangs from.
+    /// A tandem cover has two of these, and each one keeps its own circle.
+    /// </summary>
+    private Transform GetMountStack()
+    {
+        if (_highestSelectable == null)
+            return transform;
+
+        Transform root = _highestSelectable.transform;
+        if (transform == root)
+            return transform;
+
+        Transform stack = transform;
+        while (stack.parent != null && stack.parent != root)
+            stack = stack.parent;
+        return stack.parent == root ? stack : transform;
+    }
+
+    /// <summary>
+    /// Arm assemblies: meshes under this mount stack only. A tandem cover's boom
+    /// and light are separate stacks and must not share a radius or a center.
     /// Other types: keep the authored IncludeChildren / self MeshFilter behavior.
     /// </summary>
     private MeshFilter[] CollectMeshFiltersForClearance()
     {
         if (Type == RendererType.ArmAssembly && _highestSelectable != null)
         {
-            return _highestSelectable
+            return GetMountStack()
                 .GetComponentsInChildren<MeshFilter>(true)
                 .Where(ShouldIncludeArmAssemblyMesh)
                 .ToArray();
@@ -553,17 +479,18 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
     }
 
     /// <summary>
-    /// One ring per mount: only the lowest-instance-id ArmAssembly CLR under the
-    /// root does the heavy sweep; siblings hide their duplicate line.
+    /// One ring per mount stack. Sibling rings on the same stack hide; the other
+    /// stack on a tandem cover keeps its own ring.
     /// </summary>
     private bool IsPrimaryArmAssemblyClearance()
     {
         if (Type != RendererType.ArmAssembly || _highestSelectable == null)
             return true;
 
+        Transform stack = GetMountStack();
         ClearanceLinesRenderer primary = null;
         int bestId = int.MaxValue;
-        foreach (var clr in _highestSelectable.GetComponentsInChildren<ClearanceLinesRenderer>(true))
+        foreach (var clr in stack.GetComponentsInChildren<ClearanceLinesRenderer>(true))
         {
             if (clr == null || !clr.isActiveAndEnabled)
                 continue;
@@ -579,24 +506,10 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
         return primary == this;
     }
 
-    private void ResetVariables()
-    {
-        _taskRunning = true;
-        _highestY = float.MinValue;
-        _lowestY = float.MaxValue;
-        _farthestDistance = 0f;
-        _positions = new List<Vector3>(_circlePositions);
-        _farthestDistance = 0f;
-        _originPointXZ = (_highestSelectable == null) ?
-            new Vector2(transform.position.x, transform.position.z)
-            : new Vector2(_highestSelectable.transform.position.x, _highestSelectable.transform.position.z);
-    }
-
     private void SetNeedsUpdate()
     {
         _needsUpdate = true;
-        // Never null the list a worker thread may still be reading — rebuild on the
-        // next main-thread UpdateLineRendererArmAssembly instead.
+        // A scale during the sweep discards that pass and runs again next frame.
         if (_taskRunning)
             _cancelTask = true;
         else
@@ -638,8 +551,7 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
     {
         if (Type != RendererType.ArmAssembly || _highestSelectable == null) return 0f;
 
-        var root = _highestSelectable.transform;
-        // Look through all children under this assembly root (active and inactive)
+        var root = GetMountStack();
         var childSelectables = root.GetComponentsInChildren<Selectable>(true);
         float offset = 0f;
 
@@ -671,100 +583,239 @@ public partial class ClearanceLinesRenderer : MonoBehaviour
     }
 
 
-    private async void UpdateLineRendererArmAssembly()
+    private static bool IsClearanceHelper(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return false;
+        return name.IndexOf("Sphere", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("Measur", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("Clearance", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static float HorizontalDistance(Vector3 a, Vector3 b)
+    {
+        float dx = a.x - b.x;
+        float dz = a.z - b.z;
+        return Mathf.Sqrt(dx * dx + dz * dz);
+    }
+
+    /// <summary>
+    /// The nearest part that is allowed to turn. A child that cannot turn does not hide its parent.
+    /// </summary>
+    private Selectable NearestTurningPart(Transform t)
+    {
+        while (t != null)
+        {
+            if (t.TryGetComponent(out Selectable selectable)
+                && selectable != _highestSelectable
+                && selectable.IsGizmoSettingAllowed(GizmoType.Rotate, Axis.Z))
+                return selectable;
+            t = t.parent;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Full turn around that part's own pivot, then distance from this hole.
+    /// Same result as spinning the point, without a 361-step loop.
+    /// A part that cannot turn keeps the distance of where it sits.
+    /// </summary>
+    private float ReachFromHole(Vector3 hole, Vector3 point, Selectable turningPart)
+    {
+        if (turningPart == null)
+            return HorizontalDistance(hole, point);
+
+        Vector3 partPivot = turningPart.transform.position;
+        return HorizontalDistance(hole, partPivot) + HorizontalDistance(partPivot, point);
+    }
+
+    /// <summary>
+    /// A farther point starts the height over. A point at the same reach widens it,
+    /// so the ring sits in the middle of the points that set the size.
+    /// </summary>
+    private bool NoteReach(float reach, float y, string meshName, Selectable owner, ref string farthestName, ref string farthestOwner)
+    {
+        if (reach + epsilon < _farthestDistance)
+            return false;
+
+        if (reach > _farthestDistance + epsilon)
+        {
+            _farthestDistance = reach;
+            _highestY = y;
+            _lowestY = y;
+            farthestName = meshName;
+            farthestOwner = owner != null ? owner.name : "";
+        }
+        else
+        {
+            if (reach > _farthestDistance)
+                _farthestDistance = reach;
+            if (y > _highestY)
+                _highestY = y;
+            if (y < _lowestY)
+                _lowestY = y;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// One circle per hole. Radius is the full turn of whatever is on that arm, including the head.
+    /// </summary>
+    private bool MeasureVisibleReach(Vector3 pivot)
+    {
+        Transform stack = GetMountStack();
+        Renderer[] renderers = stack.GetComponentsInChildren<Renderer>(true);
+        int counted = 0;
+        string farthestName = "";
+        string farthestOwner = "";
+
+        for (int r = 0; r < renderers.Length; r++)
+        {
+            Renderer renderer = renderers[r];
+            if (renderer == null || !renderer.enabled || !renderer.gameObject.activeInHierarchy)
+                continue;
+            if (renderer is LineRenderer || renderer is ParticleSystemRenderer)
+                continue;
+            string n = renderer.gameObject.name ?? "";
+            if (IsClearanceHelper(n))
+                continue;
+
+            Selectable owner = NearestTurningPart(renderer.transform);
+            bool used = false;
+            MeshFilter filter = renderer.GetComponent<MeshFilter>();
+            Mesh mesh = filter != null ? filter.sharedMesh : null;
+            if (mesh != null && mesh.isReadable)
+            {
+                Vector3[] verts;
+                try { verts = mesh.vertices; }
+                catch (Exception) { verts = null; }
+                if (verts != null && verts.Length > 0)
+                {
+                    used = true;
+                    Transform tr = renderer.transform;
+                    for (int i = 0; i < verts.Length; i++)
+                    {
+                        Vector3 v = tr.TransformPoint(verts[i]);
+                        float reach = ReachFromHole(pivot, v, owner);
+                        if (!NoteReach(reach, v.y, n, owner, ref farthestName, ref farthestOwner))
+                            continue;
+                    }
+                }
+            }
+
+            if (used)
+            {
+                counted++;
+                continue;
+            }
+
+            Bounds b = renderer.bounds;
+            Vector3 c = b.center;
+            Vector3 e = b.extents;
+            bool any = false;
+            for (int i = 0; i < 8; i++)
+            {
+                Vector3 corner = new Vector3(
+                    c.x + ((i & 1) == 0 ? -e.x : e.x),
+                    c.y + ((i & 2) == 0 ? -e.y : e.y),
+                    c.z + ((i & 4) == 0 ? -e.z : e.z));
+                float reach = ReachFromHole(pivot, corner, owner);
+                if (!NoteReach(reach, corner.y, n, owner, ref farthestName, ref farthestOwner))
+                    continue;
+                any = true;
+            }
+            if (any)
+                counted++;
+        }
+
+        float midY = (_highestY + _lowestY) * 0.5f;
+        _lastMeasureLog = $"pivot='{stack.name}' farthest='{farthestName}' owner='{farthestOwner}' reach={_farthestDistance:F2}m height={midY:F2}m";
+        return counted > 0 && _farthestDistance > 0f;
+    }
+
+    private void UpdateLineRendererArmAssembly()
     {
         if (!IsPrimaryArmAssemblyClearance())
         {
             if (_lineRenderer != null)
                 _lineRenderer.gameObject.SetActive(false);
+            _hasClearanceRadius = false;
             _needsUpdate = false;
             _taskRunning = false;
             _cancelTask = false;
             return;
         }
 
-        ResetVariables();
-        _meshVertsDatas = null;
-        ResetMeshVertsData();
+        _taskRunning = true;
+        _cancelTask = false;
+        _highestY = float.MinValue;
+        _lowestY = float.MaxValue;
+        _farthestDistance = 0f;
 
-        if (_meshVertsDatas == null || _meshVertsDatas.Count == 0)
+        if (_lineRenderer == null || !MeasureVisibleReach(GetMountStack().position))
         {
+            _hasClearanceRadius = false;
             _needsUpdate = false;
             _taskRunning = false;
-            _cancelTask = false;
             return;
         }
 
-        _recordingMeshVertsDatas = _meshVertsDatas;
-
-        if (_lineRenderer != null && UI_ToggleClearanceLines.IsActive)
-            _lineRenderer.gameObject.SetActive(true);
-
-        int rotationCount = Mathf.Max(1, _meshVertsDatas[0].Rotations);
-
-#if UNITY_WEBGL && !UNITY_EDITOR
-        for (int i = 0; i < rotationCount; i++)
-        {
-            RecordData(i, Vector3.down);
-            if (i % 6 == 0)
-            {
-                await Task.Yield();
-            }         
-        }
-#else
-        Task task = Task.Run(() =>
-        {
-            Parallel.For(0, rotationCount,
-                parallelOptions: new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount >= 4 ? Mathf.Max(Environment.ProcessorCount / 2, 1) : Environment.ProcessorCount }, 
-                body: j =>
-                {
-                    RecordData(j, Vector3.down);
-                });
-        });
-
-        await task;
-#endif
-
-        if (_lineRenderer == null)
-        {
-            _needsUpdate = false;
-            _taskRunning = false;
-            _cancelTask = false;
-            _recordingMeshVertsDatas = null;
-            return;
-        }
-
-        // arm hierarchy scale was updated while task was running
+        _taskRunning = false;
         if (_cancelTask)
         {
-            _taskRunning = false;
             _cancelTask = false;
-            _recordingMeshVertsDatas = null;
-            _meshVertsDatas = null;
-            // _needsUpdate still true → Update/CheckStatus rebuilds
+            _needsUpdate = true;
             return;
         }
 
-        // Apply special manufacturer offsets when specific arm parts are present
         float specialOffset = GetArmAssemblyExtraOffset();
         _lastSpecialOffset = specialOffset;
-        _farthestDistance += specialOffset;
-
-        _farthestDistance += BufferSize;
-        for (int i = 0; i < _positions.Count; i++)
+        _farthestDistance += specialOffset + BufferSize;
+        string clearanceLog = $"[Clearance] {_lastMeasureLog} drawn={_farthestDistance:F2}m extra={specialOffset:F2}m";
+        if (clearanceLog != _lastLoggedClearance)
         {
-            Vector3 newPos = _positions[i] * _farthestDistance;
-            newPos.y = MedianY;
-            _positions[i] = newPos;
+            _lastLoggedClearance = clearanceLog;
+            Debug.Log(clearanceLog, this);
+        }
+
+        Vector3 pivot = GetMountStack().position;
+        float midY = (_highestY + _lowestY) * 0.5f;
+        _clearanceYOffset = midY - pivot.y;
+        _hasClearanceRadius = true;
+
+        if (UI_ToggleClearanceLines.IsActive)
+            _lineRenderer.gameObject.SetActive(true);
+        PlaceArmCircle();
+        _needsUpdate = false;
+    }
+
+    /// <summary>
+    /// Radius comes from the mesh sweep. The center is this mount's live pivot,
+    /// so dragging the boom does not leave the circle where the sweep last ran.
+    /// </summary>
+    private void PlaceArmCircle()
+    {
+        if (_lineRenderer == null || !_hasClearanceRadius)
+            return;
+
+        Vector3 pivot = GetMountStack().position;
+        _placedPivot = pivot;
+        _lineRenderer.useWorldSpace = true;
+        if (_positions == null || _positions.Count != _circlePositions.Count)
+            _positions = new List<Vector3>(_circlePositions);
+
+        float y = pivot.y + _clearanceYOffset;
+        for (int i = 0; i < _circlePositions.Count; i++)
+        {
+            Vector3 dir = _circlePositions[i];
+            _positions[i] = new Vector3(
+                pivot.x + dir.x * _farthestDistance,
+                y,
+                pivot.z + dir.z * _farthestDistance);
         }
 
         _lineRenderer.positionCount = _positions.Count;
         _lineRenderer.SetPositions(_positions.ToArray());
-
-        _taskRunning = false;
-        _cancelTask = false;
-        _recordingMeshVertsDatas = null;
-        _needsUpdate = false;
     }
 
     private void UpdateLineRendererDoor()
