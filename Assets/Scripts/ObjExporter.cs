@@ -7,6 +7,7 @@ using Object = UnityEngine.Object;
 using Debug = UnityEngine.Debug;
 using UnityEngine.Events;
 using System.Linq;
+using System.Globalization;
 using RTG;
 public static class ObjExporter
 {
@@ -142,7 +143,7 @@ public static class ObjExporter
                     transform = Matrix4x4.identity
                 };
 
-                finalCombiners.Add(EnsureOutwardFacingNormals(ci));
+                finalCombiners.Add(ci);
                 tempSubmeshes.Add(submesh);
             }
 
@@ -229,8 +230,7 @@ public static class ObjExporter
             if (!materialInstanceMap.TryGetValue(sharedMat, out Material mat))
             {
                 mat = new Material(sharedMat);
-                string newName = GenerateMaterialName(mat);
-                mat.name = newName;
+                mat.name = NextMaterialToken(sharedMat.name, materials);
 
                 materialInstanceMap[sharedMat] = mat;
 
@@ -263,50 +263,120 @@ public static class ObjExporter
             combineInstancesByMaterial[materialIndex].Add(instance);
         }
     }
-    private static CombineInstance EnsureOutwardFacingNormals(CombineInstance combineInstance)
+
+    static string NextMaterialToken(string sourceName, List<Material> existing)
     {
+        string token = SanitizeMaterialToken(sourceName);
+        if (!existing.Any(m => m.name == token))
+            return token;
 
-        // Create a copy of the mesh to avoid modifying shared instances
-        Mesh mesh = Object.Instantiate(combineInstance.mesh);
-
-        Vector3[] vertices = mesh.vertices;
-        int[] triangles = mesh.triangles;
-
-        // Transform vertices using the combineInstance's matrix (for calculation only)
-        Vector3[] transformedVertices = new Vector3[vertices.Length];
-        for (int i = 0; i < vertices.Length; i++)
+        int n = 2;
+        string candidate;
+        do
         {
-            transformedVertices[i] = combineInstance.transform.MultiplyPoint3x4(vertices[i]);
+            candidate = token + "_" + n;
+            n++;
+        }
+        while (existing.Any(m => m.name == candidate));
+
+        return candidate;
+    }
+
+    static string SanitizeMaterialToken(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return "Material";
+
+        var sb = new StringBuilder(name.Length);
+        foreach (char c in name.Trim())
+        {
+            if (char.IsLetterOrDigit(c) || c == '_' || c == '.' || c == '-')
+                sb.Append(c);
+            else
+                sb.Append('_');
         }
 
-        // Calculate the mesh's center in world space
-        Vector3 meshCenter = Vector3.zero;
-        foreach (var vertex in transformedVertices)
-            meshCenter += vertex;
-        meshCenter /= transformedVertices.Length;
+        return sb.Length == 0 ? "Material" : sb.ToString();
+    }
 
-        // Ensure each triangle faces outward
-        for (int i = 0; i < triangles.Length; i += 3)
+    static string FormatColorLine(string key, Color color)
+    {
+        return string.Format(CultureInfo.InvariantCulture, "{0} {1:F6} {2:F6} {3:F6}\n", key, color.r, color.g, color.b);
+    }
+
+    static Texture2D CreateSolidAlbedo(Color color)
+    {
+        byte r = (byte)Mathf.RoundToInt(Mathf.Clamp01(color.r) * 255f);
+        byte g = (byte)Mathf.RoundToInt(Mathf.Clamp01(color.g) * 255f);
+        byte b = (byte)Mathf.RoundToInt(Mathf.Clamp01(color.b) * 255f);
+        byte a = (byte)Mathf.RoundToInt(Mathf.Clamp01(color.a) * 255f);
+        var tex = new Texture2D(4, 4, TextureFormat.RGBA32, false);
+        var pixels = new Color32[16];
+        for (int i = 0; i < pixels.Length; i++)
+            pixels[i] = new Color32(r, g, b, a);
+        tex.SetPixels32(pixels);
+        tex.Apply(false, false);
+        return tex;
+    }
+
+    static Texture2D CreateAlbedoStandIn(Color color, Material material)
+    {
+        if (!TryGetActiveOcclusion(material, out Texture occlusion, out float strength))
+            return CreateSolidAlbedo(color);
+
+        Texture2D readable = ObjExportData.MakeReadableCopy(occlusion, true);
+        if (readable == null)
+            return CreateSolidAlbedo(color);
+
+        bool destroyReadable = readable != occlusion;
+        try
         {
-            // Swap the order of the triangle's vertices
-            int temp = triangles[i];
-            triangles[i] = triangles[i + 1];
-            triangles[i + 1] = temp;
+            Color32[] src = readable.GetPixels32();
+            var dst = new Color32[src.Length];
+            float cr = Mathf.Clamp01(color.r);
+            float cg = Mathf.Clamp01(color.g);
+            float cb = Mathf.Clamp01(color.b);
+            byte a = (byte)Mathf.RoundToInt(Mathf.Clamp01(color.a) * 255f);
+            for (int i = 0; i < src.Length; i++)
+            {
+                // Linear sample, then a normal color image. Enscape shows the file as-is.
+                float shaded = Mathf.Lerp(1f, src[i].g / 255f, strength);
+                dst[i] = new Color32(
+                    (byte)Mathf.RoundToInt(Mathf.LinearToGammaSpace(cr * shaded) * 255f),
+                    (byte)Mathf.RoundToInt(Mathf.LinearToGammaSpace(cg * shaded) * 255f),
+                    (byte)Mathf.RoundToInt(Mathf.LinearToGammaSpace(cb * shaded) * 255f),
+                    a);
+            }
+
+            var tex = new Texture2D(readable.width, readable.height, TextureFormat.RGBA32, false);
+            tex.SetPixels32(dst);
+            tex.Apply(false, false);
+            return tex;
         }
+        finally
+        {
+            if (destroyReadable)
+                DestroyExportAsset(readable);
+        }
+    }
 
-        // Assign updated triangle array back to the mesh
-        mesh.triangles = triangles;
+    static bool TryGetActiveOcclusion(Material material, out Texture occlusion, out float strength)
+    {
+        occlusion = null;
+        strength = 0f;
+        if (material == null || !material.HasProperty("_OcclusionMap"))
+            return false;
+        if (!material.IsKeywordEnabled("_OCCLUSIONMAP"))
+            return false;
 
-        // Recalculate normals, tangents, and bounds
-        mesh.RecalculateNormals();
-        mesh.RecalculateTangents();
-        mesh.RecalculateBounds();
+        occlusion = material.GetTexture("_OcclusionMap");
+        if (occlusion == null)
+            return false;
 
-        // Assign the updated mesh back to the combine instance
-        combineInstance.mesh = mesh;
-
-
-        return combineInstance;
+        strength = material.HasProperty("_OcclusionStrength")
+            ? Mathf.Clamp01(material.GetFloat("_OcclusionStrength"))
+            : 1f;
+        return strength > 0f;
     }
 
 
@@ -379,13 +449,13 @@ public static class ObjExporter
             data.Mtl.Append("Ns 50.000000\n");
 
         Color color = GetExportAlbedoColor(material);
-        data.Mtl.Append($"Ka {color.r:F6} {color.g:F6} {color.b:F6}\n");
-        data.Mtl.Append($"Kd {color.r:F6} {color.g:F6} {color.b:F6}\n");
+        data.Mtl.Append(FormatColorLine("Ka", color));
+        data.Mtl.Append(FormatColorLine("Kd", color));
 
         // Transparency
         float alpha = color.a;
-        data.Mtl.Append($"d {alpha:F6}\n");
-        data.Mtl.Append($"Tr {1 - alpha:F6}\n");
+        data.Mtl.Append(string.Format(CultureInfo.InvariantCulture, "d {0:F6}\n", alpha));
+        data.Mtl.Append(string.Format(CultureInfo.InvariantCulture, "Tr {0:F6}\n", 1f - alpha));
 
         // Specular reflection
         data.Mtl.Append("Ks 0.500000 0.500000 0.500000\n");
@@ -404,6 +474,21 @@ public static class ObjExporter
             string textureName = SanitizeTextureFileName(mainTex.name);
             data.Mtl.Append($"map_Kd {textureName}.png\n");
             data.AddTexture(mainTex, textureName);
+        }
+        else
+        {
+            // No color picture: Enscape only shows map_Kd, so occlusion shading goes in that image.
+            Texture2D solid = CreateAlbedoStandIn(color, material);
+            try
+            {
+                string textureName = SanitizeTextureFileName(materialName + "_Color");
+                data.Mtl.Append($"map_Kd {textureName}.png\n");
+                data.AddTexture(solid, textureName);
+            }
+            finally
+            {
+                DestroyExportAsset(solid);
+            }
         }
 
         // Add normal map (if available)
@@ -436,35 +521,6 @@ public static class ObjExporter
         foreach (char c in Path.GetInvalidFileNameChars())
             name = name.Replace(c, '_');
         return name.Trim();
-    }
-
-    /// <summary>
-    /// Generates a material name using the specified convention.
-    /// </summary>
-    private static string GenerateMaterialName(Material material)
-    {
-        // Extract type from the material's original name
-        string type = material.name;
-
-        string texture = material.mainTexture != null ? material.mainTexture.name : "NoTexture";
-        string color = ColorToHex(GetExportAlbedoColor(material));
-        string tint = material.HasProperty("_TintColor") ? ColorToHex(material.GetColor("_TintColor")) : "NoTint";
-        string fade = material.HasProperty("_Fade") ? material.GetFloat("_Fade").ToString("F2") : "NoFade";
-        string heightType = material.HasProperty("_HeightType") ? material.GetFloat("_HeightType").ToString("F2") : "NoHeightType";
-        string reflectionTexture = material.HasProperty("_ReflectionTex") ? material.GetTexture("_ReflectionTex").name : "NoReflection";
-        string roughness = material.HasProperty("_Glossiness") ? (1.0f - material.GetFloat("_Glossiness")).ToString("F2") : "NoRoughness";
-        string metallic = material.HasProperty("_Metallic") ? material.GetFloat("_Metallic").ToString("F2") : "NoMetallic";
-        string specular = material.HasProperty("_SpecColor") ? ColorToHex(material.GetColor("_SpecColor")) : "NoSpecular";
-
-        return $"{type}_{texture}_{color}_{tint}_{fade}_{heightType}_{reflectionTexture}_{roughness}_{metallic}_{specular}";
-    }
-
-    /// <summary>
-    /// Converts a Color to a hexadecimal string.
-    /// </summary>
-    private static string ColorToHex(Color color)
-    {
-        return $"{(int)(color.r * 255):X2}{(int)(color.g * 255):X2}{(int)(color.b * 255):X2}";
     }
 
 }
@@ -558,15 +614,16 @@ public class ObjExporterScript
         {
             Vector3 v = t.TransformPoint(vv);
             numVertices++;
-            data.Obj.Append(string.Format("v {0} {1} {2}\n", v.x, v.y, -v.z));
+            // Unity Y-up to Z-up. One axis swap also flips handedness.
+            data.Obj.Append(string.Format(CultureInfo.InvariantCulture, "v {0} {1} {2}\n", v.x, v.z, v.y));
         }
 
         data.Obj.Append("\n");
 
         foreach (Vector3 nn in m.normals)
         {
-            Vector3 v = rotation * nn;
-            data.Obj.Append(string.Format("vn {0} {1} {2}\n", -v.x, -v.y, v.z));
+            Vector3 n = rotation * nn;
+            data.Obj.Append(string.Format(CultureInfo.InvariantCulture, "vn {0} {1} {2}\n", n.x, n.z, n.y));
         }
 
         data.Obj.Append("\n");
@@ -642,8 +699,11 @@ public class ObjExporterScript
 
             for (int i = 0; i < triangles.Length; i += 3)
             {
-                data.Obj.Append(string.Format("f {0}/{0}/{0} {1}/{1}/{1} {2}/{2}/{2}\n",
-                    triangles[i] + 1 + _startIndex, triangles[i + 1] + 1 + _startIndex, triangles[i + 2] + 1 + _startIndex));
+                int a = triangles[i] + 1 + _startIndex;
+                int b = triangles[i + 1] + 1 + _startIndex;
+                int c = triangles[i + 2] + 1 + _startIndex;
+                // The Y/Z swap mirrors the mesh. Swap the last two indices so the face still points the same way.
+                data.Obj.Append(string.Format(CultureInfo.InvariantCulture, "f {0}/{0}/{0} {1}/{1}/{1} {2}/{2}/{2}\n", a, c, b));
             }
 
             ObjExporter.OnSubMeshProcessed?.Invoke((float)subMesh / (m.subMeshCount + 1));
@@ -709,9 +769,10 @@ public class ObjExportData
         }
     }
 
-    private static Texture2D MakeReadableCopy(Texture texture)
+    internal static Texture2D MakeReadableCopy(Texture texture, bool linearSample = false)
     {
-        if (texture is Texture2D t2d && t2d.isReadable)
+        // A linear sample always goes through a blit so an sRGB map is decoded the way the shader reads it.
+        if (!linearSample && texture is Texture2D t2d && t2d.isReadable)
             return t2d;
 
         int w = texture.width;
